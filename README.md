@@ -65,11 +65,29 @@ Other skills:
 |---|---|
 | `/tokenforge:handoff` | Writes `.forge/HANDOFF.md` (done, decisions, next steps, file map). Run `/clear` afterwards: the handoff reloads automatically, and the conversation continues at a fraction of the context. |
 | `/tokenforge:meter` | Token usage of your recent sessions and worker runs. |
+| `/tokenforge:terse` | Reply style: `full` (default), `lite` or `off`. |
+
+### Terse replies (built in, replaces caveman-style plugins)
+
+On by default. At session start, and again after compaction, tokenforge adds one reply-style rule of about 200 tokens. Nothing is added per prompt. Answers lead with the result and skip background nobody asked for. Code, paths, commands, numbers and negations stay exact. Security warnings and irreversible steps stay in full sentences. Files Claude writes keep their normal style.
+
+Measured with Sonnet on three everyday questions (output tokens):
+
+| | fixed context per call | EADDRINUSE | rebase vs merge | `rm -rf` lockfile in prod |
+|---|---|---|---|---|
+| no style plugin | 0 | 937 | 761 | 599 |
+| caveman 3.1.0 | +1.2k | 408 | 259 | 389 |
+| tokenforge terse | **+0.2k** | **353** | **256** | **182** |
+
+The fixed context is re-read on every API call, tool calls included, so the smaller rule matters most in long, tool-heavy sessions.
+
+Switch with `/tokenforge:terse full|lite|off`. `lite` keeps short full sentences. The choice is saved in `~/.config/tokenforge/config.json`. The env var `TFORGE_TERSE` overrides it. If you also run another reply-style plugin, disable one of them: both rules would load.
 
 Hooks (automatic):
 
 - **Context watch.** When a session passes 80k tokens of context (then every further 40k), Claude and you get one notice suggesting a handoff and `/clear`.
 - **Handoff reload.** On startup or `/clear`, if `.forge/HANDOFF.md` is less than 72 hours old, it is loaded into the session.
+- **Terse rule.** Injected on startup, `/clear` and after compaction (see above).
 
 ## The `tforge` command
 
@@ -129,6 +147,7 @@ Workers run with `--permission-mode acceptEdits` and only `Read`, `Write` and `E
 | `TFORGE_WARN_AT` / `TFORGE_WARN_STEP` | `80000` / `40000` | Context-watch thresholds |
 | `TFORGE_WATCH` | | `0` disables the context watch |
 | `TFORGE_HANDOFF_MAX_AGE_H` | `72` | Ignore older handoffs |
+| `TFORGE_TERSE` | | `full`, `lite` or `off`; overrides the saved choice |
 
 ## Development
 

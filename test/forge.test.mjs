@@ -238,6 +238,21 @@ test('context-watch warns once per band; handoff-load injects the handoff', () =
 
   fs.mkdirSync(path.join(dir, '.forge'));
   fs.writeFileSync(path.join(dir, '.forge', 'HANDOFF.md'), '# Handoff: thing\n## Next\n1. do it\n');
-  const h = spawnSync('node', [path.join(HERE, '..', 'hooks', 'handoff-load.mjs')], { input: JSON.stringify({ cwd: dir, source: 'clear' }), encoding: 'utf8' });
-  assert.match(JSON.parse(h.stdout).hookSpecificOutput.additionalContext, /1\. do it/);
+  const ss = path.join(HERE, '..', 'hooks', 'session-start.mjs');
+  const env = { ...process.env, XDG_CONFIG_HOME: dir };
+  const h = spawnSync('node', [ss], { input: JSON.stringify({ cwd: dir, source: 'clear' }), encoding: 'utf8', env });
+  const ctx = JSON.parse(h.stdout).hookSpecificOutput.additionalContext;
+  assert.match(ctx, /1\. do it/);
+  assert.match(ctx, /tokenforge terse\)/, 'terse full is the default');
+
+  const compact = spawnSync('node', [ss], { input: JSON.stringify({ cwd: dir, source: 'compact' }), encoding: 'utf8', env });
+  const cctx = JSON.parse(compact.stdout).hookSpecificOutput.additionalContext;
+  assert.match(cctx, /terse/, 'terse rule returns after compaction');
+  assert.doesNotMatch(cctx, /do it/, 'handoff is not re-injected after compaction');
+
+  const bin = path.join(HERE, '..', 'bin', 'tforge');
+  assert.match(spawnSync('node', [bin, 'terse', 'off'], { encoding: 'utf8', env }).stdout, /terse: off/);
+  const off = spawnSync('node', [ss], { input: JSON.stringify({ cwd: '/nonexistent', source: 'startup' }), encoding: 'utf8', env });
+  assert.equal(off.stdout, '', 'terse off and no handoff: no output');
+  assert.match(spawnSync('node', [bin, 'terse', 'status'], { encoding: 'utf8', env: { ...env, TFORGE_TERSE: 'lite' } }).stdout, /lite \(from TFORGE_TERSE\)/);
 });

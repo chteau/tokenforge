@@ -7,6 +7,7 @@ import { EXAMPLE_PLAN, loadPlan, planPath, topoOrder } from '../lib/plan.mjs';
 import { buildSystemPrompt, buildTaskPrompt, runPlan } from '../lib/runner.mjs';
 import { formatLedger, formatSessions, listTranscripts, meterLedger, meterSessions } from '../lib/meter.mjs';
 import { FORGE_DIR, fmtUsd, readJson } from '../lib/util.mjs';
+import { TERSE_LEVELS, configFile, terseLevel, writeConfig } from '../lib/config.mjs';
 
 const VERSION = JSON.parse(fs.readFileSync(new URL('../.claude-plugin/plugin.json', import.meta.url), 'utf8')).version;
 
@@ -30,6 +31,8 @@ Usage: tforge <command> [options]
       --last N           newest N sessions for this project (default 5)
       --all              all projects
       --json             machine-readable output
+
+  terse [full|lite|off|status]  reply style injected at session start (saved in ~/.config/tokenforge)
 
 Options: -C <dir> project root (default: current directory)
 Env: TFORGE_CLAUDE  claude binary to use (default: claude)`;
@@ -142,6 +145,14 @@ async function main() {
       if (o.json) return console.log(JSON.stringify({ sessions: rows, ledger }, null, 2));
       console.log(formatSessions(rows));
       if (ledger) console.log(formatLedger(ledger));
+      return;
+    }
+    case 'terse': {
+      const want = o._[0] || 'status';
+      if (want === 'status') return console.log(`terse: ${terseLevel()}${process.env.TFORGE_TERSE ? ' (from TFORGE_TERSE)' : ''}`);
+      if (!TERSE_LEVELS.includes(want)) throw new Error(`terse: one of ${TERSE_LEVELS.join('|')}|status`);
+      writeConfig({ terse: want });
+      console.log(`terse: ${want} (saved to ${configFile()}; applies to this and new sessions)`);
       return;
     }
     default:
