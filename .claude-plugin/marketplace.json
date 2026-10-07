@@ -1,0 +1,13 @@
+{
+  "name": "tokenforge",
+  "owner": { "name": "chteau" },
+  "metadata": { "description": "tokenforge: token-efficient building for Claude Code" },
+  "plugins": [
+    {
+      "name": "tokenforge",
+      "source": "./",
+      "description": "Plan once, then build with small stateless workers checked by your tests. Token meter, context-growth warnings, session handoffs.",
+      "category": "productivity"
+    }
+  ]
+}

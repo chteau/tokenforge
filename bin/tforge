@@ -1,0 +1,222 @@
+#!/usr/bin/env node
+import { spawn } from 'node:child_process';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { EXAMPLE_PLAN, loadPlan, planPath, topoOrder } from '../lib/plan.mjs';
+import { buildSystemPrompt, buildTaskPrompt, runPlan } from '../lib/runner.mjs';
+import { formatLedger, formatSessions, listTranscripts, meterLedger, meterSessions } from '../lib/meter.mjs';
+import { FORGE_DIR, fmtUsd, readJson } from '../lib/util.mjs';
+
+const VERSION = JSON.parse(fs.readFileSync(new URL('../.claude-plugin/plugin.json', import.meta.url), 'utf8')).version;
+
+const HELP = `tforge ${VERSION}: run a build plan with small, stateless Claude workers.
+
+Usage: tforge <command> [options]
+
+  init                 write an example .forge/plan.json
+  validate             check .forge/plan.json and print the task order
+  run                  run pending tasks, then the plan's final check
+      --only a,b         run only these task ids
+      --force a,b        rerun these tasks even if done (--force-all: everything)
+      -j, --concurrency N  parallel workers (default 2)
+      --dry-run          show prompt sizes, run nothing
+      --no-integrate     skip the final check and integration fixes
+      --detach           run in the background (log: .forge/run.log); then use: tforge wait
+  wait                 block until a detached run ends (max --timeout S, default 540), print its summary
+  status               task states and spend so far
+  prompt <id>          print the exact system and task prompt a worker gets
+  meter [files...]     token usage of Claude Code sessions
+      --last N           newest N sessions for this project (default 5)
+      --all              all projects
+      --json             machine-readable output
+
+Options: -C <dir> project root (default: current directory)
+Env: TFORGE_CLAUDE  claude binary to use (default: claude)`;
+
+function parseArgs(argv) {
+  const o = { _: [] };
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    const val = () => {
+      if (i + 1 >= argv.length) throw new Error(`${a} needs a value`);
+      return argv[++i];
+    };
+    if (a === '-C') o.root = val();
+    else if (a === '--only') o.only = val().split(',');
+    else if (a === '--force') o.force = val().split(',');
+    else if (a === '--force-all') o.forceAll = true;
+    else if (a === '-j' || a === '--concurrency') o.concurrency = Number(val());
+    else if (a === '--dry-run') o.dryRun = true;
+    else if (a === '--no-integrate') o.noIntegrate = true;
+    else if (a === '--last') o.last = Number(val());
+    else if (a === '--all') o.all = true;
+    else if (a === '--json') o.json = true;
+    else if (a === '--detach') o.detach = true;
+    else if (a === '--timeout') o.timeout = Number(val());
+    else if (a === '-h' || a === '--help') o.help = true;
+    else if (a === '-v' || a === '--version') o.version = true;
+    else if (a.startsWith('-')) throw new Error(`unknown option ${a}`);
+    else o._.push(a);
+  }
+  return o;
+}
+
+async function main() {
+  const o = parseArgs(process.argv.slice(2));
+  if (o.version) return console.log(VERSION);
+  const cmd = o._.shift();
+  if (o.help || !cmd || cmd === 'help') return console.log(HELP);
+  const root = path.resolve(o.root || process.cwd());
+
+  switch (cmd) {
+    case 'init': {
+      const file = planPath(root);
+      if (fs.existsSync(file)) throw new Error(`${file} already exists`);
+      fs.mkdirSync(path.join(root, FORGE_DIR, 'cheats'), { recursive: true });
+      fs.writeFileSync(file, JSON.stringify(EXAMPLE_PLAN, null, 2) + '\n');
+      ensureGitignore(root);
+      console.log(`wrote ${path.relative(process.cwd(), file)}`);
+      return;
+    }
+    case 'validate': {
+      const plan = loadPlan(root);
+      const order = topoOrder(plan.tasks);
+      console.log(`plan ok: ${order.length} task(s)`);
+      for (const t of order) {
+        const deps = t.deps?.length ? ` <- ${t.deps.join(',')}` : '';
+        console.log(`  ${t.id} [${t.model || plan.defaults.model}] ${t.files.join(', ')}${deps}${t.verify ? '' : '  (no verify)'}`);
+      }
+      if (!plan.verify) console.log('  warning: no final "verify" command; integration errors will not be caught');
+      const noCheck = order.filter((t) => !t.verify).length;
+      if (noCheck) console.log(`  warning: ${noCheck} task(s) without verify pass as soon as their files exist`);
+      return;
+    }
+    case 'run': {
+      ensureGitignore(root);
+      loadPlan(root);
+      const live = runningPid(root);
+      if (live && live !== process.pid) throw new Error(`a run is already in progress (pid ${live}); use: tforge wait`);
+      if (o.detach) return detach(root);
+      const detached = process.env.TFORGE_DETACHED === '1';
+      if (detached) fs.writeFileSync(runFile(root, 'run.pid'), String(process.pid));
+      let ok = false;
+      try {
+        ok = (await runPlan(root, o)).ok;
+      } finally {
+        if (detached) {
+          fs.writeFileSync(runFile(root, 'run.exit'), ok ? '0' : '1');
+          fs.rmSync(runFile(root, 'run.pid'), { force: true });
+        }
+      }
+      process.exitCode = ok ? 0 : 1;
+      return;
+    }
+    case 'wait': {
+      process.exitCode = await waitRun(root, (o.timeout || 540) * 1000);
+      return;
+    }
+    case 'status': {
+      const plan = loadPlan(root);
+      const state = readJson(path.join(root, FORGE_DIR, 'state.json'), { tasks: {} });
+      for (const t of topoOrder(plan.tasks)) {
+        const s = state.tasks[t.id];
+        console.log(`  ${(s?.status || 'pending').padEnd(8)} ${t.id}${s?.costUsd ? `  ${fmtUsd(s.costUsd)}` : ''}${s?.reason ? `  (${s.reason})` : ''}`);
+      }
+      const l = meterLedger(root);
+      if (l) console.log(formatLedger(l));
+      return;
+    }
+    case 'prompt': {
+      const plan = loadPlan(root);
+      const t = plan.tasks.find((x) => x.id === o._[0]);
+      if (!t) throw new Error(`no task ${o._[0]}`);
+      console.log('=== SYSTEM ===\n' + buildSystemPrompt(root, plan) + '\n=== TASK ===\n' + buildTaskPrompt(root, plan, t));
+      return;
+    }
+    case 'meter': {
+      const files = o._.length ? o._.map((f) => path.resolve(f)) : listTranscripts({ cwd: root, all: o.all }).slice(0, o.last || 5);
+      if (!files.length) throw new Error('no transcripts found (pass files, or use --all)');
+      const rows = meterSessions(files);
+      const ledger = meterLedger(root);
+      if (o.json) return console.log(JSON.stringify({ sessions: rows, ledger }, null, 2));
+      console.log(formatSessions(rows));
+      if (ledger) console.log(formatLedger(ledger));
+      return;
+    }
+    default:
+      throw new Error(`unknown command ${cmd} (see tforge --help)`);
+  }
+}
+
+const runFile = (root, name) => path.join(root, FORGE_DIR, name);
+
+function runningPid(root) {
+  let pid;
+  try {
+    pid = Number(fs.readFileSync(runFile(root, 'run.pid'), 'utf8'));
+    process.kill(pid, 0);
+    return pid;
+  } catch {
+    return 0;
+  }
+}
+
+function detach(root) {
+  const args = process.argv.slice(2).filter((a) => a !== '--detach');
+  const log = fs.openSync(runFile(root, 'run.log'), 'w');
+  fs.rmSync(runFile(root, 'run.exit'), { force: true });
+  const child = spawn(process.execPath, [fileURLToPath(import.meta.url), ...args], {
+    cwd: process.cwd(),
+    env: { ...process.env, TFORGE_DETACHED: '1' },
+    detached: true,
+    stdio: ['ignore', log, log],
+  });
+  child.unref();
+  fs.writeFileSync(runFile(root, 'run.pid'), String(child.pid));
+  console.log(`tforge: run started (pid ${child.pid}); log .forge/run.log. Next: tforge wait`);
+}
+
+function progress(log) {
+  const ok = (log.match(/^ {2}ok /gm) || []).length;
+  const bad = (log.match(/^ {2}x /gm) || []).length;
+  const cur = [...log.matchAll(/^ {2}> (\S+)/gm)].map((m) => m[1]).slice(-2);
+  return `${ok} passed, ${bad} failed attempt(s) so far${cur.length ? `; latest: ${cur.join(', ')}` : ''}`;
+}
+
+async function waitRun(root, timeoutMs) {
+  const t0 = Date.now();
+  const logFile = runFile(root, 'run.log');
+  while (runningPid(root)) {
+    if (Date.now() - t0 > timeoutMs) {
+      console.log(`tforge: still running (${progress(fs.readFileSync(logFile, 'utf8'))}). Call tforge wait again.`);
+      return 3;
+    }
+    await new Promise((r) => setTimeout(r, 2000));
+  }
+  if (!fs.existsSync(logFile)) {
+    console.log('tforge: no detached run found');
+    return 2;
+  }
+  const log = fs.readFileSync(logFile, 'utf8');
+  const i = log.lastIndexOf('\ntforge: ');
+  console.log((i >= 0 ? log.slice(i + 1) : log.split('\n').slice(-30).join('\n')).trim());
+  let code = 1;
+  try {
+    code = Number(fs.readFileSync(runFile(root, 'run.exit'), 'utf8'));
+  } catch {}
+  return code;
+}
+
+function ensureGitignore(root) {
+  const gi = path.join(root, FORGE_DIR, '.gitignore');
+  if (!fs.existsSync(gi)) {
+    fs.mkdirSync(path.dirname(gi), { recursive: true });
+    fs.writeFileSync(gi, 'state.json\nledger.jsonl\n.worker-system.md\nrun.log\nrun.pid\nrun.exit\n');
+  }
+}
+
+main().catch((e) => {
+  console.error(`tforge: ${e.message}`);
+  process.exit(2);
+});

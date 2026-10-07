@@ -1,0 +1,14 @@
+{
+  "description": "tokenforge: warn when context grows large; reload the last handoff after /clear",
+  "hooks": {
+    "PostToolUse": [
+      { "hooks": [{ "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/context-watch.mjs\"", "timeout": 5 }] }
+    ],
+    "UserPromptSubmit": [
+      { "hooks": [{ "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/context-watch.mjs\"", "timeout": 5 }] }
+    ],
+    "SessionStart": [
+      { "matcher": "startup|clear", "hooks": [{ "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/handoff-load.mjs\"", "timeout": 5 }] }
+    ]
+  }
+}
