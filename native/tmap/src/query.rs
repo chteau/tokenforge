@@ -239,8 +239,10 @@ pub fn callers(idx: &Index, name: &str, limit: usize) -> String {
     let mut out = String::new();
     let mut n = 0;
     let mut seen = HashSet::new();
+    let base = name.trim_start_matches('.').trim_end_matches('!');
+    let (bang, dot) = (format!("{base}!"), format!(".{base}"));
     for f in &idx.files {
-        for c in f.calls.iter().filter(|c| c.name == name) {
+        for c in f.calls.iter().filter(|c| c.name == base || c.name == bang || c.name == dot) {
             n += 1;
             let caller = (c.from != NONE).then(|| &f.syms[c.from as usize]);
             if !seen.insert((f.path.as_str(), c.from, c.line)) || seen.len() > limit {
@@ -280,7 +282,7 @@ pub fn callees(idx: &Index, name: &str) -> String {
         names.dedup();
         let mut external = Vec::new();
         for n in names {
-            match where_defined.get(n) {
+            match where_defined.get(n.trim_start_matches('.').trim_end_matches('!')) {
                 Some((p, a, b)) => {
                     let _ = writeln!(out, "  {n} -> {p}:{a}-{b}");
                 }
@@ -291,6 +293,78 @@ pub fn callees(idx: &Index, name: &str) -> String {
             let _ = writeln!(out, "  external: {}", trunc_list(&external, 25));
         }
     }
+    out
+}
+
+fn json_str(s: &str) -> String {
+    let mut o = String::with_capacity(s.len() + 2);
+    o.push('"');
+    for c in s.chars() {
+        match c {
+            '"' => o.push_str("\\\""),
+            '\\' => o.push_str("\\\\"),
+            '\n' => o.push_str("\\n"),
+            '\r' => o.push_str("\\r"),
+            '\t' => o.push_str("\\t"),
+            c if (c as u32) < 0x20 => o.push_str(&format!("\\u{:04x}", c as u32)),
+            c => o.push(c),
+        }
+    }
+    o.push('"');
+    o
+}
+
+/// Machine-readable map for the dashboard: files with size and top symbols, plus file-to-file call edges.
+/// A call becomes an edge only when exactly one other file defines that name as a free function, type,
+/// constant or macro. Method names are skipped: `x.is_empty()` would otherwise resolve to whichever repo
+/// file happens to define an `is_empty` method, while it is usually the standard library's.
+pub fn json(idx: &Index) -> String {
+    let mut defined_in: HashMap<String, HashSet<usize>> = HashMap::new();
+    for (fi, f) in idx.files.iter().enumerate() {
+        // Only things you call: modules, constants, traits and type aliases are never call targets.
+        for s in f.syms.iter().filter(|s| matches!(s.kind.as_str(), "function" | "macro" | "class" | "struct")) {
+            // Functions nested in functions (test helpers, closures' helpers) are local, never cross-file targets.
+            let local = s.parent != NONE && matches!(f.syms[s.parent as usize].kind.as_str(), "function" | "method");
+            if local {
+                continue;
+            }
+            let key = if s.kind == "macro" { format!("{}!", s.name) } else { s.name.clone() };
+            defined_in.entry(key).or_default().insert(fi);
+        }
+    }
+    let mut edges: HashMap<(usize, usize), u32> = HashMap::new();
+    for (fi, f) in idx.files.iter().enumerate() {
+        for c in &f.calls {
+            if let Some(set) = defined_in.get(c.name.as_str()) {
+                if set.len() == 1 {
+                    let to = *set.iter().next().unwrap();
+                    if to != fi {
+                        *edges.entry((fi, to)).or_default() += 1;
+                    }
+                }
+            }
+        }
+    }
+    let mut out = String::from("{\"root\":");
+    out.push_str(&json_str(&idx.root));
+    out.push_str(",\"files\":[");
+    for (i, f) in idx.files.iter().enumerate() {
+        if i > 0 {
+            out.push(',');
+        }
+        let top: Vec<String> = f.syms.iter().filter(|s| s.parent == NONE && s.kind != "impl").take(8).map(|s| json_str(&s.name)).collect();
+        let _ = write!(out, "{{\"p\":{},\"l\":{},\"s\":{},\"t\":[{}]}}", json_str(&f.path), f.lines, f.syms.len(), top.join(","));
+    }
+    out.push_str("],\"edges\":[");
+    let mut ev: Vec<_> = edges.into_iter().collect();
+    ev.sort_unstable();
+    for (i, ((a, b), n)) in ev.iter().enumerate() {
+        if i > 0 {
+            out.push(',');
+        }
+        let _ = write!(out, "[{a},{b},{n}]");
+    }
+    out.push_str("]}\n");
     out
 }
 

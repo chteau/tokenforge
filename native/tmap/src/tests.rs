@@ -62,6 +62,7 @@ fn rust_definitions_nesting_and_signatures() {
     assert_eq!(f.syms[get("MAX_LAYERS")].kind, "constant");
     let call = f.calls.iter().find(|c| c.name == "clamp_opacity").expect("call recorded");
     assert_eq!(f.syms[call.from as usize].name, "add_layer");
+    assert!(f.calls.iter().any(|c| c.name == ".push"), "method calls carry a leading dot");
 }
 
 #[test]
@@ -108,6 +109,18 @@ fn skips_dependency_dirs_and_refreshes_incrementally() {
     fs::remove_file(dir.join("src/a.ts")).unwrap();
     let (idx3, stats) = index::refresh(&dir, false).unwrap();
     assert_eq!((stats.parsed, stats.removed, idx3.files.len()), (0, 1, 1));
+}
+
+#[test]
+fn json_export_has_files_and_unambiguous_edges() {
+    let (_, idx) = fixture(&[("src/layers.rs", RUST), ("src/ui/panel.rs", "pub fn draw() { clamp_opacity(0.5); }\n")]);
+    let j = query::json(&idx);
+    assert!(j.contains(r#"{"p":"src/layers.rs","l":19,"s":5,"t":["LayerStack","clamp_opacity","MAX_LAYERS"]}"#), "{j}");
+    assert!(j.trim_end().ends_with(r#""edges":[[1,0,1]]}"#), "panel.rs -> layers.rs: {j}");
+    let (_, idx) = fixture(&[("src/sel.rs", "pub struct Sel;\nimpl Sel {\n    pub fn is_empty(&self) -> bool { true }\n}\n"), ("src/use.rs", "pub fn f(v: Vec<u8>) -> bool { v.is_empty() }\n")]);
+    assert!(query::json(&idx).trim_end().ends_with(r#""edges":[]}"#), "method-name calls never become edges");
+    let (_, idx) = fixture(&[("src/b.rs", "fn child() {}\n"), ("src/ui.rs", "pub fn v(d: Div) { d.child(1); }\n")]);
+    assert!(query::json(&idx).trim_end().ends_with(r#""edges":[]}"#), "x.child() is not a call to free fn child");
 }
 
 #[test]

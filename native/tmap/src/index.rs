@@ -11,7 +11,7 @@ use std::time::UNIX_EPOCH;
 use tree_sitter_tags::{TagsConfiguration, TagsContext};
 
 /// Bump whenever extraction changes, so stale cached entries are re-parsed.
-const FORMAT: u32 = 2;
+const FORMAT: u32 = 4;
 const MAX_FILE_BYTES: u64 = 1_000_000;
 /// Dependency, build and cache folders: never project source, even without a .gitignore.
 const SKIP_DIRS: &[&str] = &[
@@ -171,7 +171,13 @@ fn parse_file(ctx: &mut TagsContext, lang: Lang, src: &[u8]) -> (Vec<Sym>, Vec<C
                 },
             ));
         } else if ty == "call" {
+            // `x.foo()` is a method call: recorded as `.foo` so it never resolves to a free function `foo`.
+            let method = tag.name_range.start > 0 && src[tag.name_range.start - 1] == b'.';
+            let name = if method { format!(".{name}") } else { name };
             refs.push((tag.name_range.start, name, lines.line(tag.name_range.start)));
+        } else if ty == "macro" {
+            // Recorded as `name!` so a macro call never resolves to a function of the same name.
+            refs.push((tag.name_range.start, format!("{name}!"), lines.line(tag.name_range.start)));
         }
     }
     // Outer definitions first so a stack can track nesting.

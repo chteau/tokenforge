@@ -66,6 +66,7 @@ Other skills:
 | `/tokenforge:handoff` | Writes `.forge/HANDOFF.md` (done, decisions, next steps, file map). Run `/clear` afterwards: the handoff reloads automatically, and the conversation continues at a fraction of the context. |
 | `/tokenforge:meter` | Token usage of your recent sessions and worker runs. |
 | `/tokenforge:terse` | Reply style: `full` (default), `lite` or `off`. |
+| `/tokenforge:dashboard` | Opens the local dashboard and prints its address. |
 
 ### Terse replies (built in, replaces caveman-style plugins)
 
@@ -82,6 +83,24 @@ Measured with Sonnet on three everyday questions (output tokens):
 The fixed context is re-read on every API call, tool calls included, so the smaller rule matters most in long, tool-heavy sessions.
 
 Switch with `/tokenforge:terse full|lite|off`. `lite` keeps short full sentences. The choice is saved in `~/.config/tokenforge/config.json`. The env var `TFORGE_TERSE` overrides it. If you also run another reply-style plugin, disable one of them: both rules would load.
+
+### Dashboard (local web UI)
+
+A local dashboard starts in the background with your first session. Open it with `/tokenforge:dashboard`, or with `tforge ui` in a terminal. The address is `http://127.0.0.1:7878/`, or the next free port.
+
+- **Overview:**
+  - usage limits, with the time left until each reset;
+  - today, 7-day and 30-day totals;
+  - a 30-day chart split by token type;
+  - the last 48 hours;
+  - 5-hour windows over the last week;
+  - usage per model.
+- **Projects:** every folder Claude Code ran in, with sessions, calls and subagent share. Open a session to see its **context-per-call curve**: every point is re-read by the next call, so the area under the curve is what the session cost. Compactions show up as drops.
+- **Code map:** the project as a two-level treemap sized by lines and shaded by how many other files call into it. It also has keyword search (`tmap find`) and a list of the most depended-on files.
+
+**Limits and resets.** Exact 5-hour and weekly usage and reset times only exist in the status-line data Claude Code passes to a status-line command. Run `tforge statusline --setup`. It installs a small recorder in `~/.config/tokenforge/` and prints a `statusLine` snippet for you to put in `~/.claude/settings.json`. Your current status line keeps running behind it. tokenforge never edits your settings itself. Without it, the dashboard estimates the 5-hour window from your session timestamps and labels it as an estimate.
+
+**Privacy.** The server listens on 127.0.0.1 only and rejects other Host headers, which blocks DNS rebinding. It only answers GET requests and loads nothing from the internet. It reads your transcripts incrementally: only new bytes, with a cache in `~/.cache/tokenforge/`. It keeps and serves numbers only, never prompt, reply or file text. `TFORGE_UI=0` disables the auto-start, and `tforge ui --stop` stops it.
 
 ### tmap: code map (built in, replaces CodeGraph-style indexers)
 
@@ -182,6 +201,8 @@ Workers run with `--permission-mode acceptEdits` and only `Read`, `Write` and `E
 | `TFORGE_MAP` | | `1` adds the tmap hint at session start |
 | `TFORGE_REDIRECT` | | `1` answers identifier Grep calls and big whole-file reads from tmap |
 | `TMAP_BIN` | | Use this tmap binary |
+| `TFORGE_UI` | | `0` stops the dashboard from starting with your first session |
+| `TFORGE_UI_PORT` | `7878` | Dashboard port (the next free one is used if taken) |
 | `TFORGE_NO_DOWNLOAD` | | `1` never downloads tmap; build with cargo instead |
 
 ## Development

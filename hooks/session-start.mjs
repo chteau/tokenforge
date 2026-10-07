@@ -2,7 +2,10 @@
 // and on startup or /clear reload .forge/HANDOFF.md so a fresh session continues where the last one stopped.
 import fs from 'node:fs';
 import path from 'node:path';
+import { spawn } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { TERSE_RULES, terseLevel } from '../lib/config.mjs';
+import { uiState } from '../lib/ui-control.mjs';
 
 const MAX_AGE_H = Number(process.env.TFORGE_HANDOFF_MAX_AGE_H) || 72;
 const MAX_CHARS = 8000;
@@ -28,11 +31,25 @@ function handoff(cwd) {
   );
 }
 
+// Start the local dashboard once per machine boot (or after it was stopped). Costs no context tokens.
+function ensureDashboard() {
+  if (process.env.TFORGE_UI === '0' || uiState()) return null;
+  const tforge = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'tforge');
+  try {
+    const child = spawn(process.execPath, [tforge, 'ui', '--detach'], { detached: true, stdio: 'ignore' });
+    child.unref();
+    return `tokenforge dashboard starting at http://127.0.0.1:${Number(process.env.TFORGE_UI_PORT) || 7878}/ (tforge ui --status shows the exact port; TFORGE_UI=0 disables)`;
+  } catch {
+    return null;
+  }
+}
+
 function main() {
   let input = {};
   try {
     input = JSON.parse(fs.readFileSync(0, 'utf8'));
   } catch {}
+  const notice = input.source === 'startup' ? ensureDashboard() : null;
   const parts = [];
   const level = terseLevel();
   if (level !== 'off') parts.push(TERSE_RULES[level]);
@@ -42,8 +59,11 @@ function main() {
     const h = handoff(input.cwd || process.cwd());
     if (h) parts.push(h);
   }
-  if (!parts.length) return;
-  process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: parts.join('\n\n') } }));
+  if (!parts.length && !notice) return;
+  const out = {};
+  if (parts.length) out.hookSpecificOutput = { hookEventName: 'SessionStart', additionalContext: parts.join('\n\n') };
+  if (notice) out.systemMessage = notice;
+  process.stdout.write(JSON.stringify(out));
 }
 
 main();

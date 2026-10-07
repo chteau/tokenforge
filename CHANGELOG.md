@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.0
+
+- Local dashboard (`tforge ui`, `/tokenforge:dashboard`); it starts in the background with the first session.
+  - Overview: usage limits with reset countdowns, today/7-day/30-day totals, daily chart by token type, last 48 hours, 5-hour windows, models.
+  - Projects and sessions, including the context-per-call curve.
+  - Code map: two-level treemap shaded by incoming calls, keyword search, most depended-on files.
+- Incremental transcript reader: 4.2 GB first scan in about 20s, then about 70 ms per refresh. Numbers only.
+- `tforge statusline --setup`: a recorder for the real `rate_limits` (5-hour and weekly usage and reset times) that keeps your status line running behind it. It prints the settings snippet instead of editing your settings.
+- `tmap json`. Call edges ignore method calls (`x.foo()`), macro-vs-function name clashes, nested helper functions and non-callable symbols. On a large Rust workspace this removed false hubs (`assert_eq!` and `.child()` were resolving to unrelated files).
+
 ## 0.3.0
 
 - `tmap`: a bundled Rust code indexer (tree-sitter; Rust, TS/TSX, JS, Python, Go) with an incremental cache.

@@ -236,6 +236,66 @@ test('code redirect: opt-in, answers identifier greps from the index once, lets 
   assert.equal(call('failed to open the window', sid), '', 'prose search is not redirected');
 });
 
+test('usage store: incremental, de-duplicated, worktrees grouped, subagents attributed', async () => {
+  const { UsageStore, overview, projects, sessions, blocks } = await import('../lib/usage.mjs');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'tforge-usage-'));
+  const pdir = path.join(root, '-repo');
+  fs.mkdirSync(path.join(pdir, 'sess1', 'subagents'), { recursive: true });
+  const now = new Date().toISOString();
+  const call = (id, cr, cwd) => JSON.stringify({ type: 'assistant', cwd, timestamp: now, message: { id, model: 'm1', usage: { input_tokens: 10, cache_creation_input_tokens: 100, cache_read_input_tokens: cr, output_tokens: 5 } } });
+  const main = path.join(pdir, 'sess1.jsonl');
+  fs.writeFileSync(main, [call('a', 1000, '/repo'), call('a', 1000, '/repo'), call('b', 2000, '/repo')].join('\n') + '\n');
+  fs.writeFileSync(path.join(pdir, 'sess1', 'subagents', 'agent-x.jsonl'), call('c', 500, '/repo/.claude/worktrees/agent-x') + '\n');
+  const cacheFile = path.join(root, 'cache.json');
+  const s = new UsageStore({ root, cacheFile });
+  await s.refresh();
+  const ps = projects(s);
+  assert.deepEqual(ps.map((p) => [p.project, p.calls]), [['/repo', 3]], 'duplicate content blocks count once; worktree joins its repo');
+  const ss = sessions(s, '/repo');
+  assert.equal(ss[0].subagents, 1);
+  assert.equal(ss[0].subCalls, 1);
+  fs.appendFileSync(main, call('d', 3000, '/repo') + '\n' + '{"type":"assistant","partial');
+  const s2 = new UsageStore({ root, cacheFile });
+  await s2.refresh();
+  assert.equal(projects(s2)[0].calls, 4, 'appended line read from the cached offset; a partial last line waits');
+  assert.equal(overview(s2).totals.today.calls, 4);
+  const h = 3.6e6;
+  const b = blocks([0, 3600, 4 * 3600, 6 * 3600, 6 * 3600 + 60].map((x) => x + 1e9));
+  assert.equal(b.length, 2, 'a call 5h after the window start opens a new window');
+  assert.equal(b[0].end - b[0].start, 5 * h);
+});
+
+test('dashboard server: localhost Host only, GET only, aggregate JSON', async () => {
+  const { createServer } = await import('../lib/ui-server.mjs');
+  const fakeStore = { files: {}, models: [], progress: { scanning: false }, lastRefresh: Date.now(), refresh: async () => {}, *calls() {} };
+  let port = 0;
+  const server = createServer({ store: fakeStore, port: () => port });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  port = server.address().port;
+  const http = await import('node:http');
+  const req = (opts) => new Promise((r) => http.request({ host: '127.0.0.1', port, ...opts }, (res) => { let b = ''; res.on('data', (d) => (b += d)); res.on('end', () => r({ status: res.statusCode, body: b })); }).end());
+  assert.equal((await req({ path: '/api/projects', headers: { host: 'evil.example' } })).status, 403);
+  assert.equal((await req({ path: '/api/projects', method: 'POST', headers: { host: `127.0.0.1:${port}` } })).status, 405);
+  const ok = await req({ path: '/api/projects', headers: { host: `localhost:${port}` } });
+  assert.equal(ok.status, 200);
+  assert.deepEqual(JSON.parse(ok.body), []);
+  assert.match((await req({ path: '/api/graph?project=%2Fetc', headers: { host: `127.0.0.1:${port}` } })).body, /unknown project/);
+  server.close();
+});
+
+test('status-line shim records limits and chains the previous command', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tforge-shim-'));
+  const shim = path.join(HERE, '..', 'bin', 'statusline-shim.mjs');
+  const payload = JSON.stringify({ rate_limits: { five_hour: { used_percentage: 42, resets_at: 2000000000 }, seven_day: { used_percentage: 7, resets_at: 2000500000 } } });
+  const prev = Buffer.from('echo "prev:$(cat | head -c 13)"').toString('base64');
+  const r = spawnSync('node', [shim, '--chain-b64', prev], { input: payload, encoding: 'utf8', env: { ...process.env, XDG_CACHE_HOME: dir } });
+  assert.equal(r.stdout.trim(), 'prev:{"rate_limits', 'previous status line got the same JSON on stdin');
+  const rec = JSON.parse(fs.readFileSync(path.join(dir, 'tokenforge', 'limits.json'), 'utf8'));
+  assert.deepEqual([rec.fiveHour.used, rec.sevenDay.resetsAt], [42, 2000500000]);
+  const alone = spawnSync('node', [shim], { input: payload, encoding: 'utf8', env: { ...process.env, XDG_CACHE_HOME: dir } });
+  assert.match(alone.stdout, /^5h 42% \(resets .+\) · 7d 7%/);
+});
+
 test('meter counts each API call once and weighs columns by price', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tforge-meter-'));
   const f = path.join(dir, 's.jsonl');
@@ -264,7 +324,7 @@ test('context-watch warns once per band; handoff-load injects the handoff', () =
   fs.mkdirSync(path.join(dir, '.forge'));
   fs.writeFileSync(path.join(dir, '.forge', 'HANDOFF.md'), '# Handoff: thing\n## Next\n1. do it\n');
   const ss = path.join(HERE, '..', 'hooks', 'session-start.mjs');
-  const env = { ...process.env, XDG_CONFIG_HOME: dir };
+  const env = { ...process.env, XDG_CONFIG_HOME: dir, TFORGE_UI: '0' };
   const h = spawnSync('node', [ss], { input: JSON.stringify({ cwd: dir, source: 'clear' }), encoding: 'utf8', env });
   const ctx = JSON.parse(h.stdout).hookSpecificOutput.additionalContext;
   assert.match(ctx, /1\. do it/);

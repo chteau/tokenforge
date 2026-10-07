@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>tokenforge dashboard</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header class="top">
+    <div class="brand">tokenforge</div>
+    <nav class="tabs" role="tablist">
+      <button role="tab" data-view="overview">Overview</button>
+      <button role="tab" data-view="projects">Projects</button>
+      <button role="tab" data-view="map">Code map</button>
+    </nav>
+    <div class="top-right">
+      <span id="scan" class="muted"></span>
+      <button id="theme" class="ghost" title="Switch light or dark">Theme</button>
+    </div>
+  </header>
+  <main id="view" class="viz-root"></main>
+  <div id="tip" class="tip" role="tooltip" hidden></div>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

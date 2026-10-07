@@ -20,6 +20,7 @@ Usage: tmap <command> [args] [-C DIR]
   slice <name>       path:start-end of each definition (for tforge plan reads)
   callers <name>     call sites: path:line  in <enclosing definition>
   callees <name>     what a definition calls, with where each callee is defined
+  json               whole map as JSON: files (path, lines, symbols, top names) and file-to-file call edges
   index [--force]    build or refresh the index and print stats
   stats              index size and location
 
@@ -114,6 +115,7 @@ fn run() -> Result<String, String> {
         "slice" => query::slice(&idx, &need("a name")?),
         "callers" => query::callers(&idx, &need("a name")?, a.n.max(40)),
         "callees" => query::callees(&idx, &need("a name")?),
+        "json" => query::json(&idx),
         "index" | "stats" => {
             let syms: usize = idx.files.iter().map(|f| f.syms.len()).sum();
             let calls: usize = idx.files.iter().map(|f| f.calls.len()).sum();
