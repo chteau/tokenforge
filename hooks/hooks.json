@@ -1,6 +1,9 @@
 {
   "description": "tokenforge: terse replies; warn when context grows large; reload the last handoff after /clear",
   "hooks": {
+    "PreToolUse": [
+      { "matcher": "Grep|Read", "hooks": [{ "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/code-redirect.mjs\"", "timeout": 6 }] }
+    ],
     "PostToolUse": [
       { "hooks": [{ "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/context-watch.mjs\"", "timeout": 5 }] }
     ],

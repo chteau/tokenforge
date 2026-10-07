@@ -211,6 +211,31 @@ test('compiler warnings are dropped when errors exist', () => {
   assert.match(tail('warning: only warnings\n  --> x.rs:1:1\n'), /only warnings/, 'warnings stay when there is no error');
 });
 
+test('tmap launcher runs TMAP_BIN with the given arguments and exit code', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tforge-tmap-'));
+  const fake = path.join(dir, 'fake-tmap');
+  fs.writeFileSync(fake, '#!/bin/sh\necho "args: $*"\nexit 3\n', { mode: 0o755 });
+  const r = spawnSync('node', [path.join(HERE, '..', 'bin', 'tmap'), 'find', 'add layer'], { encoding: 'utf8', env: { ...process.env, TMAP_BIN: fake } });
+  assert.equal(r.stdout, 'args: find add layer\n');
+  assert.equal(r.status, 3);
+});
+
+test('code redirect: opt-in, answers identifier greps from the index once, lets prose and repeats through', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tforge-redir-'));
+  const fake = path.join(dir, 'fake-tmap');
+  fs.writeFileSync(fake, '#!/bin/sh\necho "src/a.rs:1-9  fn $2()"\n', { mode: 0o755 });
+  const hook = path.join(HERE, '..', 'hooks', 'code-redirect.mjs');
+  const call = (pattern, env) =>
+    spawnSync('node', [hook], { input: JSON.stringify({ tool_name: 'Grep', session_id: `t${process.pid}${Date.now()}${pattern.length}`, cwd: dir, tool_input: { pattern } }), encoding: 'utf8', env: { ...process.env, TMAP_BIN: fake, ...env } }).stdout;
+  assert.equal(call('orbit_speed', {}), '', 'off by default');
+  const sid = { TFORGE_REDIRECT: '1' };
+  const input = JSON.stringify({ tool_name: 'Grep', session_id: `same${process.pid}`, cwd: dir, tool_input: { pattern: 'orbit_speed|orbitRate' } });
+  const first = spawnSync('node', [hook], { input, encoding: 'utf8', env: { ...process.env, TMAP_BIN: fake, ...sid } }).stdout;
+  assert.match(JSON.parse(first).hookSpecificOutput.permissionDecisionReason, /src\/a\.rs:1-9/);
+  assert.equal(spawnSync('node', [hook], { input, encoding: 'utf8', env: { ...process.env, TMAP_BIN: fake, ...sid } }).stdout, '', 'identical repeat runs');
+  assert.equal(call('failed to open the window', sid), '', 'prose search is not redirected');
+});
+
 test('meter counts each API call once and weighs columns by price', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tforge-meter-'));
   const f = path.join(dir, 's.jsonl');
@@ -244,6 +269,9 @@ test('context-watch warns once per band; handoff-load injects the handoff', () =
   const ctx = JSON.parse(h.stdout).hookSpecificOutput.additionalContext;
   assert.match(ctx, /1\. do it/);
   assert.match(ctx, /tokenforge terse\)/, 'terse full is the default');
+  assert.doesNotMatch(ctx, /tmap find <words>/, 'code-search hint is opt-in');
+  const withMap = spawnSync('node', [ss], { input: JSON.stringify({ cwd: dir, source: 'startup' }), encoding: 'utf8', env: { ...env, TFORGE_MAP: '1' } });
+  assert.match(JSON.parse(withMap.stdout).hookSpecificOutput.additionalContext, /tmap find <words>/);
 
   const compact = spawnSync('node', [ss], { input: JSON.stringify({ cwd: dir, source: 'compact' }), encoding: 'utf8', env });
   const cctx = JSON.parse(compact.stdout).hookSpecificOutput.additionalContext;

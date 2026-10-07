@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.0
+
+- `tmap`: a bundled Rust code indexer (tree-sitter; Rust, TS/TSX, JS, Python, Go) with an incremental cache.
+  - Commands: `find` (ranked one-line hits), `tree` (map or outline), `sym`, `callers`, `callees`, `slice`.
+  - On a 1,228-file workspace: 0.9s to index from scratch, about 25 ms per command.
+  - The launcher downloads a checksum-verified release binary, or builds once with cargo.
+- `forge` skill uses `tmap` to give workers exact line ranges.
+- Opt-in `TFORGE_MAP=1` (session hint) and `TFORGE_REDIRECT=1` (answer identifier Grep calls and big whole-file reads from the index). They are opt-in because A/B runs showed no reliable saving in normal sessions.
+- CI runs the Rust tests. Pushing a `tmap-v*` tag publishes binaries for five platforms.
+
 ## 0.2.0
 
 - Terse reply mode built in (`/tokenforge:terse full|lite|off`, `tforge terse`). One rule of about 200 tokens at session start and after compaction, nothing per prompt. In tests it matched or beat caveman 3.1.0 on output length with one-sixth of its fixed context.

@@ -1,0 +1,33 @@
+name: tmap release
+on:
+  push:
+    tags: ['tmap-v*']
+permissions:
+  contents: write
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - { os: ubuntu-latest, asset: tmap-linux-x64 }
+          - { os: ubuntu-24.04-arm, asset: tmap-linux-arm64 }
+          - { os: macos-13, asset: tmap-macos-x64 }
+          - { os: macos-latest, asset: tmap-macos-arm64 }
+          - { os: windows-latest, asset: tmap-windows-x64.exe }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test --release --manifest-path native/tmap/Cargo.toml -- --test-threads=1
+      - run: cargo build --release --manifest-path native/tmap/Cargo.toml
+      - name: package
+        shell: bash
+        run: |
+          src=native/tmap/target/release/tmap; [[ "${{ matrix.asset }}" == *.exe ]] && src="$src.exe"
+          cp "$src" "${{ matrix.asset }}"
+          if command -v sha256sum >/dev/null; then sha256sum "${{ matrix.asset }}" > "${{ matrix.asset }}.sha256"; else shasum -a 256 "${{ matrix.asset }}" > "${{ matrix.asset }}.sha256"; fi
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ${{ matrix.asset }}
+            ${{ matrix.asset }}.sha256

@@ -43,7 +43,7 @@ Inside Claude Code:
 /plugin install tokenforge@tokenforge
 ```
 
-Requirements: Claude Code and Node.js 18 or newer. Subscription (OAuth) logins and API keys both work.
+Requirements: Claude Code and Node.js 18 or newer. Subscription (OAuth) logins and API keys both work. `tmap` needs a release binary for your platform, or Rust to build one.
 
 ### Updates
 
@@ -82,6 +82,37 @@ Measured with Sonnet on three everyday questions (output tokens):
 The fixed context is re-read on every API call, tool calls included, so the smaller rule matters most in long, tool-heavy sessions.
 
 Switch with `/tokenforge:terse full|lite|off`. `lite` keeps short full sentences. The choice is saved in `~/.config/tokenforge/config.json`. The env var `TFORGE_TERSE` overrides it. If you also run another reply-style plugin, disable one of them: both rules would load.
+
+### tmap: code map (built in, replaces CodeGraph-style indexers)
+
+`tmap` is a small Rust indexer bundled with the plugin. It parses Rust, TypeScript/TSX, JavaScript, Python and Go with tree-sitter and keeps an index in `~/.cache/tokenforge/tmap`. Every command refreshes the index first, re-parsing only changed files. It respects `.gitignore` and skips dependency and build folders even without one.
+
+```
+tmap find <words>        ranked definitions: path:start-end  signature
+tmap tree [dir|file]     folders, files and their top-level symbols; a file gives its outline
+tmap sym|callers|callees <name>
+tmap slice <name>        path:start-end, ready for a forge plan's "reads"
+```
+
+Measured on a 1,228-file Rust workspace:
+- full index from scratch: 0.9s;
+- each later command: about 25 ms;
+- one CodeGraph query: 3.4s.
+
+Output for "where is orbit speed handled":
+
+| | output |
+|---|---|
+| `grep -n orbit` | ~5,100 tokens |
+| `codegraph explore` | ~6,200 tokens |
+| `codegraph query` | ~220 tokens |
+| `tmap find orbit speed` | **~70 tokens**, with the right definition and its line range |
+
+**Where it pays off:** the `forge` skill uses it to hand workers exact line ranges, and `tmap tree` is a fast map for you. In A/B runs of normal Sonnet sessions, a session hint did not get the agent to use `tmap`. Redirecting Grep and Read to it was mixed: two small wins, and one run where the agent worked around it and used more tokens. Both are therefore opt-in:
+- `TFORGE_MAP=1` adds a one-line hint at session start;
+- `TFORGE_REDIRECT=1` answers identifier-like Grep calls and whole-file reads of large source files from the index. Repeating the identical call always goes through.
+
+First use: the launcher downloads the prebuilt binary for your platform from this repo's releases and checks it against the published SHA-256. If no release binary fits, it builds once with `cargo` (about 10s to a minute). `TMAP_BIN` points to your own binary.
 
 Hooks (automatic):
 
@@ -148,11 +179,16 @@ Workers run with `--permission-mode acceptEdits` and only `Read`, `Write` and `E
 | `TFORGE_WATCH` | | `0` disables the context watch |
 | `TFORGE_HANDOFF_MAX_AGE_H` | `72` | Ignore older handoffs |
 | `TFORGE_TERSE` | | `full`, `lite` or `off`; overrides the saved choice |
+| `TFORGE_MAP` | | `1` adds the tmap hint at session start |
+| `TFORGE_REDIRECT` | | `1` answers identifier Grep calls and big whole-file reads from tmap |
+| `TMAP_BIN` | | Use this tmap binary |
+| `TFORGE_NO_DOWNLOAD` | | `1` never downloads tmap; build with cargo instead |
 
 ## Development
 
 ```
 npm test                        # unit and end-to-end tests with a fake claude binary
+cargo test --release --manifest-path native/tmap/Cargo.toml -- --test-threads=1
 claude --plugin-dir .           # try the plugin locally
 claude plugin validate .        # check the manifests
 ```

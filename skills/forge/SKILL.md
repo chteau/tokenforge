@@ -19,8 +19,8 @@ For a small **greenfield** build (about 1k lines, written in a few large batches
 ## Existing codebase: explore once, here
 
 Workers must never explore. Exploration (grep, sed and cat slices) is what makes subagents expensive.
-- Locate the code once in this session, with CodeGraph or LSP if available, otherwise grep.
-- Give each task exact line ranges: `"reads": ["crates/x/src/lib.rs:120-260"]`.
+- Locate the code once in this session with `tmap find <words>`, `tmap tree <dir>` and `tmap callers <name>`. Fall back to grep only if tmap is unavailable.
+- Give each task exact line ranges. `tmap slice <name>` prints them ready to paste: `"reads": ["crates/x/src/lib.rs:120-260"]`.
 - For a large owned file, use a range too: `"files": ["src/big.rs:400-520"]`. The task owns the whole file, but only that slice is inlined.
 - Put the signatures workers need into `.forge/cheats/<area>.md` and list it in `context`, instead of contracts you would have to write.
 - Set `"tools": ["Read", "Edit", "Grep"]` only when a task truly needs to search.
