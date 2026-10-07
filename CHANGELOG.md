@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.0
+
+- Dashboard redesign: sidebar layout, Claude warm-dark palette (validated for color-blind safety on the card surface), square corners, KPI cards, arc gauges, gradient area charts, thin-bar window strip.
+- Code graph replaces the treemap: force-directed folders and files on canvas (Barnes-Hut layout, about 1.5k nodes live), colored by language, glow, pan, zoom and drag, neighbor highlight, optional call links, filter, and a details panel with callers, callees and the file outline.
+
 ## 0.4.0
 
 - Local dashboard (`tforge ui`, `/tokenforge:dashboard`); it starts in the background with the first session.

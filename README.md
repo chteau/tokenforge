@@ -96,7 +96,7 @@ A local dashboard starts in the background with your first session. Open it with
   - 5-hour windows over the last week;
   - usage per model.
 - **Projects:** every folder Claude Code ran in, with sessions, calls and subagent share. Open a session to see its **context-per-call curve**: every point is re-read by the next call, so the area under the curve is what the session cost. Compactions show up as drops.
-- **Code map:** the project as a two-level treemap sized by lines and shaded by how many other files call into it. It also has keyword search (`tmap find`) and a list of the most depended-on files.
+- **Code graph:** folders and files as a force-directed graph, colored by language. Pan, zoom and drag nodes, hover to light up neighbors, switch on call links between files, filter by path or symbol, and click a file for its callers, callees and outline.
 
 **Limits and resets.** Exact 5-hour and weekly usage and reset times only exist in the status-line data Claude Code passes to a status-line command. Run `tforge statusline --setup`. It installs a small recorder in `~/.config/tokenforge/` and prints a `statusLine` snippet for you to put in `~/.claude/settings.json`. Your current status line keeps running behind it. tokenforge never edits your settings itself. Without it, the dashboard estimates the 5-hour window from your session timestamps and labels it as an estimate.
 

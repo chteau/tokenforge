@@ -3,23 +3,29 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>tokenforge dashboard</title>
+  <title>tokenforge</title>
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
-  <header class="top">
-    <div class="brand">tokenforge</div>
-    <nav class="tabs" role="tablist">
-      <button role="tab" data-view="overview">Overview</button>
-      <button role="tab" data-view="projects">Projects</button>
-      <button role="tab" data-view="map">Code map</button>
-    </nav>
-    <div class="top-right">
-      <span id="scan" class="muted"></span>
-      <button id="theme" class="ghost" title="Switch light or dark">Theme</button>
+  <div class="app">
+    <aside class="side">
+      <div class="brand"><span class="mark">tf</span>tokenforge</div>
+      <div class="brand-rule"></div>
+      <nav class="nav" role="tablist">
+        <button role="tab" data-view="overview"><span class="ico"><svg viewBox="0 0 16 16" fill="currentColor"><path d="M1 1h6v6H1zM9 1h6v6H9zM1 9h6v6H1zM9 9h6v6H9z"/></svg></span>Overview</button>
+        <button role="tab" data-view="projects"><span class="ico"><svg viewBox="0 0 16 16" fill="currentColor"><path d="M1 3h5l1.5 2H15v9H1z"/></svg></span>Projects</button>
+        <button role="tab" data-view="map"><span class="ico"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="3.5" cy="4" r="2" fill="currentColor"/><circle cx="12.5" cy="3.5" r="2" fill="currentColor"/><circle cx="8" cy="12" r="2.3" fill="currentColor"/><path d="M3.5 4L8 12M12.5 3.5L8 12M3.5 4h9"/></svg></span>Code graph</button>
+      </nav>
+      <div class="side-card" id="side-card"><b>Exact limits</b>Record your real 5-hour and weekly usage and reset times.<code>tforge statusline --setup</code></div>
+    </aside>
+    <div class="main">
+      <div class="topbar">
+        <div><div class="crumb" id="crumb"></div><div class="title" id="title"></div></div>
+        <div class="topright"><span class="pulse"></span><span id="scan"></span></div>
+      </div>
+      <main id="view"></main>
     </div>
-  </header>
-  <main id="view" class="viz-root"></main>
+  </div>
   <div id="tip" class="tip" role="tooltip" hidden></div>
   <script type="module" src="/app.js"></script>
 </body>
