@@ -150,7 +150,7 @@ Other skills:
 
 ### Terse replies (built in, replaces caveman-style plugins)
 
-On by default. At session start, and again after compaction, tokenforge adds one reply-style rule of about 200 tokens. Nothing is added per prompt. Answers lead with the result and skip background nobody asked for. Code, paths, commands, numbers and negations stay exact. Security warnings and irreversible steps stay in full sentences. Files Claude writes keep their normal style.
+On by default. At session start, and again after compaction, tokenforge adds one reply-style rule of about 60 tokens. Nothing is added per prompt. Answers lead with the result and skip background nobody asked for. Code, paths, commands, numbers and negations stay exact. Security warnings and irreversible steps stay in full sentences. Files Claude writes keep their normal style.
 
 Measured with Sonnet on three everyday questions (output tokens):
 

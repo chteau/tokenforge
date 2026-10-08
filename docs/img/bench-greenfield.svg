@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1240 760" width="1240" role="img" aria-label="From scratch: 9 projects, 7 languages">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1240 760" width="1240" role="img" aria-label="From scratch: 9 projects, 8 languages">
 <style>
   .bg{fill:#fcfcfb} .t1{fill:#0b0b0b} .t2{fill:#52514e} .mu{fill:#898781} .grid{stroke:#e1e0d9} .base{stroke:#c3c2b7}
   .s1{fill:#2a78d6} .s2{fill:#eb6834} .s3{fill:#1baf7a} .o{fill:#eb6834} .l1{stroke:#2a78d6} .l2{stroke:#eb6834} .a1{fill:#2a78d6;fill-opacity:.12} .a2{fill:#eb6834;fill-opacity:.16}
@@ -10,7 +10,7 @@
 </style>
 <style>.hd{font-size:30px;font-weight:700;letter-spacing:-.4px} .big{font-size:21px;font-weight:700} .dash{stroke-dasharray:5 5} .ring{fill:none;stroke-width:2}</style>
 <rect class="bg" width="1240" height="760" rx="10"/>
-<text class="t1 hd" x="40" y="58">From scratch: 9 projects, 7 languages</text>
+<text class="t1 hd" x="40" y="58">From scratch: 9 projects, 8 languages</text>
 <text class="t2" x="40" y="88" font-size="15">total tokens to build each project, clean Claude Code → tokenforge · median −66% · 9/9 tasks cheaper</text>
 <line class="grid" x1="96" y1="557.6" x2="1130" y2="557.6" stroke-width="1"/><text class="mu" x="82" y="562.6" font-size="14" text-anchor="end">50k</text>
 <line class="grid" x1="96" y1="480.5" x2="1130" y2="480.5" stroke-width="1"/><text class="mu" x="82" y="485.5" font-size="14" text-anchor="end">100k</text>

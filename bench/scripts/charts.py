@@ -305,7 +305,7 @@ def main():
     OUT.mkdir(parents=True, exist_ok=True)
     rs = runs()
     for name, tasks, title, sub in [("bench-existing.svg", EXISTING, "Existing codebases: features, bugs, reviews", "total tokens per task, clean Claude Code → tokenforge"),
-                                    ("bench-greenfield.svg", GREENFIELD, "From scratch: 9 projects, 7 languages", "total tokens to build each project, clean Claude Code → tokenforge")]:
+                                    ("bench-greenfield.svg", GREENFIELD, "From scratch: 9 projects, 8 languages", "total tokens to build each project, clean Claude Code → tokenforge")]:
         svg, sav = final_chart(rs, tasks, title, sub)
         if svg:
             (OUT / name).write_text(svg)
