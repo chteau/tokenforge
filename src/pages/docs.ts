@@ -21,8 +21,9 @@ ${pre('/plugin marketplace add chteau/tokenforge\n/plugin install tokenforge@tok
 <p>Nothing to learn: it works on its own, in the terminal and in Claude Desktop.</p>
 <ul>
   <li>Every new session starts with <code>TokenForge: active · lean balanced · replies full · dashboard …</code>. The first three sessions add a short walkthrough. This line is shown to you only and costs no tokens (<code>TFORGE_BANNER=0</code> hides it).</li>
-  <li>After <code>/clear</code>: <code>TokenForge: checkpoint saved (… ago)</code>, and whether a handoff was reloaded.</li>
-  <li>No permission prompts for TokenForge’s own read-only tools (<code>tread</code>, <code>tview</code>, <code>tkit ctx</code>/<code>check</code>/<code>test</code>, <code>tforge recall</code>). Edits, network and remote tools still ask. <code>TFORGE_AUTO_ALLOW=0</code> turns this off.</li>
+  <li>After <code>/clear</code>: <code>TokenForge: checkpoint saved (… ago)</code>. Without a fresh handoff, a compact checkpoint (last requests, files changed, start of the last reply; at most 900 characters) is reloaded so Claude continues where you stopped (<code>TFORGE_CLEAR_RELOAD=0</code> turns it off).</li>
+  <li>Once a day, in the background, it checks for a newer version and tells you how to update (<code>TFORGE_UPDATE_CHECK=0</code> turns it off).</li>
+  <li>No permission prompts for TokenForge’s own read-only tools (<code>tread</code>, <code>tview</code>, <code>tkit ctx</code>/<code>check</code>/<code>test</code>, <code>tforge recall</code>). Network and remote tools still ask; the multi-file edit tools go through only when the session already accepts edits. <code>TFORGE_AUTO_ALLOW=0</code> turns this off.</li>
 </ul>
 
 <h2>What happens on first start</h2>
