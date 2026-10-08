@@ -351,7 +351,7 @@ Workers run with `--permission-mode acceptEdits` and only `Read`, `Write` and `E
 | `TFORGE_DISTILL_MCP_BYTES` | `6000` | MCP results at least this large are distilled |
 | `TFORGE_DISTILL_MODEL` / `TFORGE_DISTILL_TIMEOUT` | `haiku` / `120` (`60` in the MCP hook) | Model and seconds for `tkit distill` |
 | `TMAP_BIN` | | Use this tmap binary |
-| `TFORGE_UI` | | `0` stops the dashboard from starting with your first session |
+| `TFORGE_UI` | | `0` stops the dashboard from starting with your first session (it never auto-starts in headless `claude -p`, SDK or CI sessions) |
 | `TFORGE_UI_PORT` | `7878` | Dashboard port (the next free one is used if taken) |
 | `TFORGE_NO_DOWNLOAD` | | `1` never downloads tmap; build with cargo instead |
 | `TFORGE_DISTILL_MODEL` / `_TIMEOUT` / `_MAX_BYTES` | `haiku` / `120` / `480000` | Model, timeout (s) and input cap for `tkit distill` and `web --ask` |

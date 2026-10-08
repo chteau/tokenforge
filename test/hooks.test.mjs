@@ -419,3 +419,16 @@ test('answer cache: a repeated question is answered from memory with no model ca
   assert.equal(ask('How do I deploy this to production?'), null);
   assert.equal(run('answer-cache.mjs', { prompt: 'what is the password of the local dev admin account', cwd: proj, session_id: sid() }, { TFORGE_ANSWER_CACHE: '0' }), null);
 });
+
+test('session start: no dashboard auto-start in headless sessions (claude -p, SDK, CI)', () => {
+  const dir = tmpdir('tforge-ui-');
+  for (const e of [{ CLAUDE_CODE_ENTRYPOINT: 'sdk-cli' }, { CLAUDE_CODE_SESSION_ATTENDED: '0' }, { CI: 'true' }]) {
+    const r = spawnSync('node', [HOOK('session-start.mjs')], {
+      input: JSON.stringify({ cwd: dir, source: 'startup' }), encoding: 'utf8',
+      env: { ...BASE_ENV, HOME: dir, XDG_CONFIG_HOME: dir, XDG_CACHE_HOME: dir, CLAUDE_CONFIG_DIR: path.join(dir, 'cc'), TFORGE_LEAN_DEFAULT: 'off', ...e },
+    });
+    assert.equal(r.status, 0, r.stderr);
+    assert.doesNotMatch(r.stdout, /dashboard starting/, JSON.stringify(e));
+  }
+  assert.ok(!fs.existsSync(path.join(dir, 'tokenforge', 'ui.json')) && !fs.existsSync(path.join(dir, '.cache', 'tokenforge', 'ui.json')));
+});

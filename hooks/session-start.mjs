@@ -85,9 +85,12 @@ function handoff(cwd, source, sessionId) {
   return parts.length ? parts.join('\n\n') : null;
 }
 
+// Headless sessions (claude -p, the SDK, CI) have nobody to open a dashboard, and a detached server would outlive them.
+const unattended = () => /^sdk/.test(process.env.CLAUDE_CODE_ENTRYPOINT || '') || process.env.CLAUDE_CODE_SESSION_ATTENDED === '0' || !!process.env.CI;
+
 // Start the local dashboard once per machine boot (or after it was stopped). Costs no context tokens.
 function ensureDashboard() {
-  if (process.env.TFORGE_UI === '0' || uiState()) return null;
+  if (process.env.TFORGE_UI === '0' || unattended() || uiState()) return null;
   const tforge = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'tforge');
   try {
     const child = spawn(process.execPath, [tforge, 'ui', '--detach'], { detached: true, stdio: 'ignore' });
