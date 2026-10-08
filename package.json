@@ -8,7 +8,7 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "data": "node scripts/extract-data.mjs"
+    "data": "node scripts/extract-data.mjs && node scripts/og.mjs"
   },
   "license": "MIT",
   "devDependencies": {

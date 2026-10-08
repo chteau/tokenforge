@@ -4,12 +4,50 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>TokenForge</title>
-  <meta name="description" content="TokenForge is a Claude Code plugin that cuts token use. Measured against clean Claude Code on 19 tasks with Claude Opus 5.5: median −52% total tokens, cheaper on 19 of 19.">
+  <meta name="description" content="%DESC%">
+  <link rel="canonical" href="%SITE%">
   <link rel="icon" type="image/svg+xml" href="/logo.svg">
-  <meta name="theme-color" content="#141413" media="(prefers-color-scheme: dark)">
-  <meta name="theme-color" content="#f4f2ec" media="(prefers-color-scheme: light)">
-  <meta property="og:title" content="TokenForge: TF?! Where the fuck did all my tokens go?">
-  <meta property="og:description" content="A Claude Code plugin. Median −52% total tokens against clean Claude Code, 19/19 tasks cheaper, Opus 5.5 on both sides.">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <meta name="theme-color" content="#d16a47">
+  <meta name="color-scheme" content="dark light">
+
+  <!-- Open Graph (Discord, Slack, LinkedIn, Facebook, iMessage) -->
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="TokenForge">
+  <meta property="og:url" content="%SITE%">
+  <meta property="og:title" content="%TITLE%">
+  <meta property="og:description" content="%DESC%">
+  <meta property="og:image" content="%SITE%og.png">
+  <meta property="og:image:type" content="image/png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="%IMG_ALT%">
+  <meta property="og:locale" content="en_US">
+
+  <!-- X / Twitter -->
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="%TITLE%">
+  <meta name="twitter:description" content="%DESC%">
+  <meta name="twitter:image" content="%SITE%og.png">
+  <meta name="twitter:image:alt" content="%IMG_ALT%">
+
+  <!-- Google: structured data -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "TokenForge",
+    "applicationCategory": "DeveloperApplication",
+    "operatingSystem": "Linux, macOS, Windows",
+    "softwareVersion": "%VERSION%",
+    "description": "%DESC%",
+    "url": "%SITE%",
+    "image": "%SITE%og.png",
+    "license": "https://opensource.org/licenses/MIT",
+    "codeRepository": "https://github.com/chteau/tokenforge",
+    "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
+  }
+  </script>
 </head>
 <body>
   <a class="skip" href="#view">Skip to content</a>
