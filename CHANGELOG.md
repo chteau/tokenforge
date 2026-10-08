@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.7.3
+
+- Context budget: prompts are never held any more. Over the budget you get one non-blocking alert per 10k step, and `.forge/HANDOFF.md` is written automatically from the session's snapshots (no model call), so `/clear` loses nothing. A handoff you wrote is never overwritten. `TFORGE_AUTO_HANDOFF=0` turns it off.
+- Proofreading and reviews are never weakened:
+  - Documents (`.md`, `.tex`, `.txt`, `.rst`, `.bib`, `.html`, `.csv`…) are never folded when read with `cat`.
+  - Terse replies keep any list the user asked for (findings, errors, review points) complete.
+  - The answer cache never replays an answer to a review/verify/proofread request ("relis", "vérifie", "sans contexte", "from scratch"…), nor any answer when project files changed since.
+  - The session policy only discourages re-running checks to double-check, not re-reading.
+
 ## 0.7.2
 
 - After `/clear` without a fresh handoff, a compact checkpoint (last two requests, files changed, start of the last reply; ≤ 900 characters) is reloaded. `TFORGE_CLEAR_RELOAD=0` turns it off.

@@ -529,3 +529,35 @@ test('update check: banner shows a newer version from the daily check; none when
   fs.writeFileSync(path.join(dir, 'tokenforge', 'update.json'), JSON.stringify({ checked: Date.now(), latest: '0.0.1' }));
   assert.doesNotMatch(msg(), /is available/);
 });
+
+test('proofreading is never weakened: fresh-look prompts skip the answer cache, prose is not folded, lists stay complete', async () => {
+  const { FRESH_LOOK } = await import('../lib/memory.mjs');
+  for (const p of ['relis dans sa totalité et sans contexte le document et relève les erreurs et incohérences',
+    'Proofread the manuscript again from scratch', 'review the whole paper', 'vérifie le chapitre 3'])
+    assert.ok(FRESH_LOOK.test(p), p);
+  assert.ok(!FRESH_LOOK.test('what is the password of the local dev admin account'));
+  const { viewFile } = await import('../lib/view.mjs');
+  const dir = tmpdir('tforge-prose-');
+  const doc = path.join(dir, 'paper.tex');
+  fs.writeFileSync(doc, Array.from({ length: 400 }, (_, i) => (i % 20 === 0 ? `\\section{S${i}}` : `  sentence ${i} with a typo teh`)).join('\n'));
+  assert.equal(viewFile(doc).folded, 0, 'a .tex document prints whole');
+  const { TERSE_RULES } = await import('../lib/config.mjs');
+  assert.match(TERSE_RULES.full, /list the user asked for .* stays complete/i);
+});
+
+test('context budget: the handoff is written automatically from this session\'s snapshots, never over the user\'s own', async () => {
+  const { autoHandoff } = await import('../hooks/context-watch.mjs');
+  const { render } = await import('../hooks/checkpoint.mjs');
+  const dir = tmpdir('tforge-auto-');
+  const sd = path.join(dir, '.forge', 'snapshots');
+  fs.mkdirSync(sd, { recursive: true });
+  const sidv = 'abcd1234-ffff';
+  fs.writeFileSync(path.join(sd, '20261008-1000-abcd1234-001.md'), render({ n: 1, start: '2026-10-08T10:00:00Z', end: '2026-10-08T10:10:00Z', ctx: 1, prompts: ['build the sql layer'], files: [path.join(dir, 'src/sql.rs')], reply: 'sql layer done' }, sidv, dir));
+  fs.writeFileSync(path.join(sd, '20261008-1100-abcd1234-002.md'), render({ n: 2, start: '2026-10-08T11:00:00Z', end: '2026-10-08T11:10:00Z', ctx: 1, prompts: ['add duckdb backend'], files: [path.join(dir, 'src/duckdb.rs')], reply: 'duckdb backend compiles; TPC-H q1 passes' }, sidv, dir));
+  assert.equal(autoHandoff(dir, sidv, 257000), true);
+  const h = fs.readFileSync(path.join(dir, '.forge', 'HANDOFF.md'), 'utf8');
+  assert.match(h, /automatic[\s\S]*build the sql layer[\s\S]*add duckdb backend[\s\S]*src\/sql\.rs[\s\S]*src\/duckdb\.rs[\s\S]*TPC-H q1 passes/);
+  fs.writeFileSync(path.join(dir, '.forge', 'HANDOFF.md'), '# my own handoff\nnext: q2');
+  assert.equal(autoHandoff(dir, sidv, 260000), false, "the user's handoff is kept");
+  assert.match(fs.readFileSync(path.join(dir, '.forge', 'HANDOFF.md'), 'utf8'), /my own handoff/);
+});

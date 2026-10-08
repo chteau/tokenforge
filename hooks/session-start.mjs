@@ -31,7 +31,7 @@ export function kitPolicy() {
   if (kitHookOff('TFORGE_KIT_POLICY')) return null;
   return [
     'tokenforge: tool results are re-read on every later call: keep them small, calls few. Read code in ONE call, not grep then sed: `tread NAME Type.method path:40-80 "path:/regex/"` prints definitions by name, line ranges, or the definition around each match, across files. Batch reads; edit each file in one call; create new files several per call (one Bash call with several heredocs).',
-    'Build/test output is compacted (tkit test [FILTER], tkit check). Changed code: run relevant checks once at the end. Read-only work: no checks. Never re-read or re-run to double-check.',
+    'Build/test output is compacted (tkit test [FILTER], tkit check). Changed code: run relevant checks once at the end. Read-only work: no checks. Don\'t re-run checks to double-check.',
     // "Lazy, not negligent" (adapted from ponytail without its challenge-the-requirement mode, which skips
     // requirements under hidden tests): full scope, nothing extra, concise but readable code. In bench/ runs Token
     // Forge already wrote 10-35% less code than plain Claude Code; references are ~half again. Off: TFORGE_LAZY=0.

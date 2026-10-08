@@ -331,11 +331,11 @@ test('context budget warns once per band and holds one prompt; handoff-load inje
   const out = JSON.parse(run({ hook_event_name: 'PostToolUse' }).stdout);
   assert.match(out.hookSpecificOutput.additionalContext, /~95k tokens, over the 50k budget/);
   assert.equal(run({ hook_event_name: 'PostToolUse' }).stdout, '', 'same band stays silent');
-  const held = JSON.parse(run({ hook_event_name: 'UserPromptSubmit', prompt: 'next thing' }).stdout);
-  assert.equal(held.decision, 'block');
-  assert.match(held.reason, /\/clear/);
-  assert.equal(run({ hook_event_name: 'UserPromptSubmit', prompt: 'next thing' }).stdout, '', 're-sent prompt goes through');
-  assert.equal(run({ hook_event_name: 'UserPromptSubmit', prompt: '/tokenforge:handoff' }).stdout, '', 'slash commands go through');
+  const alert = JSON.parse(run({ hook_event_name: 'UserPromptSubmit', prompt: 'next thing' }).stdout);
+  assert.equal(alert.decision, undefined, 'prompts are never held');
+  assert.match(alert.systemMessage, /\/clear when it suits you[\s\S]*sent normally/);
+  assert.equal(run({ hook_event_name: 'UserPromptSubmit', prompt: 'another thing' }).stdout, '', 'one alert per step');
+  assert.equal(run({ hook_event_name: 'UserPromptSubmit', prompt: '/tokenforge:handoff' }).stdout, '', 'slash commands stay silent');
 
   // A fixed part above the budget moves the limit to fixed + floor.
   const tr2 = path.join(dir, 't2.jsonl');
