@@ -1,0 +1,1019 @@
+diff --git a/.formatter.exs b/.formatter.exs
+new file mode 100644
+index 0000000..d304ff3
+--- /dev/null
++++ b/.formatter.exs
+@@ -0,0 +1,3 @@
++[
++  inputs: ["{mix,.formatter}.exs", "{config,lib,test}/**/*.{ex,exs}"]
++]
+diff --git a/.gitignore b/.gitignore
+index 2a1f889..5916b8b 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -5,3 +5,4 @@
+ *.ez
+ /jobq
+ erl_crash.dump
++/tmp/
+diff --git a/README.md b/README.md
+index 5acf1d8..4f9bd14 100644
+--- a/README.md
++++ b/README.md
+@@ -1 +1,29 @@
+ # jobq — a small persistent job queue with a command-line front-end
++
++An OTP application: a supervised `Jobq.Queue` GenServer holds the queue, `Jobq.Core` has the
++queue rules, `Jobq.Store` persists the state file and `Jobq.CLI` is the escript front-end.
++
++## Build and test
++
++```
++mix escript.build     # produces ./jobq
++mix test
++mix format --check-formatted
++```
++
++## Usage
++
++```
++jobq add NAME [--payload TEXT] [--priority 0-9] [--delay S | --at T] [--max-attempts N] [--backoff S]
++jobq take [--lease S]          # prints <id>\t<name>\t<payload>
++jobq ack ID | fail ID [--error TEXT] | retry ID | cancel ID
++jobq list [--state ready|scheduled|running|done|dead]
++jobq show ID | stats | purge
++```
++
++`JOBQ_STATE` selects the state file (default `jobq.state`); `JOBQ_NOW` overrides the clock
++(Unix seconds). Failed jobs are retried after `backoff * 2^(attempts-1)` seconds (at most an
++hour) until `max_attempts` is reached, then they are dead until `retry`.
++
++Exit codes: 0 ok, 1 unknown job, 2 usage error, 3 state file error, 4 no job ready,
++5 job in the wrong state.
+diff --git a/lib/jobq/application.ex b/lib/jobq/application.ex
+new file mode 100644
+index 0000000..45cd96c
+--- /dev/null
++++ b/lib/jobq/application.ex
+@@ -0,0 +1,10 @@
++defmodule Jobq.Application do
++  @moduledoc false
++  use Application
++
++  @impl true
++  def start(_type, _args) do
++    children = [Jobq.Queue]
++    Supervisor.start_link(children, strategy: :one_for_one, name: Jobq.Supervisor)
++  end
++end
+diff --git a/lib/jobq/cli.ex b/lib/jobq/cli.ex
+new file mode 100644
+index 0000000..d8f882e
+--- /dev/null
++++ b/lib/jobq/cli.ex
+@@ -0,0 +1,183 @@
++defmodule Jobq.CLI do
++  @moduledoc """
++  Command-line front-end: parses arguments, drives `Jobq.Queue` and formats output.
++  """
++
++  alias Jobq.{Job, Queue}
++  alias Jobq.CLI.Parser
++
++  @usage """
++  usage: jobq <command> [options]
++
++    add NAME [--payload TEXT] [--priority N] [--delay SECONDS | --at TIME]
++             [--max-attempts N] [--backoff SECONDS]
++    take [--lease SECONDS]
++    ack ID
++    fail ID [--error TEXT]
++    retry ID
++    cancel ID
++    list [--state ready|scheduled|running|done|dead]
++    show ID
++    stats
++    purge
++
++  environment: JOBQ_STATE (state file, default jobq.state), JOBQ_NOW (Unix seconds)
++  """
++
++  @defaults %{lease: 60, error: "failed"}
++
++  @type result :: {non_neg_integer(), String.t(), String.t()}
++
++  @doc "Escript entry point."
++  def main(args) do
++    {code, out, err} = run(args, System.get_env())
++    IO.write(out)
++    IO.write(:stderr, err)
++    System.halt(code)
++  end
++
++  @doc "Runs one invocation; returns `{exit_code, stdout, stderr}`."
++  @spec run([String.t()], %{String.t() => String.t()}, Queue.server()) :: result()
++  def run(args, env, server \\ Queue) do
++    result =
++      with {:ok, command} <- parse(args),
++           {:ok, now} <- now(env) do
++        execute(command, Map.get(env, "JOBQ_STATE", "jobq.state"), now, server)
++      end
++
++    case result do
++      :help -> {0, @usage, ""}
++      {:error, code, message} -> {code, "", "error: #{message}\n"}
++      {:ok, out} -> {0, IO.iodata_to_binary(out), ""}
++    end
++  end
++
++  defp parse(args) do
++    case Parser.parse(args) do
++      :help -> :help
++      {:error, message} -> {:error, 2, message}
++      command -> {:ok, command}
++    end
++  end
++
++  defp now(env) do
++    case Map.fetch(env, "JOBQ_NOW") do
++      :error ->
++        {:ok, System.os_time(:second)}
++
++      {:ok, text} ->
++        if String.match?(text, ~r/\A[0-9]+\z/),
++          do: {:ok, String.to_integer(text)},
++          else: {:error, 2, "invalid JOBQ_NOW"}
++    end
++  end
++
++  defp execute(command, path, now, server) do
++    with :ok <- load(server, path),
++         {:ok, _} <- Queue.expire_leases(server, now),
++         {:ok, out} <- command(command, now, server) |> to_output(),
++         :ok <- save(server, path) do
++      {:ok, out}
++    end
++  end
++
++  defp load(server, path) do
++    case Queue.load(server, path) do
++      :ok -> :ok
++      {:error, _} -> {:error, 3, "cannot load state: #{path}"}
++    end
++  end
++
++  defp save(server, path) do
++    case Queue.save(server) do
++      :ok -> :ok
++      {:error, _} -> {:error, 3, "cannot save state: #{path}"}
++    end
++  end
++
++  defp command({:add, name, opts}, now, server) do
++    with {:ok, job} <- Queue.add(server, name, opts, now), do: {:ok, "#{job.id}\n"}
++  end
++
++  defp command({:take, nil, opts}, now, server) do
++    lease = Map.get(opts, :lease, @defaults.lease)
++
++    with {:ok, job} <- Queue.take(server, lease, now),
++         do: {:ok, "#{job.id}\t#{job.name}\t#{job.payload}\n"}
++  end
++
++  defp command({:ack, id, _}, now, server) do
++    with {:ok, _} <- Queue.ack(server, id, now), do: {:ok, "done #{id}\n"}
++  end
++
++  defp command({:fail, id, opts}, now, server) do
++    case Queue.fail(server, id, Map.get(opts, :error, @defaults.error), now) do
++      {:ok, %Job{status: :dead}} -> {:ok, "dead #{id}\n"}
++      {:ok, job} -> {:ok, "retry #{id} at #{job.run_at}\n"}
++      error -> error
++    end
++  end
++
++  defp command({:retry, id, _}, now, server) do
++    with {:ok, _} <- Queue.retry(server, id, now), do: {:ok, "requeued #{id}\n"}
++  end
++
++  defp command({:cancel, id, _}, now, server) do
++    with {:ok, _} <- Queue.cancel(server, id, now), do: {:ok, "cancelled #{id}\n"}
++  end
++
++  defp command({:list, nil, opts}, now, server) do
++    lines =
++      for job <- Queue.list(server, Map.get(opts, :state), now) do
++        state = Job.display_state(job, now)
++
++        "#{job.id}\t#{state}\t#{job.priority}\t#{job.attempts}/#{job.max_attempts}\t" <>
++          "#{job.run_at}\t#{job.name}\n"
++      end
++
++    {:ok, lines}
++  end
++
++  defp command({:show, id, _}, now, server) do
++    with {:ok, job} <- Queue.get(server, id), do: {:ok, format_job(job, now)}
++  end
++
++  defp command({:stats, nil, _}, now, server) do
++    s = Queue.stats(server, now)
++
++    {:ok,
++     for key <- ~w(ready scheduled running done dead total next_run_at oldest_ready_age)a do
++       "#{key}: #{dash(Map.fetch!(s, key))}\n"
++     end}
++  end
++
++  defp command({:purge, nil, _}, _now, server) do
++    with {:ok, count} <- Queue.purge(server), do: {:ok, "purged #{count}\n"}
++  end
++
++  defp format_job(job, now) do
++    [
++      id: job.id,
++      name: job.name,
++      state: Job.display_state(job, now),
++      priority: job.priority,
++      attempts: "#{job.attempts}/#{job.max_attempts}",
++      backoff: job.backoff,
++      run_at: job.run_at,
++      lease_until: dash(job.lease_until),
++      last_error: dash(job.last_error),
++      payload: job.payload
++    ]
++    |> Enum.map(fn {key, value} -> "#{key}: #{value}\n" end)
++  end
++
++  defp to_output({:ok, out}), do: {:ok, out}
++  defp to_output({:error, :no_job_ready}), do: {:error, 4, "no job ready"}
++  defp to_output({:error, {:not_found, id}}), do: {:error, 1, "job not found: #{id}"}
++
++  defp to_output({:error, {:wrong_state, id, state}}),
++    do: {:error, 5, "job #{id} is #{state}"}
++
++  defp dash(nil), do: "-"
++  defp dash(value), do: value
++end
+diff --git a/lib/jobq/cli/parser.ex b/lib/jobq/cli/parser.ex
+new file mode 100644
+index 0000000..0997a7d
+--- /dev/null
++++ b/lib/jobq/cli/parser.ex
+@@ -0,0 +1,126 @@
++defmodule Jobq.CLI.Parser do
++  @moduledoc "Validates command-line arguments into a command, its argument and options."
++
++  @states ~w(ready scheduled running done dead)
++
++  # command => {positional argument kind or nil, %{option => {key, kind}}}
++  @commands %{
++    "add" =>
++      {:name,
++       %{
++         "--payload" => {:payload, :text},
++         "--priority" => {:priority, {:int, 0, 9}},
++         "--delay" => {:delay, {:int, 0, nil}},
++         "--at" => {:at, {:int, 0, nil}},
++         "--max-attempts" => {:max_attempts, {:int, 1, 100}},
++         "--backoff" => {:backoff, {:int, 1, 3600}}
++       }},
++    "take" => {nil, %{"--lease" => {:lease, {:int, 1, 86_400}}}},
++    "ack" => {:id, %{}},
++    "fail" => {:id, %{"--error" => {:error, :text}}},
++    "retry" => {:id, %{}},
++    "cancel" => {:id, %{}},
++    "list" => {nil, %{"--state" => {:state, :state}}},
++    "show" => {:id, %{}},
++    "stats" => {nil, %{}},
++    "purge" => {nil, %{}}
++  }
++
++  @type command ::
++          :add | :take | :ack | :fail | :retry | :cancel | :list | :show | :stats | :purge
++  @type parsed :: :help | {command(), term(), map()} | {:error, String.t()}
++
++  @doc """
++  Parses the arguments. Returns `:help`, `{command, argument, options}` (the
++  argument is nil for commands without one) or `{:error, message}`.
++  """
++  @spec parse([String.t()]) :: parsed()
++  def parse([flag]) when flag in ["--help", "-h"], do: :help
++  def parse([]), do: {:error, "missing command (try --help)"}
++
++  def parse([command | rest]) do
++    case Map.fetch(@commands, command) do
++      {:ok, {arg_kind, options}} ->
++        with {:ok, positionals, opts} <- split(rest, options, [], %{}),
++             {:ok, arg} <- positional(arg_kind, positionals),
++             :ok <- check_combination(opts) do
++          {String.to_atom(command), arg, opts}
++        end
++
++      :error ->
++        {:error, "unknown command: #{command}"}
++    end
++  end
++
++  defp split([], _options, positionals, opts), do: {:ok, Enum.reverse(positionals), opts}
++
++  defp split(["-" <> _ = flag | rest], options, positionals, opts) do
++    with {:ok, {key, kind}} <- fetch_option(options, flag),
++         :ok <- not_repeated(opts, key, flag),
++         [value | rest] <- rest,
++         {:ok, parsed} <- value(kind, value, flag) do
++      split(rest, options, positionals, Map.put(opts, key, parsed))
++    else
++      [] -> {:error, "missing value for #{flag}"}
++      {:error, _} = error -> error
++    end
++  end
++
++  defp split([arg | rest], options, positionals, opts),
++    do: split(rest, options, [arg | positionals], opts)
++
++  defp not_repeated(opts, key, flag) do
++    if Map.has_key?(opts, key), do: {:error, "repeated option: #{flag}"}, else: :ok
++  end
++
++  defp fetch_option(options, flag) do
++    case Map.fetch(options, flag) do
++      {:ok, spec} -> {:ok, spec}
++      :error -> {:error, "unknown option: #{flag}"}
++    end
++  end
++
++  defp positional(nil, []), do: {:ok, nil}
++  defp positional(nil, _), do: {:error, "too many arguments"}
++  defp positional(_kind, []), do: {:error, "missing argument"}
++  defp positional(:name, [name]), do: name(name)
++  defp positional(:id, [id]), do: id(id)
++  defp positional(_kind, _), do: {:error, "too many arguments"}
++
++  defp check_combination(%{delay: _, at: _}), do: {:error, "--delay and --at cannot be combined"}
++  defp check_combination(_opts), do: :ok
++
++  defp name(name) do
++    if String.match?(name, ~r/\A[A-Za-z0-9_.:-]{1,64}\z/),
++      do: {:ok, name},
++      else: {:error, "invalid job name: #{name}"}
++  end
++
++  defp id(text) do
++    if String.match?(text, ~r/\A[1-9][0-9]*\z/),
++      do: {:ok, String.to_integer(text)},
++      else: {:error, "invalid job id: #{text}"}
++  end
++
++  defp value(:text, text, flag) do
++    if byte_size(text) <= 1024 and not String.contains?(text, ["\n", "\r"]),
++      do: {:ok, text},
++      else: {:error, "invalid value for #{flag}"}
++  end
++
++  defp value(:state, state, flag) do
++    if state in @states,
++      do: {:ok, String.to_existing_atom(state)},
++      else: {:error, "invalid value for #{flag}"}
++  end
++
++  defp value({:int, min, max}, text, flag) do
++    with true <- String.match?(text, ~r/\A[0-9]+\z/),
++         n = String.to_integer(text),
++         true <- n >= min and (max == nil or n <= max) do
++      {:ok, n}
++    else
++      _ -> {:error, "invalid value for #{flag}"}
++    end
++  end
++end
+diff --git a/lib/jobq/core.ex b/lib/jobq/core.ex
+new file mode 100644
+index 0000000..2eb023b
+--- /dev/null
++++ b/lib/jobq/core.ex
+@@ -0,0 +1,174 @@
++defmodule Jobq.Core do
++  @moduledoc """
++  Pure queue rules: ordering, leases, retries with exponential backoff and the
++  dead-letter state. Every function takes the current time explicitly.
++  """
++
++  alias Jobq.Job
++
++  @max_retry_delay 3600
++
++  @type t :: %__MODULE__{jobs: %{pos_integer() => Job.t()}, next_id: pos_integer()}
++  @type error ::
++          {:not_found, pos_integer()}
++          | {:wrong_state, pos_integer(), Job.display_state()}
++          | :no_job_ready
++
++  defstruct jobs: %{}, next_id: 1
++
++  @spec new() :: t()
++  def new, do: %__MODULE__{}
++
++  @doc """
++  Adds a job. `attrs` may hold `:payload`, `:priority`, `:max_attempts`,
++  `:backoff`, and either `:delay` or `:at`.
++  """
++  @spec add(t(), String.t(), map(), integer()) :: {:ok, Job.t(), t()}
++  def add(%__MODULE__{} = q, name, attrs, now) do
++    run_at =
++      case attrs do
++        %{at: at} -> at
++        %{delay: delay} -> now + delay
++        _ -> now
++      end
++
++    fields = Map.take(attrs, [:payload, :priority, :max_attempts, :backoff])
++    job = struct!(Job, Map.merge(fields, %{id: q.next_id, name: name, run_at: run_at}))
++    {:ok, job, %{q | jobs: Map.put(q.jobs, job.id, job), next_id: q.next_id + 1}}
++  end
++
++  @doc "Reserves the next ready job for `lease` seconds."
++  @spec take(t(), pos_integer(), integer()) :: {:ok, Job.t(), t()} | {:error, error()}
++  def take(%__MODULE__{} = q, lease, now) do
++    q.jobs
++    |> Map.values()
++    |> Enum.filter(&(Job.display_state(&1, now) == :ready))
++    |> Enum.min_by(&{-&1.priority, &1.run_at, &1.id}, fn -> nil end)
++    |> case do
++      nil ->
++        {:error, :no_job_ready}
++
++      job ->
++        put(q, %{job | status: :running, attempts: job.attempts + 1, lease_until: now + lease})
++    end
++  end
++
++  @spec ack(t(), pos_integer(), integer()) :: {:ok, Job.t(), t()} | {:error, error()}
++  def ack(q, id, now) do
++    with {:ok, job} <- fetch(q, id, [:running], now) do
++      put(q, %{job | status: :done, lease_until: nil})
++    end
++  end
++
++  @doc "Records a failure of a running job at time `now`."
++  @spec fail(t(), pos_integer(), String.t(), integer()) :: {:ok, Job.t(), t()} | {:error, error()}
++  def fail(q, id, error, now) do
++    with {:ok, job} <- fetch(q, id, [:running], now) do
++      put(q, failed(job, error, now))
++    end
++  end
++
++  @spec retry(t(), pos_integer(), integer()) :: {:ok, Job.t(), t()} | {:error, error()}
++  def retry(q, id, now) do
++    with {:ok, job} <- fetch(q, id, [:dead], now) do
++      put(q, %{job | status: :queued, attempts: 0, run_at: now})
++    end
++  end
++
++  @spec cancel(t(), pos_integer(), integer()) :: {:ok, Job.t(), t()} | {:error, error()}
++  def cancel(q, id, now) do
++    with {:ok, job} <- fetch(q, id, [:ready, :scheduled], now) do
++      {:ok, job, %{q | jobs: Map.delete(q.jobs, id)}}
++    end
++  end
++
++  @spec purge(t()) :: {:ok, non_neg_integer(), t()}
++  def purge(q) do
++    {done, keep} = Map.split_with(q.jobs, fn {_id, job} -> job.status == :done end)
++    {:ok, map_size(done), %{q | jobs: keep}}
++  end
++
++  @doc "Fails every running job whose lease ended at or before `now`."
++  @spec expire_leases(t(), integer()) :: t()
++  def expire_leases(q, now) do
++    q.jobs
++    |> Map.values()
++    |> Enum.filter(&(&1.status == :running and &1.lease_until <= now))
++    |> Enum.sort_by(&{&1.lease_until, &1.id})
++    |> Enum.reduce(q, fn job, acc ->
++      expired = failed(job, "lease expired", job.lease_until)
++      %{acc | jobs: Map.put(acc.jobs, job.id, expired)}
++    end)
++  end
++
++  @spec get(t(), pos_integer()) :: {:ok, Job.t()} | {:error, error()}
++  def get(q, id) do
++    case Map.fetch(q.jobs, id) do
++      {:ok, job} -> {:ok, job}
++      :error -> {:error, {:not_found, id}}
++    end
++  end
++
++  @doc "Jobs ordered by id, optionally only those in one displayed state."
++  @spec list(t(), Job.display_state() | nil, integer()) :: [Job.t()]
++  def list(q, state, now) do
++    q.jobs
++    |> Map.values()
++    |> Enum.filter(&(state == nil or Job.display_state(&1, now) == state))
++    |> Enum.sort_by(& &1.id)
++  end
++
++  @spec stats(t(), integer()) :: map()
++  def stats(q, now) do
++    jobs = Map.values(q.jobs)
++    counts = Enum.frequencies_by(jobs, &Job.display_state(&1, now))
++    by_state = fn state -> Enum.filter(jobs, &(Job.display_state(&1, now) == state)) end
++
++    oldest_ready =
++      case by_state.(:ready) do
++        [] -> nil
++        ready -> now - Enum.min_by(ready, & &1.run_at).run_at
++      end
++
++    next_run =
++      case by_state.(:scheduled) do
++        [] -> nil
++        scheduled -> Enum.min_by(scheduled, & &1.run_at).run_at
++      end
++
++    %{
++      ready: Map.get(counts, :ready, 0),
++      scheduled: Map.get(counts, :scheduled, 0),
++      running: Map.get(counts, :running, 0),
++      done: Map.get(counts, :done, 0),
++      dead: Map.get(counts, :dead, 0),
++      total: length(jobs),
++      next_run_at: next_run,
++      oldest_ready_age: oldest_ready
++    }
++  end
++
++  @doc "Delay before the next attempt after `attempts` attempts."
++  @spec retry_delay(pos_integer(), pos_integer()) :: pos_integer()
++  def retry_delay(backoff, attempts),
++    do: min(backoff * Integer.pow(2, attempts - 1), @max_retry_delay)
++
++  defp failed(%Job{} = job, error, at) do
++    job = %{job | last_error: error, lease_until: nil}
++
++    if job.attempts < job.max_attempts do
++      %{job | status: :queued, run_at: at + retry_delay(job.backoff, job.attempts)}
++    else
++      %{job | status: :dead}
++    end
++  end
++
++  defp fetch(q, id, allowed, now) do
++    with {:ok, job} <- get(q, id) do
++      state = Job.display_state(job, now)
++      if state in allowed, do: {:ok, job}, else: {:error, {:wrong_state, id, state}}
++    end
++  end
++
++  defp put(q, job), do: {:ok, job, %{q | jobs: Map.put(q.jobs, job.id, job)}}
++end
+diff --git a/lib/jobq/job.ex b/lib/jobq/job.ex
+new file mode 100644
+index 0000000..ec40f2b
+--- /dev/null
++++ b/lib/jobq/job.ex
+@@ -0,0 +1,43 @@
++defmodule Jobq.Job do
++  @moduledoc "A single job and the derived state shown to users."
++
++  @type status :: :queued | :running | :done | :dead
++  @type display_state :: :ready | :scheduled | :running | :done | :dead
++
++  @type t :: %__MODULE__{
++          id: pos_integer(),
++          name: String.t(),
++          payload: String.t(),
++          priority: 0..9,
++          max_attempts: pos_integer(),
++          backoff: pos_integer(),
++          attempts: non_neg_integer(),
++          run_at: non_neg_integer(),
++          status: status(),
++          lease_until: non_neg_integer() | nil,
++          last_error: String.t() | nil
++        }
++
++  @enforce_keys [:id, :name, :run_at]
++  defstruct [
++    :id,
++    :name,
++    :run_at,
++    payload: "",
++    priority: 0,
++    max_attempts: 3,
++    backoff: 10,
++    attempts: 0,
++    status: :queued,
++    lease_until: nil,
++    last_error: nil
++  ]
++
++  @doc "The state a user sees at time `now`."
++  @spec display_state(t(), integer()) :: display_state()
++  def display_state(%__MODULE__{status: :queued, run_at: run_at}, now) when run_at > now,
++    do: :scheduled
++
++  def display_state(%__MODULE__{status: :queued}, _now), do: :ready
++  def display_state(%__MODULE__{status: status}, _now), do: status
++end
+diff --git a/lib/jobq/queue.ex b/lib/jobq/queue.ex
+new file mode 100644
+index 0000000..34ccc66
+--- /dev/null
++++ b/lib/jobq/queue.ex
+@@ -0,0 +1,83 @@
++defmodule Jobq.Queue do
++  @moduledoc """
++  GenServer holding the in-memory queue. It is loaded from a state file,
++  updated through the client API and saved back when something changed.
++  """
++  use GenServer
++
++  alias Jobq.{Core, Store}
++
++  @type server :: GenServer.server()
++
++  def start_link(opts \\ []) do
++    GenServer.start_link(__MODULE__, :ok, name: Keyword.get(opts, :name, __MODULE__))
++  end
++
++  @doc "Replaces the in-memory queue with the contents of `path`."
++  @spec load(server(), Path.t()) :: :ok | {:error, :load}
++  def load(server \\ __MODULE__, path), do: GenServer.call(server, {:load, path})
++
++  @doc "Saves the queue if it changed since it was loaded or last saved."
++  @spec save(server()) :: :ok | {:error, :save}
++  def save(server \\ __MODULE__), do: GenServer.call(server, :save)
++
++  def expire_leases(server \\ __MODULE__, now), do: update(server, {:expire_leases, now})
++  def add(server \\ __MODULE__, name, attrs, now), do: update(server, {:add, name, attrs, now})
++  def take(server \\ __MODULE__, lease, now), do: update(server, {:take, lease, now})
++  def ack(server \\ __MODULE__, id, now), do: update(server, {:ack, id, now})
++  def fail(server \\ __MODULE__, id, error, now), do: update(server, {:fail, id, error, now})
++  def retry(server \\ __MODULE__, id, now), do: update(server, {:retry, id, now})
++  def cancel(server \\ __MODULE__, id, now), do: update(server, {:cancel, id, now})
++  def purge(server \\ __MODULE__), do: update(server, :purge)
++
++  def get(server \\ __MODULE__, id), do: GenServer.call(server, {:read, &Core.get(&1, id)})
++
++  def list(server \\ __MODULE__, state, now),
++    do: GenServer.call(server, {:read, &Core.list(&1, state, now)})
++
++  def stats(server \\ __MODULE__, now),
++    do: GenServer.call(server, {:read, &Core.stats(&1, now)})
++
++  defp update(server, op), do: GenServer.call(server, {:update, op})
++
++  # Server callbacks
++
++  @impl true
++  def init(:ok), do: {:ok, %{queue: Core.new(), saved: Core.new(), path: nil}}
++
++  @impl true
++  def handle_call({:load, path}, _from, state) do
++    case Store.load(path) do
++      {:ok, queue} -> {:reply, :ok, %{state | queue: queue, saved: queue, path: path}}
++      {:error, _} = error -> {:reply, error, state}
++    end
++  end
++
++  def handle_call(:save, _from, %{queue: queue, saved: queue} = state),
++    do: {:reply, :ok, state}
++
++  def handle_call(:save, _from, state) do
++    case Store.save(state.path, state.queue) do
++      :ok -> {:reply, :ok, %{state | saved: state.queue}}
++      error -> {:reply, error, state}
++    end
++  end
++
++  def handle_call({:read, fun}, _from, state), do: {:reply, fun.(state.queue), state}
++
++  def handle_call({:update, op}, _from, state) do
++    case apply_op(state.queue, op) do
++      {:ok, result, queue} -> {:reply, {:ok, result}, %{state | queue: queue}}
++      {:error, _} = error -> {:reply, error, state}
++    end
++  end
++
++  defp apply_op(q, {:expire_leases, now}), do: {:ok, :ok, Core.expire_leases(q, now)}
++  defp apply_op(q, {:add, name, attrs, now}), do: Core.add(q, name, attrs, now)
++  defp apply_op(q, {:take, lease, now}), do: Core.take(q, lease, now)
++  defp apply_op(q, {:ack, id, now}), do: Core.ack(q, id, now)
++  defp apply_op(q, {:fail, id, error, now}), do: Core.fail(q, id, error, now)
++  defp apply_op(q, {:retry, id, now}), do: Core.retry(q, id, now)
++  defp apply_op(q, {:cancel, id, now}), do: Core.cancel(q, id, now)
++  defp apply_op(q, :purge), do: Core.purge(q)
++end
+diff --git a/lib/jobq/store.ex b/lib/jobq/store.ex
+new file mode 100644
+index 0000000..7924196
+--- /dev/null
++++ b/lib/jobq/store.ex
+@@ -0,0 +1,46 @@
++defmodule Jobq.Store do
++  @moduledoc "Reads and atomically writes the queue state file."
++
++  alias Jobq.Core
++
++  @format {:jobq_state, 1}
++
++  @doc "Loads the queue from `path`; a missing file is an empty queue."
++  @spec load(Path.t()) :: {:ok, Core.t()} | {:error, :load}
++  def load(path) do
++    case File.read(path) do
++      {:ok, binary} -> decode(binary)
++      {:error, :enoent} -> {:ok, Core.new()}
++      {:error, _} -> {:error, :load}
++    end
++  end
++
++  @doc "Writes the queue to a temporary file next to `path`, then renames it over `path`."
++  @spec save(Path.t(), Core.t()) :: :ok | {:error, :save}
++  def save(path, %Core{} = queue) do
++    tmp = path <> ".tmp"
++    binary = :erlang.term_to_binary({@format, queue})
++
++    with :ok <- File.write(tmp, binary, [:binary]),
++         :ok <- File.rename(tmp, path) do
++      :ok
++    else
++      _ ->
++        File.rm(tmp)
++        {:error, :save}
++    end
++  end
++
++  defp decode(binary) do
++    case :erlang.binary_to_term(binary, [:safe]) do
++      {@format, %Core{jobs: jobs, next_id: next_id} = queue}
++      when is_map(jobs) and is_integer(next_id) ->
++        {:ok, queue}
++
++      _ ->
++        {:error, :load}
++    end
++  rescue
++    ArgumentError -> {:error, :load}
++  end
++end
+diff --git a/mix.exs b/mix.exs
+new file mode 100644
+index 0000000..bc9fe12
+--- /dev/null
++++ b/mix.exs
+@@ -0,0 +1,21 @@
++defmodule Jobq.MixProject do
++  use Mix.Project
++
++  def project do
++    [
++      app: :jobq,
++      version: "0.1.0",
++      elixir: "~> 1.20",
++      start_permanent: Mix.env() == :prod,
++      escript: [main_module: Jobq.CLI],
++      deps: []
++    ]
++  end
++
++  def application do
++    [
++      extra_applications: [:logger],
++      mod: {Jobq.Application, []}
++    ]
++  end
++end
+diff --git a/test/jobq/cli_test.exs b/test/jobq/cli_test.exs
+new file mode 100644
+index 0000000..da48447
+--- /dev/null
++++ b/test/jobq/cli_test.exs
+@@ -0,0 +1,50 @@
++defmodule Jobq.CLITest do
++  use ExUnit.Case, async: true
++
++  alias Jobq.CLI
++
++  @moduletag :tmp_dir
++
++  setup %{tmp_dir: dir} do
++    server = start_supervised!({Jobq.Queue, name: nil})
++    {:ok, server: server, path: Path.join(dir, "state")}
++  end
++
++  defp jobq(ctx, args, now) do
++    {code, out, err} =
++      CLI.run(args, %{"JOBQ_STATE" => ctx.path, "JOBQ_NOW" => "#{now}"}, ctx.server)
++
++    {code, IO.iodata_to_binary(out), IO.iodata_to_binary(err)}
++  end
++
++  test "add, take, ack across invocations", ctx do
++    assert jobq(ctx, ["add", "mail", "--payload", "hi"], 10) == {0, "1\n", ""}
++    assert jobq(ctx, ["take"], 10) == {0, "1\tmail\thi\n", ""}
++    assert jobq(ctx, ["ack", "1"], 20) == {0, "done 1\n", ""}
++    assert jobq(ctx, ["list"], 20) == {0, "1\tdone\t0\t1/3\t10\tmail\n", ""}
++  end
++
++  test "error codes", ctx do
++    assert jobq(ctx, ["take"], 10) == {4, "", "error: no job ready\n"}
++    assert jobq(ctx, ["show", "9"], 10) == {1, "", "error: job not found: 9\n"}
++    assert {2, "", "error: " <> _} = jobq(ctx, ["bogus"], 10)
++    jobq(ctx, ["add", "a"], 10)
++    assert jobq(ctx, ["ack", "1"], 10) == {5, "", "error: job 1 is ready\n"}
++  end
++
++  test "read-only commands do not create the state file", ctx do
++    assert {0, _, ""} = jobq(ctx, ["stats"], 10)
++    refute File.exists?(ctx.path)
++  end
++
++  test "corrupt state file", ctx do
++    File.write!(ctx.path, "junk")
++    assert jobq(ctx, ["stats"], 10) == {3, "", "error: cannot load state: #{ctx.path}\n"}
++    assert File.read!(ctx.path) == "junk"
++  end
++
++  test "invalid JOBQ_NOW", ctx do
++    assert {2, "", "error: invalid JOBQ_NOW\n"} =
++             CLI.run(["stats"], %{"JOBQ_STATE" => ctx.path, "JOBQ_NOW" => "soon"}, ctx.server)
++  end
++end
+diff --git a/test/jobq/core_test.exs b/test/jobq/core_test.exs
+new file mode 100644
+index 0000000..f5cf281
+--- /dev/null
++++ b/test/jobq/core_test.exs
+@@ -0,0 +1,80 @@
++defmodule Jobq.CoreTest do
++  use ExUnit.Case, async: true
++
++  alias Jobq.Core
++
++  defp add(q, name, attrs \\ %{}, now \\ 100) do
++    {:ok, _job, q} = Core.add(q, name, attrs, now)
++    q
++  end
++
++  test "ids are sequential and never reused" do
++    q = Core.new() |> add("a") |> add("b")
++    {:ok, _, q} = Core.cancel(q, 2, 100)
++    {:ok, job, _} = Core.add(q, "c", %{}, 100)
++    assert job.id == 3
++  end
++
++  test "take orders by priority, then run_at, then id" do
++    q =
++      Core.new()
++      |> add("low")
++      |> add("late", %{priority: 5, at: 90})
++      |> add("early", %{priority: 5, at: 50})
++      |> add("future", %{priority: 9, delay: 10})
++
++    {:ok, first, q} = Core.take(q, 60, 100)
++    {:ok, second, q} = Core.take(q, 60, 100)
++    {:ok, third, q} = Core.take(q, 60, 100)
++    assert {first.name, second.name, third.name} == {"early", "late", "low"}
++    assert first.status == :running and first.attempts == 1 and first.lease_until == 160
++    assert Core.take(q, 60, 100) == {:error, :no_job_ready}
++  end
++
++  test "failures back off exponentially and end in the dead state" do
++    q = add(Core.new(), "job", %{max_attempts: 3, backoff: 10})
++    {:ok, _, q} = Core.take(q, 60, 100)
++    {:ok, job, q} = Core.fail(q, 1, "boom", 105)
++    assert job.status == :queued and job.run_at == 115 and job.last_error == "boom"
++    {:ok, _, q} = Core.take(q, 60, 115)
++    {:ok, job, q} = Core.fail(q, 1, "boom", 120)
++    assert job.run_at == 140
++    {:ok, _, q} = Core.take(q, 60, 140)
++    {:ok, job, q} = Core.fail(q, 1, "boom", 141)
++    assert job.status == :dead and job.run_at == 140
++    {:ok, job, _} = Core.retry(q, 1, 500)
++    assert job.status == :queued and job.attempts == 0 and job.run_at == 500
++  end
++
++  test "retry delay is capped at an hour" do
++    assert Core.retry_delay(10, 1) == 10
++    assert Core.retry_delay(10, 4) == 80
++    assert Core.retry_delay(1000, 3) == 3600
++  end
++
++  test "expired leases fail at the lease end" do
++    q = add(Core.new(), "job")
++    {:ok, _, q} = Core.take(q, 30, 100)
++    assert Core.expire_leases(q, 129) == q
++    q = Core.expire_leases(q, 500)
++    {:ok, job} = Core.get(q, 1)
++    assert job.status == :queued and job.run_at == 140 and job.last_error == "lease expired"
++  end
++
++  test "wrong state and unknown ids" do
++    q = add(Core.new(), "job")
++    assert Core.ack(q, 1, 100) == {:error, {:wrong_state, 1, :ready}}
++    assert Core.ack(q, 7, 100) == {:error, {:not_found, 7}}
++  end
++
++  test "stats and purge" do
++    q = Core.new() |> add("a", %{at: 40}) |> add("b", %{delay: 50}) |> add("c")
++    {:ok, _, q} = Core.take(q, 60, 100)
++    {:ok, _, q} = Core.ack(q, 1, 100)
++    stats = Core.stats(q, 100)
++    assert %{ready: 1, scheduled: 1, done: 1, total: 3, next_run_at: 150} = stats
++    assert stats.oldest_ready_age == 0
++    assert {:ok, 1, q} = Core.purge(q)
++    assert Enum.map(Core.list(q, nil, 100), & &1.id) == [2, 3]
++  end
++end
+diff --git a/test/jobq/parser_test.exs b/test/jobq/parser_test.exs
+new file mode 100644
+index 0000000..b9560fd
+--- /dev/null
++++ b/test/jobq/parser_test.exs
+@@ -0,0 +1,41 @@
++defmodule Jobq.CLI.ParserTest do
++  use ExUnit.Case, async: true
++
++  import Jobq.CLI.Parser, only: [parse: 1]
++
++  test "help" do
++    assert parse(["--help"]) == :help
++    assert parse(["-h"]) == :help
++  end
++
++  test "commands with options in any position" do
++    assert parse(["add", "--priority", "3", "mail", "--payload", "--x"]) ==
++             {:add, "mail", %{priority: 3, payload: "--x"}}
++
++    assert parse(["take"]) == {:take, nil, %{}}
++    assert parse(["fail", "4", "--error", "oops"]) == {:fail, 4, %{error: "oops"}}
++    assert parse(["list", "--state", "dead"]) == {:list, nil, %{state: :dead}}
++  end
++
++  test "usage errors" do
++    for args <- [
++          [],
++          ["nope"],
++          ["add"],
++          ["add", "bad name"],
++          ["add", "a", "b"],
++          ["add", "a", "--priority", "10"],
++          ["add", "a", "--delay", "1", "--at", "2"],
++          ["add", "a", "--priority", "1", "--priority", "2"],
++          ["add", "a", "--payload"],
++          ["ack", "0"],
++          ["ack", "x"],
++          ["take", "--lease", "0"],
++          ["stats", "--lease", "5"],
++          ["list", "--state", "queued"],
++          ["fail", "1", "--error", "a\nb"]
++        ] do
++      assert {:error, _} = parse(args), inspect(args)
++    end
++  end
++end
+diff --git a/test/jobq/store_test.exs b/test/jobq/store_test.exs
+new file mode 100644
+index 0000000..9a473c0
+--- /dev/null
++++ b/test/jobq/store_test.exs
+@@ -0,0 +1,31 @@
++defmodule Jobq.StoreTest do
++  use ExUnit.Case, async: true
++
++  alias Jobq.{Core, Store}
++
++  @moduletag :tmp_dir
++
++  test "missing file is an empty queue", %{tmp_dir: dir} do
++    assert Store.load(Path.join(dir, "none")) == {:ok, Core.new()}
++  end
++
++  test "round trip leaves no temporary file", %{tmp_dir: dir} do
++    path = Path.join(dir, "state")
++    {:ok, _, q} = Core.add(Core.new(), "a", %{payload: "x"}, 5)
++    assert Store.save(path, q) == :ok
++    assert Store.load(path) == {:ok, q}
++    assert File.ls!(dir) == ["state"]
++  end
++
++  test "corrupt file is an error", %{tmp_dir: dir} do
++    path = Path.join(dir, "state")
++    File.write!(path, "garbage")
++    assert Store.load(path) == {:error, :load}
++    File.write!(path, :erlang.term_to_binary(:other))
++    assert Store.load(path) == {:error, :load}
++  end
++
++  test "unwritable location is an error", %{tmp_dir: dir} do
++    assert Store.save(Path.join([dir, "missing", "state"]), Core.new()) == {:error, :save}
++  end
++end
+diff --git a/test/test_helper.exs b/test/test_helper.exs
+new file mode 100644
+index 0000000..869559e
+--- /dev/null
++++ b/test/test_helper.exs
+@@ -0,0 +1 @@
++ExUnit.start()

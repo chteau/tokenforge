@@ -1,0 +1,619 @@
+diff --git a/README.md b/README.md
+index b77357d..7e3f406 100644
+--- a/README.md
++++ b/README.md
+@@ -1 +1,23 @@
+ # logtally — access-log statistics from the command line
++
++Reads nginx/Apache combined-format access logs (plain or gzip, files or stdin) and
++reports request counts, status codes, top paths, bytes and latency percentiles.
++Ruby 4.0, standard library only.
++
++## Usage
++
++```
++bin/logtally [--format text|json] [--top N] [--since TIME] [--until TIME]
++             [--status 200,3xx] [--path GLOB]... [--strict] [FILE...]
++```
++
++The optional last field of each line is the request time in seconds (nginx
++`$request_time`); it feeds the p50/p95/p99 latency figures.
++
++Exit codes: 0 ok, 2 usage error, 3 malformed line with `--strict`, 4 unreadable input.
++
++## Tests
++
++```
++ruby -Ilib -Itest -e 'Dir.glob("test/**/*_test.rb").sort.each { |f| require File.expand_path(f) }'
++```
+diff --git a/bin/logtally b/bin/logtally
+new file mode 100755
+index 0000000..2dbdf2b
+--- /dev/null
++++ b/bin/logtally
+@@ -0,0 +1,6 @@
++#!/usr/bin/env ruby
++# frozen_string_literal: true
++
++require_relative "../lib/logtally"
++
++exit Logtally::CLI.new($stdout, $stderr, $stdin).run(ARGV)
+diff --git a/lib/logtally.rb b/lib/logtally.rb
+new file mode 100644
+index 0000000..f7ccb86
+--- /dev/null
++++ b/lib/logtally.rb
+@@ -0,0 +1,21 @@
++# frozen_string_literal: true
++
++# logtally: access-log statistics from the command line.
++module Logtally
++  # Invalid command-line usage (exit 2).
++  class UsageError < StandardError; end
++
++  # A malformed line in --strict mode (exit 3).
++  class MalformedLineError < StandardError; end
++
++  # An input that cannot be opened, read or decompressed (exit 4).
++  class InputError < StandardError; end
++end
++
++require_relative "logtally/entry"
++require_relative "logtally/line_parser"
++require_relative "logtally/reader"
++require_relative "logtally/filter"
++require_relative "logtally/stats"
++require_relative "logtally/formatter"
++require_relative "logtally/cli"
+diff --git a/lib/logtally/cli.rb b/lib/logtally/cli.rb
+new file mode 100644
+index 0000000..10a573f
+--- /dev/null
++++ b/lib/logtally/cli.rb
+@@ -0,0 +1,89 @@
++# frozen_string_literal: true
++
++require "optparse"
++
++module Logtally
++  # Command-line entry point: parses options, runs the analysis, maps errors to exit codes.
++  class CLI
++    def initialize(stdout, stderr, stdin)
++      @stdout = stdout
++      @stderr = stderr
++      @stdin = stdin
++    end
++
++    def run(argv)
++      options = parse_options(argv.dup)
++      return 0 if options.nil?
++
++      stats = analyze(options)
++      @stdout.write(Formatter.render(options[:format], stats, options[:top]))
++      @stderr.puts("warning: skipped #{stats.malformed} malformed line(s)") if stats.malformed.positive?
++      0
++    rescue UsageError, OptionParser::ParseError => e
++      fail_with(2, e.message)
++    rescue MalformedLineError => e
++      fail_with(3, e.message)
++    rescue InputError => e
++      fail_with(4, e.message)
++    end
++
++    private
++
++    def analyze(options)
++      stats = Stats.new
++      Reader.new(@stdin).each_line(options[:files]) do |label, number, line|
++        line = line.chomp.delete_suffix("\r")
++        next if line.strip.empty?
++
++        entry = LineParser.parse(line)
++        if entry.nil?
++          raise MalformedLineError, "#{label}:#{number}: malformed line" if options[:strict]
++
++          stats.malformed += 1
++        elsif options[:filter].match?(entry)
++          stats.add(entry)
++        end
++      end
++      stats
++    end
++
++    def parse_options(argv)
++      opts = { format: "text", top: 10, strict: false, statuses: nil, paths: [], since: nil, until: nil }
++      parser = OptionParser.new do |o|
++        o.banner = "Usage: logtally [options] [FILE...]"
++        o.on("--format FORMAT", "text (default) or json") { |v| opts[:format] = v }
++        o.on("--top N", "number of top paths (default 10)") { |v| opts[:top] = v }
++        o.on("--since TIME", "only requests at or after TIME") { |v| opts[:since] = v }
++        o.on("--until TIME", "only requests before TIME") { |v| opts[:until] = v }
++        o.on("--status LIST", "e.g. 200,3xx,5xx") { |v| opts[:statuses] = v }
++        o.on("--path GLOB", "only matching paths (repeatable)") { |v| opts[:paths] << v }
++        o.on("--strict", "fail on the first malformed line") { opts[:strict] = true }
++        o.on("-h", "--help", "show this help") do
++          @stdout.puts(o.help)
++          return nil
++        end
++      end
++      parser.require_exact = true
++      files = parser.parse(argv)
++      build(opts, files)
++    end
++
++    def build(opts, files)
++      raise UsageError, "invalid --format: #{opts[:format]}" unless %w[text json].include?(opts[:format])
++      raise UsageError, "invalid --top: #{opts[:top]}" unless opts[:top].is_a?(Integer) || opts[:top] =~ /\A[1-9]\d*\z/
++
++      filter = Filter.new(
++        since: opts[:since] && Filter.parse_time(opts[:since]),
++        until_time: opts[:until] && Filter.parse_time(opts[:until]),
++        statuses: opts[:statuses] && Filter.parse_statuses(opts[:statuses]),
++        paths: opts[:paths]
++      )
++      { format: opts[:format], top: Integer(opts[:top]), strict: opts[:strict], files: files, filter: filter }
++    end
++
++    def fail_with(code, message)
++      @stderr.puts("error: #{message}")
++      code
++    end
++  end
++end
+diff --git a/lib/logtally/entry.rb b/lib/logtally/entry.rb
+new file mode 100644
+index 0000000..fe142f1
+--- /dev/null
++++ b/lib/logtally/entry.rb
+@@ -0,0 +1,6 @@
++# frozen_string_literal: true
++
++module Logtally
++  # One parsed request. `time` is Unix seconds (UTC); `duration` is seconds or nil.
++  Entry = Struct.new(:time, :method, :path, :status, :bytes, :duration, keyword_init: true)
++end
+diff --git a/lib/logtally/filter.rb b/lib/logtally/filter.rb
+new file mode 100644
+index 0000000..6963527
+--- /dev/null
++++ b/lib/logtally/filter.rb
+@@ -0,0 +1,59 @@
++# frozen_string_literal: true
++
++require "date"
++
++module Logtally
++  # Decides which entries are counted: time window, status codes/classes and path globs.
++  class Filter
++    GLOB_FLAGS = File::FNM_NOESCAPE | File::FNM_DOTMATCH
++
++    attr_reader :since, :until_time
++
++    def initialize(since: nil, until_time: nil, statuses: nil, paths: [])
++      if since && until_time && since >= until_time
++        raise UsageError, "--since must be earlier than --until"
++      end
++
++      @since = since
++      @until_time = until_time
++      @statuses = statuses
++      @paths = paths
++    end
++
++    def match?(entry)
++      return false if @since && entry.time < @since
++      return false if @until_time && entry.time >= @until_time
++      return false if @statuses && @statuses.none? { |s| s === entry.status }
++
++      @paths.empty? || @paths.any? { |glob| File.fnmatch(glob, entry.path, GLOB_FLAGS) }
++    end
++
++    # "200,3xx" -> [200, 300..399]
++    def self.parse_statuses(list)
++      tokens = list.split(",", -1)
++      raise UsageError, "invalid --status: #{list}" if tokens.empty?
++
++      tokens.map do |token|
++        case token
++        when /\A[1-5]\d\d\z/ then token.to_i
++        when /\A([1-5])xx\z/ then (Regexp.last_match(1).to_i * 100)..(Regexp.last_match(1).to_i * 100 + 99)
++        else raise UsageError, "invalid --status: #{list}"
++        end
++      end
++    end
++
++    # "2026-10-10", "2026-10-10T12:00:00Z" or "...T12:00:00+02:00" -> Unix seconds.
++    def self.parse_time(text)
++      m = /\A(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2}):(\d{2})(Z|([+-])(\d{2}):(\d{2})))?\z/.match(text)
++      raise UsageError, "invalid time: #{text}" unless m
++
++      year, month, day, hour, min, sec = m.values_at(1, 2, 3, 4, 5, 6).map(&:to_i)
++      unless Date.valid_date?(year, month, day) && hour < 24 && min < 60 && sec < 60
++        raise UsageError, "invalid time: #{text}"
++      end
++
++      offset = m[8] ? ((m[9].to_i * 3600) + (m[10].to_i * 60)) * (m[8] == "-" ? -1 : 1) : 0
++      Time.utc(year, month, day, hour, min, sec).to_i - offset
++    end
++  end
++end
+diff --git a/lib/logtally/formatter.rb b/lib/logtally/formatter.rb
+new file mode 100644
+index 0000000..944c682
+--- /dev/null
++++ b/lib/logtally/formatter.rb
+@@ -0,0 +1,65 @@
++# frozen_string_literal: true
++
++require "json"
++
++module Logtally
++  # Renders a Stats object as the text report or as JSON.
++  module Formatter
++    module_function
++
++    def render(format, stats, top)
++      format == "json" ? json(stats, top) : text(stats, top)
++    end
++
++    def text(stats, top)
++      lines = ["Requests: #{stats.requests}", "Malformed lines: #{stats.malformed}",
++               "Bytes: #{stats.bytes}", "Time range: #{time_range_text(stats)}", "", "Status codes:"]
++      lines.concat(section(stats.statuses) do |code, count|
++        format("  %<code>d %<count>d (%<pct>.1f%%)", code: code, count: count, pct: count * 100.0 / stats.requests)
++      end)
++      lines << "" << "Top paths:"
++      lines.concat(section(stats.top_paths(top)) { |path, count| "  #{count} #{printable(path)}" })
++      lines << ""
++      lines.concat(latency_text(stats))
++      "#{lines.join("\n")}\n"
++    end
++
++    def json(stats, top)
++      latency = stats.latency
++      doc = {
++        requests: stats.requests,
++        malformed: stats.malformed,
++        bytes: stats.bytes,
++        time_range: stats.first_time && { first: iso(stats.first_time), last: iso(stats.last_time) },
++        status: stats.statuses.to_h { |code, count| [code.to_s, count] },
++        top_paths: stats.top_paths(top).map { |path, count| { path: printable(path), count: count } },
++        latency: latency && { samples: stats.latency_samples, p50: latency[50], p95: latency[95], p99: latency[99] }
++      }
++      "#{JSON.generate(doc)}\n"
++    end
++
++    def section(rows, &block)
++      rows.empty? ? ["  (none)"] : rows.map(&block)
++    end
++
++    def time_range_text(stats)
++      stats.first_time ? "#{iso(stats.first_time)} .. #{iso(stats.last_time)}" : "n/a"
++    end
++
++    def latency_text(stats)
++      latency = stats.latency
++      return ["Latency: n/a"] unless latency
++
++      ["Latency (#{stats.latency_samples} samples):"] +
++        latency.map { |p, value| format("  p%<p>d %<v>.3f", p: p, v: value) }
++    end
++
++    def iso(seconds)
++      Time.at(seconds).utc.strftime("%Y-%m-%dT%H:%M:%SZ")
++    end
++
++    def printable(path)
++      path.dup.force_encoding(Encoding::UTF_8).scrub("�")
++    end
++  end
++end
+diff --git a/lib/logtally/line_parser.rb b/lib/logtally/line_parser.rb
+new file mode 100644
+index 0000000..6456992
+--- /dev/null
++++ b/lib/logtally/line_parser.rb
+@@ -0,0 +1,46 @@
++# frozen_string_literal: true
++
++require "date"
++
++module Logtally
++  # Parses one combined-format access-log line (as bytes) into an Entry, or nil if malformed.
++  module LineParser
++    MONTHS = %w[Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec].freeze
++    QUOTED = '"((?:[^"\\\\]|\\\\.)*)"'
++    LINE = Regexp.new(
++      '\A\S+ \S+ \S+ ' \
++      '\[(\d{2})/([A-Za-z]{3})/(\d{4}):(\d{2}):(\d{2}):(\d{2}) ([+-])(\d{2})(\d{2})\] ' \
++      "#{QUOTED} (\\d{3}) (\\d+|-) #{QUOTED} #{QUOTED}" \
++      '(?: (\d+(?:\.\d+)?|-))?\z',
++      Regexp::NOENCODING
++    )
++    REQUEST = %r{\A([A-Z]+) (\S+) HTTP/\S*\z}n
++
++    module_function
++
++    def parse(line)
++      m = LINE.match(line.b)
++      return nil unless m
++
++      time = timestamp(m)
++      request = REQUEST.match(m[10])
++      status = m[11].to_i
++      return nil if time.nil? || request.nil? || !status.between?(100, 599)
++
++      Entry.new(time: time, method: request[1], path: request[2].split("?", 2).first,
++                status: status, bytes: m[12] == "-" ? 0 : m[12].to_i,
++                duration: m[15].nil? || m[15] == "-" ? nil : Float(m[15]))
++    end
++
++    def timestamp(m)
++      day, year = m[1].to_i, m[3].to_i
++      month = MONTHS.index(m[2])
++      hour, min, sec, off_h, off_m = m.values_at(4, 5, 6, 8, 9).map(&:to_i)
++      return nil if month.nil? || !Date.valid_date?(year, month + 1, day)
++      return nil if hour > 23 || min > 59 || sec > 59 || off_h > 23 || off_m > 59
++
++      offset = ((off_h * 3600) + (off_m * 60)) * (m[7] == "-" ? -1 : 1)
++      Time.utc(year, month + 1, day, hour, min, sec).to_i - offset
++    end
++  end
++end
+diff --git a/lib/logtally/reader.rb b/lib/logtally/reader.rb
+new file mode 100644
+index 0000000..96cb0c9
+--- /dev/null
++++ b/lib/logtally/reader.rb
+@@ -0,0 +1,42 @@
++# frozen_string_literal: true
++
++require "stringio"
++require "zlib"
++
++module Logtally
++  # Opens inputs (files or "-" for stdin), transparently gunzipping, and yields their lines.
++  class Reader
++    GZIP_MAGIC = "\x1f\x8b".b
++
++    def initialize(stdin)
++      @stdin = stdin
++    end
++
++    # Yields (label, line_number, line) for every line of every input, in order.
++    def each_line(paths)
++      paths = ["-"] if paths.empty?
++      paths.each do |path|
++        io = open_input(path)
++        io.each_line.with_index(1) { |line, number| yield path, number, line }
++      end
++    end
++
++    private
++
++    def open_input(path)
++      raw = path == "-" ? @stdin.binmode.read : File.binread(path)
++      raw.start_with?(GZIP_MAGIC) ? StringIO.new(gunzip(raw)) : StringIO.new(raw)
++    rescue SystemCallError, IOError => e
++      raise InputError, "cannot read #{path}: #{e.message.sub(/ @ .*\z/, '')}"
++    rescue Zlib::Error => e
++      raise InputError, "cannot read #{path}: #{e.message}"
++    end
++
++    # Decompresses every gzip member (concatenated streams) in `data`.
++    def gunzip(data)
++      out = String.new(encoding: Encoding::BINARY)
++      Zlib::GzipReader.zcat(StringIO.new(data)) { |chunk| out << chunk.b }
++      out
++    end
++  end
++end
+diff --git a/lib/logtally/stats.rb b/lib/logtally/stats.rb
+new file mode 100644
+index 0000000..3830786
+--- /dev/null
++++ b/lib/logtally/stats.rb
+@@ -0,0 +1,55 @@
++# frozen_string_literal: true
++
++module Logtally
++  # Accumulates counts over entries and derives the report figures.
++  class Stats
++    PERCENTILES = [50, 95, 99].freeze
++
++    attr_reader :requests, :bytes, :first_time, :last_time
++    attr_accessor :malformed
++
++    def initialize
++      @requests = 0
++      @malformed = 0
++      @bytes = 0
++      @first_time = nil
++      @last_time = nil
++      @statuses = Hash.new(0)
++      @paths = Hash.new(0)
++      @durations = []
++    end
++
++    def add(entry)
++      @requests += 1
++      @bytes += entry.bytes
++      @first_time = entry.time if @first_time.nil? || entry.time < @first_time
++      @last_time = entry.time if @last_time.nil? || entry.time > @last_time
++      @statuses[entry.status] += 1
++      @paths[entry.path] += 1
++      @durations << entry.duration if entry.duration
++    end
++
++    # [[code, count], ...] ascending by code.
++    def statuses
++      @statuses.sort
++    end
++
++    # [[path, count], ...] by count desc, then path (bytes) asc.
++    def top_paths(limit)
++      @paths.sort { |(pa, ca), (pb, cb)| [cb, pa.b] <=> [ca, pb.b] }.first(limit)
++    end
++
++    # {50 => v, 95 => v, 99 => v} using the nearest-rank method, or nil without samples.
++    def latency
++      return nil if @durations.empty?
++
++      sorted = @durations.sort
++      n = sorted.size
++      PERCENTILES.to_h { |p| [p, sorted[((p * n) + 99) / 100 - 1]] }
++    end
++
++    def latency_samples
++      @durations.size
++    end
++  end
++end
+diff --git a/test/cli_test.rb b/test/cli_test.rb
+new file mode 100644
+index 0000000..3d05205
+--- /dev/null
++++ b/test/cli_test.rb
+@@ -0,0 +1,48 @@
++# frozen_string_literal: true
++
++require "test_helper"
++require "zlib"
++
++class CLITest < Minitest::Test
++  include CLIHelper
++
++  def test_text_report
++    input = log_line(path: "/a") + log_line(path: "/a?x=1", status: 404) + "bad line\n"
++    r = run_cli(stdin: input)
++    assert_equal 0, r.code
++    assert_includes r.out, "Requests: 2\nMalformed lines: 1\n"
++    assert_includes r.out, "  200 1 (50.0%)\n  404 1 (50.0%)\n"
++    assert_includes r.out, "Top paths:\n  2 /a\n"
++    assert_equal "warning: skipped 1 malformed line(s)\n", r.err
++  end
++
++  def test_json_and_filters
++    input = log_line(path: "/api/x", status: 500) + log_line(path: "/home", status: 200)
++    r = run_cli("--format", "json", "--status", "5xx", "--path", "/api/*", stdin: input)
++    doc = JSON.parse(r.out)
++    assert_equal 1, doc["requests"]
++    assert_equal({ "500" => 1 }, doc["status"])
++  end
++
++  def test_gzip_input_on_stdin
++    gz = StringIO.new
++    Zlib::GzipWriter.wrap(gz) { |w| w.write(log_line) }
++    r = run_cli("--format", "json", stdin: gz.string)
++    assert_equal 1, JSON.parse(r.out)["requests"]
++  end
++
++  def test_strict_mode
++    r = run_cli("--strict", stdin: log_line + "\noops\n")
++    assert_equal 3, r.code
++    assert_equal "", r.out
++    assert_equal "error: -:3: malformed line\n", r.err
++  end
++
++  def test_usage_and_io_errors
++    assert_equal 2, run_cli("--top", "0").code
++    assert_equal 2, run_cli("--since", "2026-10-11", "--until", "2026-10-10").code
++    r = run_cli("/no/such/file.log")
++    assert_equal 4, r.code
++    assert r.err.start_with?("error: cannot read /no/such/file.log")
++  end
++end
+diff --git a/test/line_parser_test.rb b/test/line_parser_test.rb
+new file mode 100644
+index 0000000..6d8c020
+--- /dev/null
++++ b/test/line_parser_test.rb
+@@ -0,0 +1,34 @@
++# frozen_string_literal: true
++
++require "test_helper"
++
++class LineParserTest < Minitest::Test
++  LINE = '203.0.113.7 - alice [10/Oct/2026:13:55:36 +0200] "GET /api/items?page=2 HTTP/1.1" 200 2326 ' \
++         '"-" "curl/8.5.0" 0.042'
++
++  def test_parses_combined_line_with_request_time
++    e = Logtally::LineParser.parse(LINE)
++    assert_equal "/api/items", e.path
++    assert_equal 200, e.status
++    assert_equal 2326, e.bytes
++    assert_in_delta 0.042, e.duration
++    assert_equal Time.utc(2026, 10, 10, 11, 55, 36).to_i, e.time
++  end
++
++  def test_request_time_is_optional
++    e = Logtally::LineParser.parse(LINE.delete_suffix(" 0.042"))
++    assert_nil e.duration
++  end
++
++  def test_escaped_quotes_and_invalid_utf8_in_user_agent
++    line = LINE.sub('"curl/8.5.0"', "\"a \\\"quoted\\\" \xFF agent\"".b)
++    refute_nil Logtally::LineParser.parse(line)
++  end
++
++  def test_rejects_malformed_lines
++    ["garbage", LINE.sub("Oct", "Foo"), LINE.sub("10/Oct", "31/Feb"), LINE.sub(" 200 ", " 600 "),
++     LINE.sub("GET /api", "get /api"), LINE.sub(" 2326 ", " 12x ")].each do |bad|
++      assert_nil Logtally::LineParser.parse(bad), bad
++    end
++  end
++end
+diff --git a/test/stats_test.rb b/test/stats_test.rb
+new file mode 100644
+index 0000000..1c6c2a6
+--- /dev/null
++++ b/test/stats_test.rb
+@@ -0,0 +1,22 @@
++# frozen_string_literal: true
++
++require "test_helper"
++
++class StatsTest < Minitest::Test
++  def entry(path, duration)
++    Logtally::Entry.new(time: 0, method: "GET", path: path, status: 200, bytes: 1, duration: duration)
++  end
++
++  def test_nearest_rank_percentiles
++    stats = Logtally::Stats.new
++    (1..20).each { |i| stats.add(entry("/", i / 100.0)) }
++    assert_equal({ 50 => 0.10, 95 => 0.19, 99 => 0.20 }, stats.latency)
++  end
++
++  def test_top_paths_ties_sorted_by_path
++    stats = Logtally::Stats.new
++    %w[/b /a /c /c].each { |p| stats.add(entry(p, nil)) }
++    assert_equal [["/c", 2], ["/a", 1]], stats.top_paths(2)
++    assert_nil stats.latency
++  end
++end
+diff --git a/test/test_helper.rb b/test/test_helper.rb
+new file mode 100644
+index 0000000..06a1c72
+--- /dev/null
++++ b/test/test_helper.rb
+@@ -0,0 +1,20 @@
++# frozen_string_literal: true
++
++require "minitest/autorun"
++require "stringio"
++require "logtally"
++
++module CLIHelper
++  Result = Struct.new(:code, :out, :err)
++
++  def run_cli(*args, stdin: "")
++    out = StringIO.new
++    err = StringIO.new
++    code = Logtally::CLI.new(out, err, StringIO.new(stdin.b)).run(args)
++    Result.new(code, out.string, err.string)
++  end
++
++  def log_line(path: "/", status: 200, time: "10/Oct/2026:12:00:00 +0000", bytes: "100", rt: " 0.010")
++    %(10.0.0.1 - - [#{time}] "GET #{path} HTTP/1.1" #{status} #{bytes} "-" "test-agent"#{rt}\n)
++  end
++end

@@ -1,0 +1,11 @@
+{
+  "id": "swift-cli",
+  "title": "Build the cronx cron expression tool in Swift",
+  "category": "greenfield",
+  "language": "swift",
+  "rubric": "coding",
+  "timeout_s": 2400,
+  "relevant_files": [],
+  "allowed_change_globs": ["**"],
+  "reference_diff_lines": 647
+}

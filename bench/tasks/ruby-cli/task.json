@@ -1,0 +1,11 @@
+{
+  "id": "ruby-cli",
+  "title": "Build the logtally access-log analyzer CLI in Ruby",
+  "category": "greenfield",
+  "language": "ruby",
+  "rubric": "coding",
+  "timeout_s": 2400,
+  "relevant_files": [],
+  "allowed_change_globs": ["**"],
+  "reference_diff_lines": 535
+}

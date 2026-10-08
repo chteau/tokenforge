@@ -1,0 +1,1083 @@
+diff --git a/README.md b/README.md
+index 7e6c18e..042e06e 100644
+--- a/README.md
++++ b/README.md
+@@ -1 +1,23 @@
+ # zj — a small JSON toolkit for the command line
++
++A strict JSON validator, formatter and query tool written in Zig (standard library only).
++
++## Build
++
++```
++zig build          # produces zig-out/bin/zj
++zig build test     # runs the unit tests
++```
++
++## Usage
++
++```
++zj validate [FILE]
++zj fmt   [--indent N] [--sort-keys] [--ascii] [FILE]
++zj min   [--sort-keys] [--ascii] [FILE]
++zj query [--raw] [--sort-keys] [--ascii] PATH [FILE]
++```
++
++Input comes from `FILE` or stdin. Paths look like `.users[*].emails[0]`, `.a["b c"][-1]` or `.`.
++Exit codes: 0 ok, 1 invalid JSON (`error: <source>:<line>:<column>: <message>`), 2 usage error,
++3 unreadable file, 4 query matched nothing.
+diff --git a/build.zig b/build.zig
+new file mode 100644
+index 0000000..9c4788a
+--- /dev/null
++++ b/build.zig
+@@ -0,0 +1,29 @@
++const std = @import("std");
++
++pub fn build(b: *std.Build) void {
++    const target = b.standardTargetOptions(.{});
++    const optimize = b.standardOptimizeOption(.{});
++
++    const root_module = b.createModule(.{
++        .root_source_file = b.path("src/main.zig"),
++        .target = target,
++        .optimize = optimize,
++    });
++
++    const exe = b.addExecutable(.{
++        .name = "zj",
++        .root_module = root_module,
++    });
++    b.installArtifact(exe);
++
++    const run_cmd = b.addRunArtifact(exe);
++    run_cmd.step.dependOn(b.getInstallStep());
++    run_cmd.addPassthruArgs();
++    const run_step = b.step("run", "Run zj");
++    run_step.dependOn(&run_cmd.step);
++
++    const unit_tests = b.addTest(.{ .root_module = root_module });
++    const run_tests = b.addRunArtifact(unit_tests);
++    const test_step = b.step("test", "Run unit tests");
++    test_step.dependOn(&run_tests.step);
++}
+diff --git a/src/cli.zig b/src/cli.zig
+new file mode 100644
+index 0000000..e41c218
+--- /dev/null
++++ b/src/cli.zig
+@@ -0,0 +1,106 @@
++//! Command-line argument parsing.
++const std = @import("std");
++
++pub const usage =
++    \\usage: zj <command> [options] [FILE]
++    \\
++    \\commands:
++    \\  validate [FILE]                                  check that the input is valid JSON
++    \\  fmt   [--indent N] [--sort-keys] [--ascii] [FILE] pretty-print (N = 1..8, default 2)
++    \\  min   [--sort-keys] [--ascii] [FILE]              print without whitespace
++    \\  query [--raw] [--sort-keys] [--ascii] PATH [FILE] print the values selected by PATH
++    \\
++    \\FILE defaults to stdin ("-" also means stdin).
++    \\
++;
++
++pub const Command = enum { validate, fmt, min, query };
++
++pub const Options = struct {
++    command: Command,
++    file: ?[]const u8 = null,
++    path: []const u8 = "",
++    indent: usize = 2,
++    sort_keys: bool = false,
++    ascii: bool = false,
++    raw: bool = false,
++};
++
++pub const Parsed = union(enum) {
++    help,
++    run: Options,
++    /// A usage error with its message (without the `error: ` prefix).
++    usage_error: []const u8,
++};
++
++pub fn parseArgs(args: []const []const u8) Parsed {
++    if (args.len == 0) return .{ .usage_error = "missing command (try --help)" };
++    if (args.len == 1 and (eql(args[0], "--help") or eql(args[0], "-h"))) return .help;
++    const command = std.meta.stringToEnum(Command, args[0]) orelse
++        return .{ .usage_error = "unknown command" };
++    var opts: Options = .{ .command = command };
++    var positionals: [3][]const u8 = undefined;
++    var count: usize = 0;
++    var i: usize = 1;
++    while (i < args.len) : (i += 1) {
++        const arg = args[i];
++        if (arg.len > 1 and arg[0] == '-') {
++            if (eql(arg, "--indent") and command == .fmt) {
++                i += 1;
++                if (i >= args.len) return .{ .usage_error = "--indent needs a value" };
++                opts.indent = std.fmt.parseInt(usize, args[i], 10) catch 0;
++                if (opts.indent < 1 or opts.indent > 8)
++                    return .{ .usage_error = "--indent must be an integer from 1 to 8" };
++            } else if (eql(arg, "--sort-keys") and command != .validate) {
++                opts.sort_keys = true;
++            } else if (eql(arg, "--ascii") and command != .validate) {
++                opts.ascii = true;
++            } else if (eql(arg, "--raw") and command == .query) {
++                opts.raw = true;
++            } else return .{ .usage_error = "unknown option" };
++            continue;
++        }
++        if (count == positionals.len) return .{ .usage_error = "too many arguments" };
++        positionals[count] = arg;
++        count += 1;
++    }
++    var rest: []const []const u8 = positionals[0..count];
++    if (command == .query) {
++        if (rest.len == 0) return .{ .usage_error = "missing PATH" };
++        opts.path = rest[0];
++        rest = rest[1..];
++    }
++    if (rest.len > 1) return .{ .usage_error = "too many arguments" };
++    if (rest.len == 1 and !eql(rest[0], "-")) opts.file = rest[0];
++    return .{ .run = opts };
++}
++
++fn eql(a: []const u8, b: []const u8) bool {
++    return std.mem.eql(u8, a, b);
++}
++
++// ---------------------------------------------------------------- tests
++
++const testing = std.testing;
++
++test "help and usage errors" {
++    try testing.expect(parseArgs(&.{"--help"}) == .help);
++    try testing.expect(parseArgs(&.{}) == .usage_error);
++    try testing.expect(parseArgs(&.{"bogus"}) == .usage_error);
++    try testing.expect(parseArgs(&.{ "validate", "--sort-keys" }) == .usage_error);
++    try testing.expect(parseArgs(&.{ "min", "--indent", "2" }) == .usage_error);
++    try testing.expect(parseArgs(&.{ "fmt", "--indent", "9" }) == .usage_error);
++    try testing.expect(parseArgs(&.{ "fmt", "--indent" }) == .usage_error);
++    try testing.expect(parseArgs(&.{"query"}) == .usage_error);
++    try testing.expect(parseArgs(&.{ "min", "a", "b" }) == .usage_error);
++}
++
++test "options mixed with positionals" {
++    const p = parseArgs(&.{ "query", ".a", "--raw", "f.json", "--ascii" });
++    try testing.expectEqualStrings(".a", p.run.path);
++    try testing.expectEqualStrings("f.json", p.run.file.?);
++    try testing.expect(p.run.raw and p.run.ascii and !p.run.sort_keys);
++    const f = parseArgs(&.{ "fmt", "-", "--indent", "4" });
++    try testing.expectEqual(@as(usize, 4), f.run.indent);
++    try testing.expect(f.run.file == null);
++}
+diff --git a/src/json.zig b/src/json.zig
+new file mode 100644
+index 0000000..7d445d6
+--- /dev/null
++++ b/src/json.zig
+@@ -0,0 +1,396 @@
++//! JSON document model and a strict RFC 8259 parser that reports byte positions.
++const std = @import("std");
++const Allocator = std.mem.Allocator;
++
++/// Deepest container nesting the parser accepts.
++pub const max_depth = 10000;
++
++pub const Value = union(enum) {
++    null,
++    bool: bool,
++    /// The number exactly as written in the input.
++    number: []const u8,
++    /// Decoded UTF-8 content.
++    string: []const u8,
++    array: []Value,
++    object: []Member,
++};
++
++pub const Member = struct {
++    key: []const u8,
++    value: Value,
++};
++
++pub const ErrorKind = enum {
++    unexpected_end,
++    unexpected_character,
++    invalid_number,
++    invalid_escape,
++    invalid_unicode_escape,
++    control_character,
++    invalid_utf8,
++    duplicate_key,
++    nesting_too_deep,
++    trailing_characters,
++
++    pub fn message(kind: ErrorKind) []const u8 {
++        return switch (kind) {
++            .unexpected_end => "unexpected end of input",
++            .unexpected_character => "unexpected character",
++            .invalid_number => "invalid number",
++            .invalid_escape => "invalid escape",
++            .invalid_unicode_escape => "invalid unicode escape",
++            .control_character => "control character in string",
++            .invalid_utf8 => "invalid utf-8",
++            .duplicate_key => "duplicate key",
++            .nesting_too_deep => "nesting too deep",
++            .trailing_characters => "trailing characters",
++        };
++    }
++};
++
++pub const Position = struct { line: usize, column: usize };
++
++pub const Diagnostic = struct {
++    kind: ErrorKind = .unexpected_end,
++    offset: usize = 0,
++
++    /// 1-based line and byte column of the error inside `input`.
++    pub fn position(d: Diagnostic, input: []const u8) Position {
++        var line: usize = 1;
++        var line_start: usize = 0;
++        for (input[0..@min(d.offset, input.len)], 0..) |c, i| {
++            if (c == '\n') {
++                line += 1;
++                line_start = i + 1;
++            }
++        }
++        return .{ .line = line, .column = d.offset - line_start + 1 };
++    }
++};
++
++pub const ParseError = error{ InvalidJson, OutOfMemory };
++
++/// Parses `input` into a tree allocated with `arena`. On `error.InvalidJson`,
++/// `diag` describes the first error.
++pub fn parse(arena: Allocator, input: []const u8, diag: *Diagnostic) ParseError!Value {
++    var p: Parser = .{ .src = input, .arena = arena, .diag = diag };
++    const value = try p.parseValue();
++    p.skipWhitespace();
++    if (p.pos < p.src.len) return p.fail(.trailing_characters, p.pos);
++    return value;
++}
++
++const Parser = struct {
++    src: []const u8,
++    pos: usize = 0,
++    depth: usize = 0,
++    arena: Allocator,
++    diag: *Diagnostic,
++
++    fn fail(p: *Parser, kind: ErrorKind, offset: usize) ParseError {
++        p.diag.* = .{ .kind = kind, .offset = offset };
++        return error.InvalidJson;
++    }
++
++    fn skipWhitespace(p: *Parser) void {
++        while (p.pos < p.src.len) : (p.pos += 1) {
++            switch (p.src[p.pos]) {
++                ' ', '\t', '\n', '\r' => {},
++                else => return,
++            }
++        }
++    }
++
++    /// Fails at the current position: end of input or an unexpected byte.
++    fn unexpected(p: *Parser) ParseError {
++        if (p.pos >= p.src.len) return p.fail(.unexpected_end, p.pos);
++        return p.fail(.unexpected_character, p.pos);
++    }
++
++    fn parseValue(p: *Parser) ParseError!Value {
++        p.skipWhitespace();
++        if (p.pos >= p.src.len) return p.fail(.unexpected_end, p.pos);
++        return switch (p.src[p.pos]) {
++            '{' => p.parseObject(),
++            '[' => p.parseArray(),
++            '"' => .{ .string = try p.parseString() },
++            't' => p.parseLiteral("true", .{ .bool = true }),
++            'f' => p.parseLiteral("false", .{ .bool = false }),
++            'n' => p.parseLiteral("null", .null),
++            '-', '0'...'9' => .{ .number = try p.parseNumber() },
++            else => p.fail(.unexpected_character, p.pos),
++        };
++    }
++
++    fn parseLiteral(p: *Parser, word: []const u8, value: Value) ParseError!Value {
++        for (word) |c| {
++            if (p.pos >= p.src.len or p.src[p.pos] != c) return p.unexpected();
++            p.pos += 1;
++        }
++        return value;
++    }
++
++    fn parseNumber(p: *Parser) ParseError![]const u8 {
++        const start = p.pos;
++        while (p.pos < p.src.len) : (p.pos += 1) {
++            switch (p.src[p.pos]) {
++                '0'...'9', '+', '-', '.', 'e', 'E' => {},
++                else => break,
++            }
++        }
++        const text = p.src[start..p.pos];
++        if (!isValidNumber(text)) return p.fail(.invalid_number, start);
++        return text;
++    }
++
++    fn enter(p: *Parser) ParseError!void {
++        p.depth += 1;
++        if (p.depth > max_depth) return p.fail(.nesting_too_deep, p.pos);
++        p.pos += 1;
++    }
++
++    fn parseArray(p: *Parser) ParseError!Value {
++        try p.enter();
++        var items: std.ArrayList(Value) = .empty;
++        p.skipWhitespace();
++        if (p.pos < p.src.len and p.src[p.pos] == ']') {
++            p.pos += 1;
++        } else while (true) {
++            try items.append(p.arena, try p.parseValue());
++            p.skipWhitespace();
++            if (p.pos >= p.src.len) return p.unexpected();
++            switch (p.src[p.pos]) {
++                ',' => p.pos += 1,
++                ']' => {
++                    p.pos += 1;
++                    break;
++                },
++                else => return p.unexpected(),
++            }
++        }
++        p.depth -= 1;
++        return .{ .array = try items.toOwnedSlice(p.arena) };
++    }
++
++    fn parseObject(p: *Parser) ParseError!Value {
++        try p.enter();
++        var members: std.ArrayList(Member) = .empty;
++        var seen: std.StringHashMapUnmanaged(void) = .empty;
++        p.skipWhitespace();
++        if (p.pos < p.src.len and p.src[p.pos] == '}') {
++            p.pos += 1;
++        } else while (true) {
++            p.skipWhitespace();
++            if (p.pos >= p.src.len or p.src[p.pos] != '"') return p.unexpected();
++            const key_start = p.pos;
++            const key = try p.parseString();
++            const entry = try seen.getOrPut(p.arena, key);
++            if (entry.found_existing) return p.fail(.duplicate_key, key_start);
++            p.skipWhitespace();
++            if (p.pos >= p.src.len or p.src[p.pos] != ':') return p.unexpected();
++            p.pos += 1;
++            const value = try p.parseValue();
++            try members.append(p.arena, .{ .key = key, .value = value });
++            p.skipWhitespace();
++            if (p.pos >= p.src.len) return p.unexpected();
++            switch (p.src[p.pos]) {
++                ',' => p.pos += 1,
++                '}' => {
++                    p.pos += 1;
++                    break;
++                },
++                else => return p.unexpected(),
++            }
++        }
++        p.depth -= 1;
++        return .{ .object = try members.toOwnedSlice(p.arena) };
++    }
++
++    /// Parses a string starting at the opening quote and returns its decoded bytes.
++    fn parseString(p: *Parser) ParseError![]const u8 {
++        p.pos += 1;
++        var out: std.ArrayList(u8) = .empty;
++        while (true) {
++            if (p.pos >= p.src.len) return p.fail(.unexpected_end, p.pos);
++            const c = p.src[p.pos];
++            switch (c) {
++                '"' => {
++                    p.pos += 1;
++                    return out.toOwnedSlice(p.arena);
++                },
++                '\\' => try p.parseEscape(&out),
++                0x00...0x1f => return p.fail(.control_character, p.pos),
++                0x20...0x21, 0x23...0x5b, 0x5d...0x7f => {
++                    try out.append(p.arena, c);
++                    p.pos += 1;
++                },
++                0x80...0xff => {
++                    const len = utf8SequenceLength(p.src[p.pos..]) orelse
++                        return p.fail(.invalid_utf8, p.pos);
++                    try out.appendSlice(p.arena, p.src[p.pos..][0..len]);
++                    p.pos += len;
++                },
++            }
++        }
++    }
++
++    fn parseEscape(p: *Parser, out: *std.ArrayList(u8)) ParseError!void {
++        const start = p.pos;
++        if (start + 1 >= p.src.len) return p.fail(.unexpected_end, p.src.len);
++        const byte: u8 = switch (p.src[start + 1]) {
++            '"' => '"',
++            '\\' => '\\',
++            '/' => '/',
++            'b' => 0x08,
++            'f' => 0x0c,
++            'n' => '\n',
++            'r' => '\r',
++            't' => '\t',
++            'u' => {
++                const cp = p.parseUnicodeEscape() orelse
++                    return p.fail(.invalid_unicode_escape, start);
++                var buf: [4]u8 = undefined;
++                const n = std.unicode.utf8Encode(cp, &buf) catch unreachable;
++                try out.appendSlice(p.arena, buf[0..n]);
++                return;
++            },
++            else => return p.fail(.invalid_escape, start),
++        };
++        try out.append(p.arena, byte);
++        p.pos += 2;
++    }
++
++    /// Decodes `\uXXXX` (or a surrogate pair) at the current position.
++    fn parseUnicodeEscape(p: *Parser) ?u21 {
++        const high = hex4(p.src[p.pos..]) orelse return null;
++        if (high >= 0xdc00 and high <= 0xdfff) return null;
++        if (high < 0xd800 or high > 0xdbff) {
++            p.pos += 6;
++            return high;
++        }
++        const rest = p.src[p.pos + 6 ..];
++        const low = hex4(rest) orelse return null;
++        if (low < 0xdc00 or low > 0xdfff) return null;
++        p.pos += 12;
++        return 0x10000 + ((@as(u21, high) - 0xd800) << 10) + (low - 0xdc00);
++    }
++};
++
++/// Reads `\uXXXX` from the start of `s`.
++fn hex4(s: []const u8) ?u16 {
++    if (s.len < 6 or s[0] != '\\' or s[1] != 'u') return null;
++    return std.fmt.parseInt(u16, s[2..6], 16) catch null;
++}
++
++/// Length of the valid UTF-8 sequence at the start of `s`, or null.
++fn utf8SequenceLength(s: []const u8) ?usize {
++    const len = std.unicode.utf8ByteSequenceLength(s[0]) catch return null;
++    if (s.len < len) return null;
++    _ = std.unicode.utf8Decode(s[0..len]) catch return null;
++    return len;
++}
++
++/// Checks `-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?`.
++pub fn isValidNumber(s: []const u8) bool {
++    var i: usize = 0;
++    if (i < s.len and s[i] == '-') i += 1;
++    if (i >= s.len) return false;
++    if (s[i] == '0') {
++        i += 1;
++    } else if (s[i] >= '1' and s[i] <= '9') {
++        i = skipDigits(s, i);
++    } else return false;
++    if (i < s.len and s[i] == '.') {
++        const after = skipDigits(s, i + 1);
++        if (after == i + 1) return false;
++        i = after;
++    }
++    if (i < s.len and (s[i] == 'e' or s[i] == 'E')) {
++        i += 1;
++        if (i < s.len and (s[i] == '+' or s[i] == '-')) i += 1;
++        const after = skipDigits(s, i);
++        if (after == i) return false;
++        i = after;
++    }
++    return i == s.len;
++}
++
++fn skipDigits(s: []const u8, from: usize) usize {
++    var i = from;
++    while (i < s.len and s[i] >= '0' and s[i] <= '9') i += 1;
++    return i;
++}
++
++// ---------------------------------------------------------------- tests
++
++const testing = std.testing;
++
++fn expectError(input: []const u8, kind: ErrorKind, line: usize, column: usize) !void {
++    var arena: std.heap.ArenaAllocator = .init(testing.allocator);
++    defer arena.deinit();
++    var diag: Diagnostic = .{};
++    try testing.expectError(error.InvalidJson, parse(arena.allocator(), input, &diag));
++    try testing.expectEqual(kind, diag.kind);
++    const pos = diag.position(input);
++    try testing.expectEqual(line, pos.line);
++    try testing.expectEqual(column, pos.column);
++}
++
++test "parses scalars and containers" {
++    var arena: std.heap.ArenaAllocator = .init(testing.allocator);
++    defer arena.deinit();
++    var diag: Diagnostic = .{};
++    const v = try parse(arena.allocator(), " {\"a\": [1, true, null, \"x\"], \"b\": {}} ", &diag);
++    try testing.expectEqual(@as(usize, 2), v.object.len);
++    try testing.expectEqualStrings("a", v.object[0].key);
++    try testing.expectEqualStrings("1", v.object[0].value.array[0].number);
++    try testing.expect(v.object[0].value.array[1].bool);
++    try testing.expectEqualStrings("x", v.object[0].value.array[3].string);
++}
++
++test "decodes escapes and surrogate pairs" {
++    var arena: std.heap.ArenaAllocator = .init(testing.allocator);
++    defer arena.deinit();
++    var diag: Diagnostic = .{};
++    const v = try parse(arena.allocator(), "\"\\u00e9\\/\\n\\uD83D\\uDE00\"", &diag);
++    try testing.expectEqualStrings("é/\n😀", v.string);
++}
++
++test "number grammar" {
++    try testing.expect(isValidNumber("0"));
++    try testing.expect(isValidNumber("-12.5e+3"));
++    try testing.expect(!isValidNumber("01"));
++    try testing.expect(!isValidNumber("1."));
++    try testing.expect(!isValidNumber("-"));
++    try testing.expect(!isValidNumber("1e5.0"));
++}
++
++test "error positions" {
++    try expectError("", .unexpected_end, 1, 1);
++    try expectError("[1,\n  2,", .unexpected_end, 2, 5);
++    try expectError("[1 2]", .unexpected_character, 1, 4);
++    try expectError("[tru]", .unexpected_character, 1, 5);
++    try expectError("[01]", .invalid_number, 1, 2);
++    try expectError("\"a\\x\"", .invalid_escape, 1, 3);
++    try expectError("\"\\ud800x\"", .invalid_unicode_escape, 1, 2);
++    try expectError("\"\\udc00\"", .invalid_unicode_escape, 1, 2);
++    try expectError("\"a\tb\"", .control_character, 1, 3);
++    try expectError("\"\xff\"", .invalid_utf8, 1, 2);
++    try expectError("{\"a\":1,\"\\u0061\":2}", .duplicate_key, 1, 8);
++    try expectError("1 2", .trailing_characters, 1, 3);
++}
++
++test "nesting limit" {
++    var arena: std.heap.ArenaAllocator = .init(testing.allocator);
++    defer arena.deinit();
++    const a = arena.allocator();
++    var deep: std.ArrayList(u8) = .empty;
++    try deep.appendNTimes(a, '[', max_depth);
++    try deep.appendNTimes(a, ']', max_depth);
++    var diag: Diagnostic = .{};
++    _ = try parse(a, deep.items, &diag);
++    const too_deep = try a.alloc(u8, max_depth + 1);
++    @memset(too_deep, '[');
++    try expectError(too_deep, .nesting_too_deep, 1, max_depth + 1);
++}
+diff --git a/src/main.zig b/src/main.zig
+new file mode 100644
+index 0000000..f6e1f59
+--- /dev/null
++++ b/src/main.zig
+@@ -0,0 +1,176 @@
++//! zj: validate, pretty-print, minify and query JSON.
++const std = @import("std");
++const Io = std.Io;
++const Allocator = std.mem.Allocator;
++const cli = @import("cli.zig");
++const json = @import("json.zig");
++const output = @import("output.zig");
++const query = @import("query.zig");
++
++pub const ExitCode = struct {
++    pub const ok = 0;
++    pub const invalid_json = 1;
++    pub const usage = 2;
++    pub const io_error = 3;
++    pub const no_match = 4;
++};
++
++/// What a command produced: the bytes for stdout and stderr and the exit code.
++pub const Outcome = struct {
++    code: u8,
++    stdout: []const u8 = "",
++    stderr: []const u8 = "",
++};
++
++pub fn main(init: std.process.Init) void {
++    const arena = init.arena.allocator();
++    const io = init.io;
++    const outcome = blk: {
++        const argv = init.minimal.args.toSlice(arena) catch break :blk oom();
++        const args = arena.alloc([]const u8, argv.len -| 1) catch break :blk oom();
++        for (args, 1..) |*a, i| a.* = argv[i];
++        var result: Outcome = oom();
++        // Deeply nested documents recurse deeply: give the work a generous stack.
++        if (std.Thread.spawn(.{ .stack_size = 1 << 30 }, runInto, .{ arena, io, args, &result })) |thread| {
++            thread.join();
++        } else |_| runInto(arena, io, args, &result);
++        break :blk result;
++    };
++    Io.File.stdout().writeStreamingAll(io, outcome.stdout) catch {};
++    Io.File.stderr().writeStreamingAll(io, outcome.stderr) catch {};
++    std.process.exit(outcome.code);
++}
++
++fn runInto(arena: Allocator, io: Io, args: []const []const u8, result: *Outcome) void {
++    result.* = run(arena, io, args) catch oom();
++}
++
++fn oom() Outcome {
++    return .{ .code = ExitCode.io_error, .stderr = "error: out of memory\n" };
++}
++
++/// Runs one command line (without the program name) against `io`.
++pub fn run(arena: Allocator, io: Io, args: []const []const u8) Allocator.Error!Outcome {
++    const opts = switch (cli.parseArgs(args)) {
++        .help => return .{ .code = ExitCode.ok, .stdout = cli.usage },
++        .usage_error => |msg| return fail(arena, ExitCode.usage, "{s}", .{msg}),
++        .run => |o| o,
++    };
++    var segments: []query.Segment = &.{};
++    if (opts.command == .query) {
++        segments = query.parsePath(arena, opts.path) catch |err| switch (err) {
++            error.InvalidPath => return fail(arena, ExitCode.usage, "invalid path: {s}", .{opts.path}),
++            error.OutOfMemory => return error.OutOfMemory,
++        };
++    }
++    const input = readInput(arena, io, opts.file) catch |err| switch (err) {
++        error.OutOfMemory => return error.OutOfMemory,
++        else => return fail(arena, ExitCode.io_error, "cannot read file: {s}", .{opts.file.?}),
++    };
++    return execute(arena, opts, segments, input);
++}
++
++/// Runs a parsed command against an input already in memory.
++pub fn execute(arena: Allocator, opts: cli.Options, segments: []const query.Segment, input: []const u8) Allocator.Error!Outcome {
++    var diag: json.Diagnostic = .{};
++    const doc = json.parse(arena, input, &diag) catch |err| switch (err) {
++        error.OutOfMemory => return error.OutOfMemory,
++        error.InvalidJson => {
++            const pos = diag.position(input);
++            return fail(arena, ExitCode.invalid_json, "{s}:{d}:{d}: {s}", .{
++                opts.file orelse "<stdin>", pos.line, pos.column, diag.kind.message(),
++            });
++        },
++    };
++    if (opts.sort_keys) output.sortKeys(doc);
++
++    var out: Io.Writer.Allocating = .init(arena);
++    const w = &out.writer;
++    switch (opts.command) {
++        .validate => try writeOrOom(w.writeAll("valid\n")),
++        .fmt => {
++            try writeOrOom(output.writeValue(w, doc, .{ .indent = opts.indent, .ascii = opts.ascii }));
++            try writeOrOom(w.writeByte('\n'));
++        },
++        .min => {
++            try writeOrOom(output.writeValue(w, doc, .{ .ascii = opts.ascii }));
++            try writeOrOom(w.writeByte('\n'));
++        },
++        .query => {
++            const results = try query.evaluate(arena, doc, segments);
++            if (results.len == 0) return fail(arena, ExitCode.no_match, "no match for path: {s}", .{opts.path});
++            for (results) |r| {
++                if (opts.raw and r == .string) {
++                    try writeOrOom(w.writeAll(r.string));
++                } else {
++                    try writeOrOom(output.writeValue(w, r, .{ .ascii = opts.ascii }));
++                }
++                try writeOrOom(w.writeByte('\n'));
++            }
++        },
++    }
++    return .{ .code = ExitCode.ok, .stdout = out.written() };
++}
++
++/// An allocating writer only fails when it runs out of memory.
++fn writeOrOom(result: Io.Writer.Error!void) Allocator.Error!void {
++    result catch return error.OutOfMemory;
++}
++
++fn fail(arena: Allocator, code: u8, comptime fmt: []const u8, args: anytype) Allocator.Error!Outcome {
++    return .{ .code = code, .stderr = try std.fmt.allocPrint(arena, "error: " ++ fmt ++ "\n", args) };
++}
++
++fn readInput(arena: Allocator, io: Io, file: ?[]const u8) ![]u8 {
++    if (file) |path| return Io.Dir.cwd().readFileAlloc(io, path, arena, .unlimited);
++    var buf: [64 * 1024]u8 = undefined;
++    var reader = Io.File.stdin().readerStreaming(io, &buf);
++    return reader.interface.allocRemaining(arena, .unlimited);
++}
++
++// ---------------------------------------------------------------- tests
++
++const testing = std.testing;
++
++test {
++    _ = cli;
++    _ = json;
++    _ = output;
++    _ = query;
++}
++
++fn runOn(arena: Allocator, args: []const []const u8, input: []const u8) !Outcome {
++    const opts = switch (cli.parseArgs(args)) {
++        .run => |o| o,
++        else => return error.TestUnexpectedResult,
++    };
++    const segments = if (opts.command == .query) try query.parsePath(arena, opts.path) else &.{};
++    return execute(arena, opts, segments, input);
++}
++
++test "invalid json reports source position" {
++    var arena: std.heap.ArenaAllocator = .init(testing.allocator);
++    defer arena.deinit();
++    const r = try runOn(arena.allocator(), &.{"validate"}, "{\n  \"a\": tru\n}");
++    try testing.expectEqual(@as(u8, 1), r.code);
++    try testing.expectEqualStrings("error: <stdin>:2:11: unexpected character\n", r.stderr);
++    try testing.expectEqualStrings("", r.stdout);
++}
++
++test "query with raw output and no match" {
++    var arena: std.heap.ArenaAllocator = .init(testing.allocator);
++    defer arena.deinit();
++    const a = arena.allocator();
++    const r = try runOn(a, &.{ "query", "--raw", "[*]" }, "[\"a\\nb\", 1]");
++    try testing.expectEqualStrings("a\nb\n1\n", r.stdout);
++    const none = try runOn(a, &.{ "query", ".x" }, "[]");
++    try testing.expectEqual(@as(u8, 4), none.code);
++    try testing.expectEqualStrings("error: no match for path: .x\n", none.stderr);
++}
++
++test "fmt honours indent and sort-keys" {
++    var arena: std.heap.ArenaAllocator = .init(testing.allocator);
++    defer arena.deinit();
++    const r = try runOn(arena.allocator(), &.{ "fmt", "--indent", "4", "--sort-keys" }, "{\"b\":1,\"a\":[true]}");
++    try testing.expectEqualStrings("{\n    \"a\": [\n        true\n    ],\n    \"b\": 1\n}\n", r.stdout);
++}
+diff --git a/src/output.zig b/src/output.zig
+new file mode 100644
+index 0000000..9db5e72
+--- /dev/null
++++ b/src/output.zig
+@@ -0,0 +1,159 @@
++//! Serialises a parsed JSON value: pretty-printed or minified, optionally ASCII-only.
++const std = @import("std");
++const json = @import("json.zig");
++const Writer = std.Io.Writer;
++const Value = json.Value;
++const Member = json.Member;
++
++pub const Style = struct {
++    /// Spaces per level; null writes minified output.
++    indent: ?usize = null,
++    /// Escape every non-ASCII code point as `\uXXXX`.
++    ascii: bool = false,
++};
++
++pub fn writeValue(w: *Writer, value: Value, style: Style) Writer.Error!void {
++    try writeNested(w, value, style, 0);
++}
++
++fn writeNested(w: *Writer, value: Value, style: Style, level: usize) Writer.Error!void {
++    switch (value) {
++        .null => try w.writeAll("null"),
++        .bool => |b| try w.writeAll(if (b) "true" else "false"),
++        .number => |n| try w.writeAll(n),
++        .string => |s| try writeString(w, s, style.ascii),
++        .array => |items| {
++            if (items.len == 0) return w.writeAll("[]");
++            try w.writeByte('[');
++            for (items, 0..) |item, i| {
++                if (i > 0) try w.writeByte(',');
++                try newline(w, style, level + 1);
++                try writeNested(w, item, style, level + 1);
++            }
++            try newline(w, style, level);
++            try w.writeByte(']');
++        },
++        .object => |members| {
++            if (members.len == 0) return w.writeAll("{}");
++            try w.writeByte('{');
++            for (members, 0..) |m, i| {
++                if (i > 0) try w.writeByte(',');
++                try newline(w, style, level + 1);
++                try writeString(w, m.key, style.ascii);
++                try w.writeAll(if (style.indent == null) ":" else ": ");
++                try writeNested(w, m.value, style, level + 1);
++            }
++            try newline(w, style, level);
++            try w.writeByte('}');
++        },
++    }
++}
++
++fn newline(w: *Writer, style: Style, level: usize) Writer.Error!void {
++    const indent = style.indent orelse return;
++    try w.writeByte('\n');
++    try w.splatByteAll(' ', indent * level);
++}
++
++/// Writes `s` (valid UTF-8) as a quoted JSON string.
++pub fn writeString(w: *Writer, s: []const u8, ascii: bool) Writer.Error!void {
++    try w.writeByte('"');
++    var i: usize = 0;
++    while (i < s.len) {
++        const c = s[i];
++        switch (c) {
++            '"' => try w.writeAll("\\\""),
++            '\\' => try w.writeAll("\\\\"),
++            0x08 => try w.writeAll("\\b"),
++            0x0c => try w.writeAll("\\f"),
++            '\n' => try w.writeAll("\\n"),
++            '\r' => try w.writeAll("\\r"),
++            '\t' => try w.writeAll("\\t"),
++            0x00...0x07, 0x0b, 0x0e...0x1f => try writeEscape(w, c),
++            0x20...0x21, 0x23...0x5b, 0x5d...0x7f => try w.writeByte(c),
++            0x80...0xff => {
++                const len = std.unicode.utf8ByteSequenceLength(c) catch unreachable;
++                const seq = s[i..][0..len];
++                if (ascii) {
++                    const cp = std.unicode.utf8Decode(seq) catch unreachable;
++                    if (cp >= 0x10000) {
++                        const v = cp - 0x10000;
++                        try writeEscape(w, @intCast(0xd800 + (v >> 10)));
++                        try writeEscape(w, @intCast(0xdc00 + (v & 0x3ff)));
++                    } else try writeEscape(w, @intCast(cp));
++                } else try w.writeAll(seq);
++                i += len;
++                continue;
++            },
++        }
++        i += 1;
++    }
++    try w.writeByte('"');
++}
++
++fn writeEscape(w: *Writer, unit: u16) Writer.Error!void {
++    try w.print("\\u{x:0>4}", .{unit});
++}
++
++/// Sorts the members of every object (recursively) by key bytes.
++pub fn sortKeys(value: Value) void {
++    switch (value) {
++        .array => |items| for (items) |item| sortKeys(item),
++        .object => |members| {
++            std.mem.sort(Member, members, {}, keyLessThan);
++            for (members) |m| sortKeys(m.value);
++        },
++        else => {},
++    }
++}
++
++fn keyLessThan(_: void, a: Member, b: Member) bool {
++    return std.mem.order(u8, a.key, b.key) == .lt;
++}
++
++// ---------------------------------------------------------------- tests
++
++const testing = std.testing;
++
++fn render(input: []const u8, style: Style, sort: bool) ![]u8 {
++    var arena: std.heap.ArenaAllocator = .init(testing.allocator);
++    defer arena.deinit();
++    var diag: json.Diagnostic = .{};
++    const v = try json.parse(arena.allocator(), input, &diag);
++    if (sort) sortKeys(v);
++    var out: Writer.Allocating = .init(testing.allocator);
++    defer out.deinit();
++    try writeValue(&out.writer, v, style);
++    return testing.allocator.dupe(u8, out.written());
++}
++
++fn expectRender(input: []const u8, style: Style, sort: bool, expected: []const u8) !void {
++    const got = try render(input, style, sort);
++    defer testing.allocator.free(got);
++    try testing.expectEqualStrings(expected, got);
++}
++
++test "minified output" {
++    try expectRender(" { \"a\" : [ 1 , { } ] , \"b\" : \"x\" } ", .{}, false, "{\"a\":[1,{}],\"b\":\"x\"}");
++}
++
++test "pretty output" {
++    try expectRender("{\"a\":[1,{}],\"b\":[]}", .{ .indent = 2 }, false,
++        \\{
++        \\  "a": [
++        \\    1,
++        \\    {}
++        \\  ],
++        \\  "b": []
++        \\}
++    );
++}
++
++test "string escaping" {
++    try expectRender("\"\\u0001\\/\\\"\\u00e9\x7f\"", .{}, false, "\"\\u0001/\\\"é\x7f\"");
++    try expectRender("\"é😀\"", .{ .ascii = true }, false, "\"\\u00e9\\ud83d\\ude00\"");
++}
++
++test "sort keys by bytes" {
++    try expectRender("{\"é\":1,\"a\":{\"y\":1,\"x\":2},\"Z\":3}", .{}, true, "{\"Z\":3,\"a\":{\"x\":2,\"y\":1},\"é\":1}");
++}
+diff --git a/src/query.zig b/src/query.zig
+new file mode 100644
+index 0000000..64abbd9
+--- /dev/null
++++ b/src/query.zig
+@@ -0,0 +1,153 @@
++//! Path expressions such as `.users[*].emails[0]` and their evaluation.
++const std = @import("std");
++const json = @import("json.zig");
++const Allocator = std.mem.Allocator;
++const Value = json.Value;
++
++pub const Segment = union(enum) {
++    key: []const u8,
++    index: i64,
++    wildcard,
++};
++
++pub const PathError = error{ InvalidPath, OutOfMemory };
++
++/// Parses a path. `.` alone yields no segments (the whole document).
++pub fn parsePath(arena: Allocator, path: []const u8) PathError![]Segment {
++    if (std.mem.eql(u8, path, ".")) return &.{};
++    var segments: std.ArrayList(Segment) = .empty;
++    var i: usize = 0;
++    if (path.len >= 2 and path[0] == '.' and path[1] == '[') i = 1;
++    if (i >= path.len) return error.InvalidPath;
++    while (i < path.len) {
++        switch (path[i]) {
++            '.' => {
++                const start = i + 1;
++                var end = start;
++                while (end < path.len and isIdentByte(path[end], end == start)) end += 1;
++                if (end == start) return error.InvalidPath;
++                try segments.append(arena, .{ .key = path[start..end] });
++                i = end;
++            },
++            '[' => {
++                const close = try bracketEnd(path, i);
++                try segments.append(arena, try parseBracket(arena, path[i + 1 .. close]));
++                i = close + 1;
++            },
++            else => return error.InvalidPath,
++        }
++    }
++    return segments.toOwnedSlice(arena);
++}
++
++fn isIdentByte(c: u8, first: bool) bool {
++    return switch (c) {
++        'A'...'Z', 'a'...'z', '_' => true,
++        '0'...'9' => !first,
++        else => false,
++    };
++}
++
++/// Index of the `]` closing the bracket at `open`, skipping over a quoted key.
++fn bracketEnd(path: []const u8, open: usize) PathError!usize {
++    var i = open + 1;
++    if (i < path.len and path[i] == '"') {
++        i += 1;
++        while (i < path.len and path[i] != '"') : (i += 1) {
++            if (path[i] == '\\') i += 1;
++        }
++        i += 1;
++    }
++    while (i < path.len and path[i] != ']') i += 1;
++    if (i >= path.len) return error.InvalidPath;
++    return i;
++}
++
++fn parseBracket(arena: Allocator, inner: []const u8) PathError!Segment {
++    if (std.mem.eql(u8, inner, "*")) return .wildcard;
++    if (inner.len > 0 and inner[0] == '"') {
++        var diag: json.Diagnostic = .{};
++        const v = json.parse(arena, inner, &diag) catch |err| switch (err) {
++            error.InvalidJson => return error.InvalidPath,
++            error.OutOfMemory => return error.OutOfMemory,
++        };
++        if (v != .string or inner[inner.len - 1] != '"') return error.InvalidPath;
++        return .{ .key = v.string };
++    }
++    const negative = inner.len > 0 and inner[0] == '-';
++    const digits = if (negative) inner[1..] else inner;
++    if (digits.len == 0) return error.InvalidPath;
++    for (digits) |c| if (c < '0' or c > '9') return error.InvalidPath;
++    if (digits.len > 1 and digits[0] == '0') return error.InvalidPath;
++    if (negative and std.mem.eql(u8, digits, "0")) return error.InvalidPath;
++    const n = std.fmt.parseInt(i64, digits, 10) catch return error.InvalidPath;
++    return .{ .index = if (negative) -n else n };
++}
++
++/// Applies `segments` to `root`, returning every match in document order.
++pub fn evaluate(arena: Allocator, root: Value, segments: []const Segment) Allocator.Error![]Value {
++    var current: std.ArrayList(Value) = .empty;
++    try current.append(arena, root);
++    for (segments) |seg| {
++        var next: std.ArrayList(Value) = .empty;
++        for (current.items) |v| try step(arena, &next, v, seg);
++        current = next;
++    }
++    return current.items;
++}
++
++fn step(arena: Allocator, out: *std.ArrayList(Value), v: Value, seg: Segment) Allocator.Error!void {
++    switch (seg) {
++        .key => |k| if (v == .object) {
++            for (v.object) |m| if (std.mem.eql(u8, m.key, k)) return out.append(arena, m.value);
++        },
++        .index => |n| if (v == .array) {
++            const len: i64 = @intCast(v.array.len);
++            const idx = if (n < 0) len + n else n;
++            if (idx >= 0 and idx < len) try out.append(arena, v.array[@intCast(idx)]);
++        },
++        .wildcard => switch (v) {
++            .array => |items| try out.appendSlice(arena, items),
++            .object => |members| for (members) |m| try out.append(arena, m.value),
++            else => {},
++        },
++    }
++}
++
++// ---------------------------------------------------------------- tests
++
++const testing = std.testing;
++
++test "parse paths" {
++    var arena: std.heap.ArenaAllocator = .init(testing.allocator);
++    defer arena.deinit();
++    const a = arena.allocator();
++    try testing.expectEqual(@as(usize, 0), (try parsePath(a, ".")).len);
++    const segs = try parsePath(a, ".a.b_2[3][*][\"x ]y\"][-1]");
++    try testing.expectEqual(@as(usize, 6), segs.len);
++    try testing.expectEqualStrings("b_2", segs[1].key);
++    try testing.expectEqual(@as(i64, 3), segs[2].index);
++    try testing.expect(segs[3] == .wildcard);
++    try testing.expectEqualStrings("x ]y", segs[4].key);
++    try testing.expectEqual(@as(i64, -1), segs[5].index);
++    try testing.expectEqual(@as(usize, 1), (try parsePath(a, ".[0]")).len);
++    for ([_][]const u8{ "", "a", "..a", ".1a", "[01]", "[-0]", "[", "[x]", ".a.", "[\"a\"", ".[" }) |bad| {
++        try testing.expectError(error.InvalidPath, parsePath(a, bad));
++    }
++}
++
++test "evaluate paths" {
++    var arena: std.heap.ArenaAllocator = .init(testing.allocator);
++    defer arena.deinit();
++    const a = arena.allocator();
++    var diag: json.Diagnostic = .{};
++    const doc = try json.parse(a, "{\"u\":[{\"n\":\"a\"},{\"n\":\"b\"},{\"m\":1}],\"é\":5}", &diag);
++    const names = try evaluate(a, doc, try parsePath(a, ".u[*].n"));
++    try testing.expectEqual(@as(usize, 2), names.len);
++    try testing.expectEqualStrings("b", names[1].string);
++    const last = try evaluate(a, doc, try parsePath(a, ".u[-1].m"));
++    try testing.expectEqualStrings("1", last[0].number);
++    const esc = try evaluate(a, doc, try parsePath(a, "[\"\\u00e9\"]"));
++    try testing.expectEqualStrings("5", esc[0].number);
++    try testing.expectEqual(@as(usize, 0), (try evaluate(a, doc, try parsePath(a, ".u[9]"))).len);
++}

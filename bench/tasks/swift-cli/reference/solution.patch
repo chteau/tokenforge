@@ -1,0 +1,707 @@
+diff --git a/Package.swift b/Package.swift
+new file mode 100644
+index 0000000..5bd0267
+--- /dev/null
++++ b/Package.swift
+@@ -0,0 +1,11 @@
++// swift-tools-version:6.0
++import PackageDescription
++
++let package = Package(
++    name: "cronx",
++    targets: [
++        .target(name: "CronCore"),
++        .executableTarget(name: "cronx", dependencies: ["CronCore"]),
++        .testTarget(name: "CronCoreTests", dependencies: ["CronCore"]),
++    ]
++)
+diff --git a/README.md b/README.md
+index bbbdcc8..aeb25cb 100644
+--- a/README.md
++++ b/README.md
+@@ -1 +1,24 @@
+ # cronx — a cron expression tool
++
++Validates standard 5-field cron expressions, lists upcoming run times in a fixed
++UTC offset, and explains expressions in plain English.
++
++## Build and test
++
++Requires Swift 6 (SwiftPM); there are no package dependencies.
++
++    swift build
++    swift test
++
++## Usage
++
++    cronx validate '<expr>'
++    cronx next '<expr>' --from 2026-03-01T10:00Z [--count 5] [--offset +05:30]
++    cronx explain '<expr>'
++
++Fields: minute (0-59), hour (0-23), day-of-month (1-31), month (1-12 or JAN-DEC),
++day-of-week (0-7 or SUN-SAT, 0 and 7 are Sunday). Items may be `*`, `n`, `a-b`,
++`*/s`, `a-b/s` or `a/s`, separated by commas. Macros: `@yearly`, `@annually`,
++`@monthly`, `@weekly`, `@daily`, `@midnight`, `@hourly`.
++
++Exit codes: 0 success, 1 invalid expression or no upcoming run, 2 usage error.
+diff --git a/Sources/CronCore/DateTime.swift b/Sources/CronCore/DateTime.swift
+new file mode 100644
+index 0000000..46c89d9
+--- /dev/null
++++ b/Sources/CronCore/DateTime.swift
+@@ -0,0 +1,122 @@
++/// Calendar arithmetic on the proleptic Gregorian calendar, without Foundation.
++public struct CivilDate: Equatable, Sendable {
++    public let year: Int
++    public let month: Int
++    public let day: Int
++
++    public static func isLeap(_ y: Int) -> Bool { (y % 4 == 0 && y % 100 != 0) || y % 400 == 0 }
++
++    public static func daysIn(month: Int, year: Int) -> Int {
++        switch month {
++        case 2: return isLeap(year) ? 29 : 28
++        case 4, 6, 9, 11: return 30
++        default: return 31
++        }
++    }
++
++    public var isValid: Bool {
++        (1...12).contains(month) && day >= 1 && day <= CivilDate.daysIn(month: month, year: year)
++    }
++
++    /// Days since 1970-01-01 (Howard Hinnant's days_from_civil).
++    public var daysSinceEpoch: Int {
++        let y = month <= 2 ? year - 1 : year
++        let era = (y >= 0 ? y : y - 399) / 400
++        let yoe = y - era * 400
++        let mp = (month + 9) % 12
++        let doy = (153 * mp + 2) / 5 + day - 1
++        let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy
++        return era * 146_097 + doe - 719_468
++    }
++
++    public init(year: Int, month: Int, day: Int) {
++        self.year = year
++        self.month = month
++        self.day = day
++    }
++
++    public init(daysSinceEpoch days: Int) {
++        let z = days + 719_468
++        let era = (z >= 0 ? z : z - 146_096) / 146_097
++        let doe = z - era * 146_097
++        let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365
++        let doy = doe - (365 * yoe + yoe / 4 - yoe / 100)
++        let mp = (5 * doy + 2) / 153
++        let d = doy - (153 * mp + 2) / 5 + 1
++        let m = mp < 10 ? mp + 3 : mp - 9
++        self.init(year: yoe + era * 400 + (m <= 2 ? 1 : 0), month: m, day: d)
++    }
++
++    /// 0 = Sunday ... 6 = Saturday.
++    public var weekday: Int {
++        let d = daysSinceEpoch
++        return ((d % 7) + 7 + 4) % 7 // 1970-01-01 was a Thursday
++    }
++}
++
++/// A fixed UTC offset in minutes.
++public struct UTCOffset: Equatable, Sendable {
++    public let minutes: Int
++
++    public init(minutes: Int) { self.minutes = minutes }
++
++    /// Parses `+HH:MM` / `-HH:MM` (hours 00-14, minutes 00-59, at most 14:00 in total).
++    public init?(parsing text: String) {
++        let chars = Array(text)
++        guard chars.count == 6, chars[0] == "+" || chars[0] == "-", chars[3] == ":",
++              let h = twoDigits(chars[1], chars[2]), let m = twoDigits(chars[4], chars[5]),
++              h <= 14, m <= 59, h * 60 + m <= 14 * 60 else { return nil }
++        minutes = (chars[0] == "-" ? -1 : 1) * (h * 60 + m)
++    }
++
++    public var formatted: String {
++        let a = abs(minutes)
++        return (minutes < 0 ? "-" : "+") + pad2(a / 60) + ":" + pad2(a % 60)
++    }
++}
++
++/// Minutes since the Unix epoch, UTC.
++public typealias Instant = Int
++
++/// Parses `YYYY-MM-DDTHH:MM` followed by `Z` or `±HH:MM` into an instant.
++public func parseInstant(_ text: String) -> Instant? {
++    let chars = Array(text)
++    guard chars.count >= 17, chars[4] == "-", chars[7] == "-", chars[10] == "T", chars[13] == ":",
++          chars[0..<4].allSatisfy({ $0.isASCII && $0.isNumber }),
++          let year = Int(String(chars[0..<4])),
++          let month = twoDigits(chars[5], chars[6]), let day = twoDigits(chars[8], chars[9]),
++          let hour = twoDigits(chars[11], chars[12]), let minute = twoDigits(chars[14], chars[15]),
++          hour <= 23, minute <= 59 else { return nil }
++    let date = CivilDate(year: year, month: month, day: day)
++    guard date.isValid else { return nil }
++    let zone = String(chars[16...])
++    let offset: Int
++    if zone == "Z" {
++        offset = 0
++    } else if let o = UTCOffset(parsing: zone) {
++        offset = o.minutes
++    } else {
++        return nil
++    }
++    return date.daysSinceEpoch * 1440 + hour * 60 + minute - offset
++}
++
++/// Formats an instant as local time in `offset`: `YYYY-MM-DDTHH:MM±HH:MM`.
++public func formatInstant(_ instant: Instant, offset: UTCOffset) -> String {
++    let local = instant + offset.minutes
++    let days = floorDiv(local, 1440)
++    let minuteOfDay = local - days * 1440
++    let d = CivilDate(daysSinceEpoch: days)
++    let year = String(d.year)
++    return String(repeating: "0", count: max(0, 4 - year.count)) + year + "-" + pad2(d.month) + "-"
++        + pad2(d.day) + "T" + pad2(minuteOfDay / 60) + ":" + pad2(minuteOfDay % 60) + offset.formatted
++}
++
++func floorDiv(_ a: Int, _ b: Int) -> Int { a >= 0 ? a / b : -((-a + b - 1) / b) }
++
++func pad2(_ v: Int) -> String { v < 10 ? "0\(v)" : String(v) }
++
++private func twoDigits(_ a: Character, _ b: Character) -> Int? {
++    guard let x = a.wholeNumberValue, let y = b.wholeNumberValue, a.isASCII, b.isASCII else { return nil }
++    return x * 10 + y
++}
+diff --git a/Sources/CronCore/Explain.swift b/Sources/CronCore/Explain.swift
+new file mode 100644
+index 0000000..6598518
+--- /dev/null
++++ b/Sources/CronCore/Explain.swift
+@@ -0,0 +1,62 @@
++extension CronExpression {
++    /// One English sentence describing the schedule.
++    public func explanation() -> String {
++        var parts = [timePart()]
++        if let days = daysPart() { parts.append(days) }
++        if !month.isWildcard {
++            parts.append(singleStep(month).map { "every \($0) months" } ?? "in \(list(month))")
++        }
++        return parts.joined(separator: ", ") + "."
++    }
++
++    private func timePart() -> String {
++        if case .value(let m)? = single(minute), case .value(let h)? = single(hour) {
++            return "At \(pad2(h)):\(pad2(m))"
++        }
++        var text: String
++        if minute.isWildcard {
++            text = "Every minute"
++        } else if let s = singleStep(minute) {
++            text = "Every \(s) minutes"
++        } else {
++            text = "At minute \(list(minute))"
++        }
++        if !hour.isWildcard {
++            text += " " + (singleStep(hour).map { "past every \($0) hours" } ?? "past hour \(list(hour))")
++        }
++        return text
++    }
++
++    private func daysPart() -> String? {
++        let dom = singleStep(dayOfMonth).map { "every \($0) days" } ?? "day \(list(dayOfMonth)) of the month"
++        let dow = singleStep(dayOfWeek).map { "every \($0) days of the week" } ?? list(dayOfWeek)
++        switch (dayOfMonth.isWildcard, dayOfWeek.isWildcard) {
++        case (true, true): return nil
++        case (false, true): return "on \(dom)"
++        case (true, false): return "on \(dow)"
++        case (false, false): return "on \(dom) or \(dow)"
++        }
++    }
++
++    private func single(_ f: Field) -> FieldItem? { f.items.count == 1 ? f.items[0] : nil }
++
++    private func singleStep(_ f: Field) -> Int? {
++        if case .anyStep(let s)? = single(f) { return s }
++        return nil
++    }
++
++    private func list(_ f: Field) -> String {
++        let texts = f.items.map { item -> String in
++            switch item {
++            case .any: return "every \(f.kind.name)"
++            case .value(let v): return f.kind.display(v)
++            case .range(let a, let b): return "\(f.kind.display(a)) through \(f.kind.display(b))"
++            case .anyStep(let s): return "every \(s)"
++            case .rangeStep(let a, let b, let s):
++                return "every \(s) from \(f.kind.display(a)) through \(f.kind.display(b))"
++            }
++        }
++        guard texts.count > 1 else { return texts.first ?? "" }
++        return texts.dropLast().joined(separator: ", ") + " and " + texts[texts.count - 1]
++    }
++}
+diff --git a/Sources/CronCore/Field.swift b/Sources/CronCore/Field.swift
+new file mode 100644
+index 0000000..081e99b
+--- /dev/null
++++ b/Sources/CronCore/Field.swift
+@@ -0,0 +1,90 @@
++/// The five cron fields with their value ranges and optional names.
++public enum FieldKind: Int, CaseIterable, Sendable {
++    case minute, hour, dayOfMonth, month, dayOfWeek
++
++    public var name: String {
++        switch self {
++        case .minute: return "minute"
++        case .hour: return "hour"
++        case .dayOfMonth: return "day-of-month"
++        case .month: return "month"
++        case .dayOfWeek: return "day-of-week"
++        }
++    }
++
++    public var range: ClosedRange<Int> {
++        switch self {
++        case .minute: return 0...59
++        case .hour: return 0...23
++        case .dayOfMonth: return 1...31
++        case .month: return 1...12
++        case .dayOfWeek: return 0...7
++        }
++    }
++
++    static let monthNames = ["January", "February", "March", "April", "May", "June", "July",
++                             "August", "September", "October", "November", "December"]
++    static let dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
++
++    /// Value of a three-letter name in this field, if names are allowed and it matches.
++    func value(ofName text: String) -> Int? {
++        let key = text.uppercased()
++        switch self {
++        case .month:
++            return FieldKind.monthNames.firstIndex { $0.prefix(3).uppercased() == key }.map { $0 + 1 }
++        case .dayOfWeek:
++            return FieldKind.dayNames.firstIndex { $0.prefix(3).uppercased() == key }
++        default:
++            return nil
++        }
++    }
++
++    /// Human-readable form of a value, as used by `explain`.
++    func display(_ v: Int) -> String {
++        switch self {
++        case .month: return FieldKind.monthNames[v - 1]
++        case .dayOfWeek: return FieldKind.dayNames[v % 7]
++        default: return String(v)
++        }
++    }
++}
++
++/// One comma-separated item of a field.
++public enum FieldItem: Equatable, Sendable {
++    case any
++    case value(Int)
++    case range(Int, Int)
++    case anyStep(Int)
++    case rangeStep(Int, Int, Int)
++
++    func values(in kind: FieldKind) -> [Int] {
++        switch self {
++        case .any: return Array(kind.range)
++        case .value(let v): return [v]
++        case .range(let a, let b): return Array(a...b)
++        case .anyStep(let s): return Array(stride(from: kind.range.lowerBound, through: kind.range.upperBound, by: s))
++        case .rangeStep(let a, let b, let s): return Array(stride(from: a, through: b, by: s))
++        }
++    }
++}
++
++/// A parsed field: its items as written and the set of matching values.
++public struct Field: Equatable, Sendable {
++    public let kind: FieldKind
++    public let items: [FieldItem]
++    public let values: Set<Int>
++
++    init(kind: FieldKind, items: [FieldItem]) {
++        self.kind = kind
++        self.items = items
++        var set = Set<Int>()
++        for item in items { set.formUnion(item.values(in: kind)) }
++        if kind == .dayOfWeek, set.remove(7) != nil { set.insert(0) }
++        self.values = set
++    }
++
++    /// True when the field is exactly `*`.
++    public var isWildcard: Bool { items == [.any] }
++
++    public func contains(_ v: Int) -> Bool { values.contains(v) }
++}
+diff --git a/Sources/CronCore/Parser.swift b/Sources/CronCore/Parser.swift
+new file mode 100644
+index 0000000..305d7c2
+--- /dev/null
++++ b/Sources/CronCore/Parser.swift
+@@ -0,0 +1,106 @@
++/// A validation error; `description` is the user-facing message without the `error: ` prefix.
++public struct CronError: Error, Equatable, CustomStringConvertible {
++    public let description: String
++    init(_ message: String) { description = message }
++}
++
++/// A parsed five-field cron expression.
++public struct CronExpression: Equatable, Sendable {
++    public let minute: Field
++    public let hour: Field
++    public let dayOfMonth: Field
++    public let month: Field
++    public let dayOfWeek: Field
++
++    static let macros = [
++        "@yearly": "0 0 1 1 *", "@annually": "0 0 1 1 *", "@monthly": "0 0 1 * *",
++        "@weekly": "0 0 * * 0", "@daily": "0 0 * * *", "@midnight": "0 0 * * *", "@hourly": "0 * * * *",
++    ]
++
++    /// Parses and validates `text`, throwing the first problem found.
++    public init(parsing text: String) throws(CronError) {
++        var source = text.trimmingWhitespace()
++        if source.hasPrefix("@") {
++            guard let expansion = CronExpression.macros[source.lowercased()] else {
++                throw CronError("unknown macro \"\(text)\"")
++            }
++            source = expansion
++        }
++        let parts = source.split(whereSeparator: { $0 == " " || $0 == "\t" }).map(String.init)
++        guard parts.count == 5 else { throw CronError("expected 5 fields, got \(parts.count)") }
++        var fields: [Field] = []
++        for kind in FieldKind.allCases {
++            fields.append(try parseField(parts[kind.rawValue], kind))
++        }
++        minute = fields[0]
++        hour = fields[1]
++        dayOfMonth = fields[2]
++        month = fields[3]
++        dayOfWeek = fields[4]
++    }
++}
++
++private func parseField(_ text: String, _ kind: FieldKind) throws(CronError) -> Field {
++    let items = try text.split(separator: ",", omittingEmptySubsequences: false).map {
++        (raw: Substring) throws(CronError) -> FieldItem in try parseItem(String(raw), kind)
++    }
++    return Field(kind: kind, items: items)
++}
++
++private func parseItem(_ item: String, _ kind: FieldKind) throws(CronError) -> FieldItem {
++    func fail(_ message: String) -> CronError { CronError("\(kind.name): \(message)") }
++    if item.isEmpty { throw fail("empty item") }
++    let slashParts = item.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
++    guard slashParts.count <= 2 else { throw fail("invalid value \"\(item)\"") }
++    let base = slashParts[0]
++    let rangeParts = base.split(separator: "-", omittingEmptySubsequences: false).map(String.init)
++    guard rangeParts.count <= 2 else { throw fail("invalid value \"\(item)\"") }
++
++    func value(_ text: String) throws(CronError) -> Int {
++        if !text.isEmpty, text.allSatisfy({ $0.isASCII && $0.isNumber }) {
++            let n = Int(text) ?? Int.max
++            guard kind.range.contains(n) else {
++                let shown = text.drop(while: { $0 == "0" })
++                throw fail("value \(shown.isEmpty ? "0" : String(shown)) out of range "
++                    + "\(kind.range.lowerBound)-\(kind.range.upperBound)")
++            }
++            return n
++        }
++        if let v = kind.value(ofName: text) { return v }
++        throw fail("invalid value \"\(text)\"")
++    }
++
++    func step() throws(CronError) -> Int? {
++        guard slashParts.count == 2 else { return nil }
++        let text = slashParts[1]
++        guard !text.isEmpty, text.allSatisfy({ $0.isASCII && $0.isNumber }),
++              let s = Int(text), s > 0 else { throw fail("invalid step \"\(text)\"") }
++        return s
++    }
++
++    if base == "*" {
++        if let s = try step() { return .anyStep(s) }
++        return .any
++    }
++    let start = try value(rangeParts[0])
++    var end: Int? = nil
++    if rangeParts.count == 2 {
++        let e = try value(rangeParts[1])
++        guard start <= e else { throw fail("invalid range \(base)") }
++        end = e
++    }
++    let s = try step()
++    switch (end, s) {
++    case (nil, nil): return .value(start)
++    case (nil, let s?): return .rangeStep(start, kind.range.upperBound, s)
++    case (let e?, nil): return .range(start, e)
++    case (let e?, let s?): return .rangeStep(start, e, s)
++    }
++}
++
++extension String {
++    func trimmingWhitespace() -> String {
++        let isSpace: (Character) -> Bool = { $0 == " " || $0 == "\t" || $0 == "\n" || $0 == "\r" }
++        return String(drop(while: isSpace).reversed().drop(while: isSpace).reversed())
++    }
++}
+diff --git a/Sources/CronCore/Schedule.swift b/Sources/CronCore/Schedule.swift
+new file mode 100644
+index 0000000..ac46c05
+--- /dev/null
++++ b/Sources/CronCore/Schedule.swift
+@@ -0,0 +1,42 @@
++/// The search window for upcoming runs: 100 years.
++public let searchWindowDays = 36_525
++
++extension CronExpression {
++    /// Whether the expression's day rule accepts this date.
++    public func matchesDay(_ date: CivilDate) -> Bool {
++        guard month.contains(date.month) else { return false }
++        let domOK = dayOfMonth.contains(date.day)
++        let dowOK = dayOfWeek.contains(date.weekday)
++        switch (dayOfMonth.isWildcard, dayOfWeek.isWildcard) {
++        case (false, false): return domOK || dowOK
++        case (false, true): return domOK
++        case (true, false): return dowOK
++        case (true, true): return true
++        }
++    }
++
++    /// Up to `count` run instants strictly after `start`, evaluated in local time at `offset`.
++    /// Walks day by day and only expands the hours and minutes of matching days.
++    public func nextRuns(after start: Instant, count: Int, offset: UTCOffset) -> [Instant] {
++        let hours = hour.values.sorted()
++        let minutes = minute.values.sorted()
++        let firstLocal = start + offset.minutes + 1
++        let endLocal = start + offset.minutes + searchWindowDays * 1440 // exclusive
++        var runs: [Instant] = []
++        var day = floorDiv(firstLocal, 1440)
++        while runs.count < count && day * 1440 < endLocal {
++            if matchesDay(CivilDate(daysSinceEpoch: day)) {
++                outer: for h in hours {
++                    for m in minutes {
++                        let local = day * 1440 + h * 60 + m
++                        if local < firstLocal { continue }
++                        if local >= endLocal || runs.count == count { break outer }
++                        runs.append(local - offset.minutes)
++                    }
++                }
++            }
++            day += 1
++        }
++        return runs
++    }
++}
+diff --git a/Sources/cronx/main.swift b/Sources/cronx/main.swift
+new file mode 100644
+index 0000000..0f9d2ae
+--- /dev/null
++++ b/Sources/cronx/main.swift
+@@ -0,0 +1,85 @@
++import CronCore
++
++#if canImport(Glibc)
++import Glibc
++#elseif canImport(Darwin)
++import Darwin
++#endif
++
++let usage = """
++    usage: cronx validate <expr>
++           cronx next <expr> --from <instant> [--count <n>] [--offset <±HH:MM>]
++           cronx explain <expr>
++
++    <expr> is a 5-field cron expression (minute hour day-of-month month day-of-week)
++    or a macro such as @daily. <instant> is YYYY-MM-DDTHH:MM followed by Z or ±HH:MM.
++    """
++
++struct Failure: Error {
++    let code: Int32
++    let message: String
++}
++
++func usageError(_ message: String) -> Failure { Failure(code: 2, message: message) }
++
++func parseExpression(_ text: String) throws(Failure) -> CronExpression {
++    do {
++        return try CronExpression(parsing: text)
++    } catch {
++        throw Failure(code: 1, message: error.description)
++    }
++}
++
++func runNext(_ expr: CronExpression, _ args: ArraySlice<String>) throws(Failure) -> [String] {
++    var options: [String: String] = [:]
++    var rest = args
++    while let name = rest.popFirst() {
++        guard ["--from", "--count", "--offset"].contains(name) else { throw usageError("unknown option: \(name)") }
++        guard options[name] == nil else { throw usageError("repeated option: \(name)") }
++        guard let value = rest.popFirst() else { throw usageError("missing value for \(name)") }
++        options[name] = value
++    }
++    guard let fromText = options["--from"] else { throw usageError("missing option: --from") }
++    guard let from = parseInstant(fromText) else { throw usageError("invalid --from value \"\(fromText)\"") }
++    var count = 5
++    if let text = options["--count"] {
++        guard let n = Int(text), (1...1000).contains(n), text.allSatisfy({ $0.isASCII && $0.isNumber }) else {
++            throw usageError("invalid --count value \"\(text)\"")
++        }
++        count = n
++    }
++    var offset = UTCOffset(minutes: 0)
++    if let text = options["--offset"] {
++        guard let o = UTCOffset(parsing: text) else { throw usageError("invalid --offset value \"\(text)\"") }
++        offset = o
++    }
++    let runs = expr.nextRuns(after: from, count: count, offset: offset)
++    if runs.isEmpty { throw Failure(code: 1, message: "no run within 100 years") }
++    return runs.map { formatInstant($0, offset: offset) }
++}
++
++func run(_ argv: [String]) throws(Failure) -> [String] {
++    guard let command = argv.first else { throw usageError("missing command (see --help)") }
++    if argv.count == 1 && (command == "--help" || command == "-h") {
++        return [usage]
++    }
++    guard ["validate", "next", "explain"].contains(command) else { throw usageError("unknown command: \(command)") }
++    guard argv.count >= 2 else { throw usageError("missing expression") }
++    let rest = argv.dropFirst(2)
++    if command != "next" && !rest.isEmpty { throw usageError("unexpected argument: \(rest[rest.startIndex])") }
++    let expr = try parseExpression(argv[1])
++    switch command {
++    case "validate": return ["valid"]
++    case "explain": return [expr.explanation()]
++    default: return try runNext(expr, rest)
++    }
++}
++
++do {
++    let lines = try run(Array(CommandLine.arguments.dropFirst()))
++    print(lines.joined(separator: "\n"))
++} catch {
++    let line = "error: \(error.message)\n"
++    _ = line.utf8CString.withUnsafeBufferPointer { write(2, $0.baseAddress, $0.count - 1) }
++    exit(error.code)
++}
+diff --git a/Tests/CronCoreTests/ParserTests.swift b/Tests/CronCoreTests/ParserTests.swift
+new file mode 100644
+index 0000000..45712f5
+--- /dev/null
++++ b/Tests/CronCoreTests/ParserTests.swift
+@@ -0,0 +1,44 @@
++import Testing
++@testable import CronCore
++
++private func parseError(_ text: String) -> String? {
++    do {
++        _ = try CronExpression(parsing: text)
++        return nil
++    } catch {
++        return error.description
++    }
++}
++
++@Test func parsesListsRangesStepsAndNames() throws {
++    let e = try CronExpression(parsing: "0,30 9-17/4 */10 jan-MAR SUN,7")
++    #expect(e.minute.values == [0, 30])
++    #expect(e.hour.values == [9, 13, 17])
++    #expect(e.dayOfMonth.values == [1, 11, 21, 31])
++    #expect(e.month.values == [1, 2, 3])
++    #expect(e.dayOfWeek.values == [0])
++}
++
++@Test func startWithStepRunsToFieldMaximum() throws {
++    #expect(try CronExpression(parsing: "50/5 * * * *").minute.values == [50, 55])
++}
++
++@Test func macrosExpand() throws {
++    #expect(try CronExpression(parsing: "@WEEKLY") == CronExpression(parsing: "0 0 * * 0"))
++    #expect(try CronExpression(parsing: "@annually") == CronExpression(parsing: "0 0 1 1 *"))
++}
++
++@Test(arguments: [
++    ("* * * *", "expected 5 fields, got 4"),
++    ("@reboot", "unknown macro \"@reboot\""),
++    ("1,,2 * * * *", "minute: empty item"),
++    ("0 0 * FOO *", "month: invalid value \"FOO\""),
++    ("0 0 * * 08", "day-of-week: value 8 out of range 0-7"),
++    ("0 0 * * FRI-MON", "day-of-week: invalid range FRI-MON"),
++    ("*/0 * * * *", "minute: invalid step \"0\""),
++    ("1-2-3 * * * *", "minute: invalid value \"1-2-3\""),
++    ("60 24 * * *", "minute: value 60 out of range 0-59"),
++])
++func reportsFirstError(input: String, message: String) {
++    #expect(parseError(input) == message)
++}
+diff --git a/Tests/CronCoreTests/ScheduleTests.swift b/Tests/CronCoreTests/ScheduleTests.swift
+new file mode 100644
+index 0000000..cc9146e
+--- /dev/null
++++ b/Tests/CronCoreTests/ScheduleTests.swift
+@@ -0,0 +1,62 @@
++import Testing
++@testable import CronCore
++
++private func runs(_ expr: String, from: String, count: Int, offset: String = "+00:00") throws -> [String] {
++    let e = try CronExpression(parsing: expr)
++    let o = try #require(UTCOffset(parsing: offset))
++    let start = try #require(parseInstant(from))
++    return e.nextRuns(after: start, count: count, offset: o).map { formatInstant($0, offset: o) }
++}
++
++@Test func civilDateRoundTrip() {
++    for days in [-1, 0, 59, 11_016, 47_541, 100_000] {
++        #expect(CivilDate(daysSinceEpoch: CivilDate(daysSinceEpoch: days).daysSinceEpoch).daysSinceEpoch == days)
++    }
++    #expect(CivilDate(year: 1970, month: 1, day: 1).weekday == 4)
++    #expect(CivilDate(year: 2026, month: 3, day: 1).weekday == 0)
++    #expect(!CivilDate.isLeap(2100) && CivilDate.isLeap(2000) && CivilDate.isLeap(2028))
++}
++
++@Test func parsesInstantsAndOffsets() {
++    #expect(parseInstant("1970-01-01T01:00+01:00") == 0)
++    #expect(parseInstant("2026-02-29T00:00Z") == nil)
++    #expect(parseInstant("2026-01-01T24:00Z") == nil)
++    #expect(UTCOffset(parsing: "-03:45")?.minutes == -225)
++    #expect(UTCOffset(parsing: "+14:01") == nil)
++    #expect(UTCOffset(parsing: "+5:00") == nil)
++}
++
++@Test func nextRunsAreStrictlyAfterStart() throws {
++    #expect(try runs("15 10 * * *", from: "2026-10-08T10:15Z", count: 2)
++        == ["2026-10-09T10:15+00:00", "2026-10-10T10:15+00:00"])
++}
++
++@Test func dayOfMonthOrDayOfWeek() throws {
++    #expect(try runs("0 0 13 * FRI", from: "2026-02-01T00:00Z", count: 3)
++        == ["2026-02-06T00:00+00:00", "2026-02-13T00:00+00:00", "2026-02-20T00:00+00:00"])
++}
++
++@Test func scheduleRunsInOffsetLocalTime() throws {
++    #expect(try runs("0 12 * * *", from: "2026-03-01T05:00Z", count: 2, offset: "+05:30")
++        == ["2026-03-01T12:00+05:30", "2026-03-02T12:00+05:30"])
++}
++
++@Test func skipsNonLeapCenturies() throws {
++    #expect(try runs("0 0 29 2 *", from: "2097-01-01T00:00Z", count: 1) == ["2104-02-29T00:00+00:00"])
++}
++
++@Test func impossibleScheduleFindsNothing() throws {
++    #expect(try runs("0 0 30 2 *", from: "2026-01-01T00:00Z", count: 1).isEmpty)
++}
++
++@Test(arguments: [
++    ("30 9 * * MON-FRI", "At 09:30, on Monday through Friday."),
++    ("*/15 9-17 1,15 * *", "Every 15 minutes past hour 9 through 17, on day 1 and 15 of the month."),
++    ("0 0 * JAN,jul 0", "At 00:00, on Sunday, in January and July."),
++    ("0,30 */3 * * *", "At minute 0 and 30 past every 3 hours."),
++    ("0 8 */2 * MON", "At 08:00, on every 2 days or Monday."),
++    ("1,2,3 5-8/2 * */3 *", "At minute 1, 2 and 3 past hour every 2 from 5 through 8, every 3 months."),
++])
++func explains(input: String, sentence: String) throws {
++    #expect(try CronExpression(parsing: input).explanation() == sentence)
++}

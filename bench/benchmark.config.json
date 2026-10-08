@@ -36,9 +36,13 @@
     "~/.local/toolchains/go/bin",
     "~/.local/bin",
     "~/.dotnet",
+    "~/fvm/default/bin",
     "/home/linuxbrew/.linuxbrew/bin",
     "/usr/local/bin",
     "/usr/bin",
     "/bin"
-  ]
+  ],
+  "excluded_tasks": {
+    "ruby-cli": "run once per side (native 389,848 tokens, quality 96.83; tokenforge 443,388 tokens, quality 96.25) and left out of the published comparison by the maintainer. Runs are kept in runs/."
+  }
 }

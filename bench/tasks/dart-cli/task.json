@@ -1,0 +1,11 @@
+{
+  "id": "dart-cli",
+  "title": "Build the habits streak-tracker CLI in Dart",
+  "category": "greenfield",
+  "language": "dart",
+  "rubric": "coding",
+  "timeout_s": 2400,
+  "relevant_files": [],
+  "allowed_change_globs": ["**"],
+  "reference_diff_lines": 767
+}

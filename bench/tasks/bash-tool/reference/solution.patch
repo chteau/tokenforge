@@ -1,0 +1,607 @@
+diff --git a/README.md b/README.md
+index 05db80e..16701c1 100644
+--- a/README.md
++++ b/README.md
+@@ -1 +1,23 @@
+ # rotate — snapshot and rotate directory backups
++
++`rotate` snapshots a directory into timestamped `.tar.gz` archives, lists and
++restores them, and prunes old snapshots with a daily/weekly/monthly
++(grandfather-father-son) retention policy. Pure Bash plus coreutils, tar and gzip.
++
++## Usage
++
++    rotate snapshot --repo /backups/home --exclude '*.log' ~/projects
++    rotate list --repo /backups/home
++    rotate prune --repo /backups/home --keep-daily 7 --keep-weekly 4 --keep-monthly 6 --dry-run
++    rotate restore --repo /backups/home latest /tmp/restored
++
++Snapshots are stored as `<repo>/snap-YYYYMMDDTHHMMSSZ.tar.gz` (UTC). Set
++`ROTATE_NOW=2026-03-01T12:00:00Z` to fix the current time. `snapshot` and
++`prune` hold `<repo>/.rotate.lock` while they run.
++
++Exit codes: 0 ok, 1 snapshot exists / not found / target not empty, 2 usage
++error, 3 I/O error, 4 repository locked.
++
++## Tests
++
++    bash tests/run.sh
+diff --git a/lib/args.sh b/lib/args.sh
+new file mode 100644
+index 0000000..0b54c8d
+--- /dev/null
++++ b/lib/args.sh
+@@ -0,0 +1,63 @@
++# shellcheck shell=bash
++# Command-line parsing shared by all commands.
++
++REPO=""
++EXCLUDES=()
++KEEP_DAILY=7
++KEEP_WEEKLY=4
++KEEP_MONTHLY=6
++DRY_RUN=0
++POSITIONAL=()
++
++# parse_args <command> <args...>: fills the globals above or dies with exit 2.
++parse_args() {
++	local cmd=$1 allowed
++	shift
++	case $cmd in
++	snapshot) allowed=" --repo --exclude " ;;
++	prune) allowed=" --repo --keep-daily --keep-weekly --keep-monthly --dry-run " ;;
++	*) allowed=" --repo " ;;
++	esac
++	local seen=" " opt
++	while (($# > 0)); do
++		opt=$1
++		if [[ $opt != --* ]]; then
++			POSITIONAL+=("$opt")
++			shift
++			continue
++		fi
++		[[ $allowed == *" $opt "* ]] || die 2 "unknown option for $cmd: $opt"
++		if [[ $opt != --exclude && $seen == *" $opt "* ]]; then
++			die 2 "option given more than once: $opt"
++		fi
++		seen+="$opt "
++		if [[ $opt == --dry-run ]]; then
++			DRY_RUN=1
++			shift
++			continue
++		fi
++		(($# >= 2)) || die 2 "missing value for $opt"
++		case $opt in
++		--repo) REPO=$2 ;;
++		--exclude) EXCLUDES+=("$2") ;;
++		--keep-daily) KEEP_DAILY=$(parse_count "$opt" "$2") || exit 2 ;;
++		--keep-weekly) KEEP_WEEKLY=$(parse_count "$opt" "$2") || exit 2 ;;
++		--keep-monthly) KEEP_MONTHLY=$(parse_count "$opt" "$2") || exit 2 ;;
++		esac
++		shift 2
++	done
++	[[ -n $REPO ]] || die 2 "missing --repo <dir>"
++}
++
++# Prints a non-negative decimal count, or reports a usage error.
++parse_count() {
++	[[ $2 =~ ^[0-9]+$ ]] || die 2 "invalid value for $1: $2"
++	printf '%d\n' "$((10#$2))"
++}
++
++# expect_positional <min> <max>: checks the number of positional arguments.
++expect_positional() {
++	local n=${#POSITIONAL[@]}
++	((n >= $1)) || die 2 "missing argument (see rotate --help)"
++	((n <= $2)) || die 2 "unexpected argument: ${POSITIONAL[$2]}"
++}
+diff --git a/lib/commands.sh b/lib/commands.sh
+new file mode 100644
+index 0000000..fb67903
+--- /dev/null
++++ b/lib/commands.sh
+@@ -0,0 +1,104 @@
++# shellcheck shell=bash
++# The rotate commands. Each runs after parse_args has filled the globals.
++
++cmd_snapshot() {
++	expect_positional 1 1
++	local src=${POSITIONAL[0]}
++	load_now
++	[[ -d $src ]] || die 3 "source is not a directory: $src"
++	mkdir -p -- "$REPO" 2>/dev/null || die 3 "cannot create repository: $REPO"
++	acquire_lock "$REPO"
++
++	local id archive tmp out
++	id=$(epoch_to_id "$NOW_EPOCH")
++	archive=$(archive_path "$id")
++	[[ ! -e $archive ]] || die 1 "snapshot already exists: $id"
++	tmp="$REPO/.snap-$id.tar.gz.partial"
++	CLEANUP+=("$tmp")
++
++	local -a args=()
++	local pattern
++	for pattern in "${EXCLUDES[@]}"; do
++		args+=("--exclude=$pattern")
++	done
++	if ! out=$(tar -czf "$tmp" "${args[@]}" -C "$src" . 2>&1); then
++		die 3 "cannot archive $src: ${out%%$'\n'*}"
++	fi
++	mv -f -- "$tmp" "$archive" || die 3 "cannot write $archive"
++	printf 'created %s\n' "$id"
++}
++
++cmd_list() {
++	expect_positional 0 0
++	require_repo
++	local id size
++	while IFS= read -r id; do
++		size=$(stat -c %s -- "$(archive_path "$id")")
++		printf '%s\t%s\t%s\n' "$id" "$(id_to_human "$id")" "$size"
++	done < <(snapshot_ids)
++}
++
++cmd_prune() {
++	expect_positional 0 0
++	if ((KEEP_DAILY + KEEP_WEEKLY + KEEP_MONTHLY == 0)); then
++		die 2 "nothing to keep"
++	fi
++	require_repo
++	acquire_lock "$REPO"
++
++	local -a ids=() plan=()
++	mapfile -t ids < <(snapshot_ids | LC_ALL=C sort -r)
++	mapfile -t plan < <(retention_plan "$KEEP_DAILY" "$KEEP_WEEKLY" "$KEEP_MONTHLY" "${ids[@]}")
++
++	local line id rules deleted=0 output=""
++	for line in "${plan[@]}"; do
++		id=${line%% *}
++		rules=${line#* }
++		if [[ $rules == - ]]; then
++			deleted=$((deleted + 1))
++			output+="delete $id"$'\n'
++			if ((!DRY_RUN)); then
++				rm -f -- "$(archive_path "$id")" || die 3 "cannot delete snapshot $id"
++			fi
++		else
++			output+="keep $id $rules"$'\n'
++		fi
++	done
++	printf '%s' "$output"
++	if ((DRY_RUN)); then
++		printf 'would delete %d of %d snapshots\n' "$deleted" "${#ids[@]}"
++	else
++		printf 'deleted %d of %d snapshots\n' "$deleted" "${#ids[@]}"
++	fi
++}
++
++cmd_restore() {
++	expect_positional 2 2
++	local want=${POSITIONAL[0]} target=${POSITIONAL[1]} id
++	[[ $want == latest ]] || is_id "$want" || die 2 "invalid snapshot id: $want"
++	require_repo
++	if [[ $want == latest ]]; then
++		id=$(snapshot_ids | tail -n 1)
++		[[ -n $id ]] || die 1 "snapshot not found: latest"
++	else
++		id=$want
++		[[ -f $(archive_path "$id") ]] || die 1 "snapshot not found: $id"
++	fi
++	if [[ -e $target || -L $target ]]; then
++		if [[ ! -d $target || -L $target ]] || [[ -n $(ls -A -- "$target") ]]; then
++			die 1 "target not empty: $target"
++		fi
++	fi
++
++	local parent tmp
++	parent=$(dirname -- "$target")
++	mkdir -p -- "$parent" 2>/dev/null || die 3 "cannot create $parent"
++	tmp=$(mktemp -d "$parent/.rotate-restore.XXXXXX") || die 3 "cannot write to $parent"
++	CLEANUP+=("$tmp")
++	tar -xzf "$(archive_path "$id")" -C "$tmp" 2>/dev/null || die 3 "cannot extract snapshot $id"
++	if [[ -d $target ]]; then
++		rmdir -- "$target" || die 3 "cannot replace $target"
++	fi
++	mv -T -- "$tmp" "$target" || die 3 "cannot move restored files to $target"
++	printf 'restored %s to %s\n' "$id" "$target"
++}
+diff --git a/lib/lock.sh b/lib/lock.sh
+new file mode 100644
+index 0000000..4a98a54
+--- /dev/null
++++ b/lib/lock.sh
+@@ -0,0 +1,33 @@
++# shellcheck shell=bash
++# Repository lock: <repo>/.rotate.lock holds the PID of the running rotate.
++
++LOCK_FILE=""
++
++_try_lock() {
++	(
++		set -o noclobber
++		printf '%s\n' "$$" >"$1"
++	) 2>/dev/null
++}
++
++acquire_lock() {
++	local lock="$1/.rotate.lock" pid
++	if ! _try_lock "$lock"; then
++		[[ -e $lock ]] || die 3 "cannot create lock file: $lock"
++		pid=$(head -n 1 -- "$lock" 2>/dev/null || true)
++		if [[ $pid =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null; then
++			die 4 "repository is locked by pid $pid"
++		fi
++		warn "removing stale lock"
++		rm -f -- "$lock"
++		_try_lock "$lock" || die 4 "repository is locked: $lock"
++	fi
++	LOCK_FILE=$lock
++}
++
++release_lock() {
++	if [[ -n $LOCK_FILE ]]; then
++		rm -f -- "$LOCK_FILE"
++		LOCK_FILE=""
++	fi
++}
+diff --git a/lib/repo.sh b/lib/repo.sh
+new file mode 100644
+index 0000000..b3d9db9
+--- /dev/null
++++ b/lib/repo.sh
+@@ -0,0 +1,24 @@
++# shellcheck shell=bash
++# Reading the snapshot repository.
++
++require_repo() {
++	[[ -d $REPO ]] || die 3 "repository not found: $REPO"
++}
++
++archive_path() {
++	printf '%s/snap-%s.tar.gz\n' "$REPO" "$1"
++}
++
++# Prints the ids of all snapshots in the repository, oldest first.
++snapshot_ids() {
++	local f name id
++	for f in "$REPO"/snap-*.tar.gz; do
++		[[ -f $f ]] || continue
++		name=${f##*/}
++		id=${name#snap-}
++		id=${id%.tar.gz}
++		if is_id "$id"; then
++			printf '%s\n' "$id"
++		fi
++	done | LC_ALL=C sort
++}
+diff --git a/lib/retention.sh b/lib/retention.sh
+new file mode 100644
+index 0000000..e26f3c3
+--- /dev/null
++++ b/lib/retention.sh
+@@ -0,0 +1,45 @@
++# shellcheck shell=bash
++# Grandfather-father-son retention: decide which snapshots to keep.
++
++# retention_plan <daily> <weekly> <monthly> <ids newest first...>
++# Prints one line per id, in the given order: "<id> <rules>" where <rules> is
++# a comma-separated subset of daily,weekly,monthly, or "-" if nothing keeps it.
++retention_plan() {
++	local -i daily=$1 weekly=$2 monthly=$3
++	shift 3
++	local ids=("$@") n=$#
++	((n > 0)) || return 0
++	local -a days=() months=() weeks=() reasons=()
++	local i id
++	for ((i = 0; i < n; i++)); do
++		id=${ids[i]}
++		days[i]="${id:0:4}-${id:4:2}-${id:6:2}"
++		months[i]=${id:0:6}
++		reasons[i]=""
++	done
++	mapfile -t weeks < <(printf '%s\n' "${days[@]}" | date -u -f - +%G-%V)
++	_apply_rule daily "$daily" days
++	_apply_rule weekly "$weekly" weeks
++	_apply_rule monthly "$monthly" months
++	local rules
++	for ((i = 0; i < n; i++)); do
++		rules=${reasons[i]#,}
++		printf '%s %s\n' "${ids[i]}" "${rules:--}"
++	done
++}
++
++# _apply_rule <name> <count> <bucket array name>: keeps the newest snapshot of
++# each of the first <count> distinct buckets. Updates `reasons` of the caller.
++_apply_rule() {
++	local name=$1
++	local -i limit=$2 kept=0
++	local -n buckets=$3
++	local last="" i
++	for ((i = 0; i < ${#buckets[@]} && kept < limit; i++)); do
++		if [[ ${buckets[i]} != "$last" ]]; then
++			reasons[i]+=",$name"
++			last=${buckets[i]}
++			kept+=1
++		fi
++	done
++}
+diff --git a/lib/util.sh b/lib/util.sh
+new file mode 100644
+index 0000000..79058e9
+--- /dev/null
++++ b/lib/util.sh
+@@ -0,0 +1,57 @@
++# shellcheck shell=bash
++# Shared helpers: error reporting, cleanup on exit, time and snapshot ids.
++
++# Paths removed when the process exits (temporary archives and directories).
++CLEANUP=()
++
++die() {
++	local code=$1
++	shift
++	printf 'error: %s\n' "$*" >&2
++	exit "$code"
++}
++
++warn() {
++	printf 'warning: %s\n' "$*" >&2
++}
++
++on_exit() {
++	local p
++	for p in "${CLEANUP[@]}"; do
++		rm -rf -- "$p"
++	done
++	release_lock
++}
++
++# Sets NOW_EPOCH from ROTATE_NOW (YYYY-MM-DDTHH:MM:SSZ) or the system clock.
++load_now() {
++	local value=${ROTATE_NOW:-}
++	if [[ -z $value ]]; then
++		NOW_EPOCH=$(date -u +%s)
++		return 0
++	fi
++	[[ $value =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]] ||
++		die 2 "invalid ROTATE_NOW: $value"
++	local epoch
++	epoch=$(date -u -d "$value" +%s 2>/dev/null) || die 2 "invalid ROTATE_NOW: $value"
++	# Reject values that date(1) silently normalises.
++	[[ $(date -u -d "@$epoch" +%Y-%m-%dT%H:%M:%SZ) == "$value" ]] ||
++		die 2 "invalid ROTATE_NOW: $value"
++	NOW_EPOCH=$epoch
++}
++
++# Snapshot id (YYYYMMDDTHHMMSSZ) for an epoch time.
++epoch_to_id() {
++	date -u -d "@$1" +%Y%m%dT%H%M%SZ
++}
++
++is_id() {
++	[[ $1 =~ ^[0-9]{8}T[0-9]{6}Z$ ]]
++}
++
++# "YYYY-MM-DD HH:MM:SS" for a snapshot id.
++id_to_human() {
++	local id=$1
++	printf '%s-%s-%s %s:%s:%s\n' "${id:0:4}" "${id:4:2}" "${id:6:2}" \
++		"${id:9:2}" "${id:11:2}" "${id:13:2}"
++}
+diff --git a/rotate b/rotate
+new file mode 100755
+index 0000000..9e28dec
+--- /dev/null
++++ b/rotate
+@@ -0,0 +1,61 @@
++#!/usr/bin/env bash
++# rotate - snapshot a directory into timestamped archives and prune them with a
++# daily/weekly/monthly retention policy. See `rotate --help`.
++set -euo pipefail
++
++ROTATE_HOME=$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")" && pwd)
++# shellcheck source=lib/util.sh
++source "$ROTATE_HOME/lib/util.sh"
++# shellcheck source=lib/args.sh
++source "$ROTATE_HOME/lib/args.sh"
++# shellcheck source=lib/lock.sh
++source "$ROTATE_HOME/lib/lock.sh"
++# shellcheck source=lib/repo.sh
++source "$ROTATE_HOME/lib/repo.sh"
++# shellcheck source=lib/retention.sh
++source "$ROTATE_HOME/lib/retention.sh"
++# shellcheck source=lib/commands.sh
++source "$ROTATE_HOME/lib/commands.sh"
++
++usage() {
++	cat <<'USAGE'
++usage: rotate <command> [options] [args]
++
++commands:
++  snapshot --repo <dir> [--exclude <pattern>]... <source-dir>
++      archive the contents of <source-dir> as <dir>/snap-<id>.tar.gz
++  list --repo <dir>
++      list snapshots, oldest first: id, time (UTC), size in bytes
++  prune --repo <dir> [--keep-daily N] [--keep-weekly N] [--keep-monthly N] [--dry-run]
++      delete snapshots not kept by the retention policy (defaults 7/4/6)
++  restore --repo <dir> <id|latest> <target-dir>
++      extract a snapshot into a missing or empty <target-dir>
++
++environment:
++  ROTATE_NOW   current time as YYYY-MM-DDTHH:MM:SSZ (default: system clock)
++
++exit codes: 0 ok, 1 not found/exists/target not empty, 2 usage, 3 I/O, 4 locked
++USAGE
++}
++
++main() {
++	if (($# == 1)) && [[ $1 == --help || $1 == -h ]]; then
++		usage
++		return 0
++	fi
++	(($# > 0)) || die 2 "missing command (see rotate --help)"
++	local cmd=$1
++	shift
++	case $cmd in
++	snapshot | list | prune | restore)
++		parse_args "$cmd" "$@"
++		"cmd_$cmd"
++		;;
++	*) die 2 "unknown command: $cmd" ;;
++	esac
++}
++
++trap on_exit EXIT
++trap 'exit 130' INT
++trap 'exit 143' TERM
++main "$@"
+diff --git a/tests/run.sh b/tests/run.sh
+new file mode 100644
+index 0000000..74ceaa2
+--- /dev/null
++++ b/tests/run.sh
+@@ -0,0 +1,144 @@
++#!/usr/bin/env bash
++# Test suite for rotate. Run from the repository root: bash tests/run.sh
++set -uo pipefail
++
++ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
++ROTATE="$ROOT/rotate"
++WORK=$(mktemp -d)
++trap 'rm -rf -- "$WORK"' EXIT
++
++PASSED=0
++FAILED=0
++OUT="" ERR="" CODE=0
++
++# run <args...>: runs rotate, capturing stdout, stderr and the exit code.
++run() {
++	OUT=$("$ROTATE" "$@" 2>"$WORK/stderr")
++	CODE=$?
++	ERR=$(<"$WORK/stderr")
++}
++
++check() {
++	local name=$1
++	shift
++	if "$@"; then
++		PASSED=$((PASSED + 1))
++	else
++		FAILED=$((FAILED + 1))
++		printf 'FAIL %s (exit %s)\n  stdout: %s\n  stderr: %s\n' "$name" "$CODE" "$OUT" "$ERR"
++	fi
++}
++
++fresh() {
++	rm -rf -- "$WORK/src" "$WORK/repo" "$WORK/out"
++	mkdir -p "$WORK/src/sub/empty"
++	printf 'hello\n' >"$WORK/src/a.txt"
++	printf 'secret\n' >"$WORK/src/.hidden"
++	printf 'log\n' >"$WORK/src/sub/app.log"
++	ln -s a.txt "$WORK/src/link"
++}
++
++# Creates empty snapshot files for the given ids (prune reads only names).
++fake() {
++	mkdir -p "$WORK/repo"
++	local id
++	for id in "$@"; do
++		: >"$WORK/repo/snap-$id.tar.gz"
++	done
++}
++
++test_snapshot_and_list() {
++	fresh
++	ROTATE_NOW=2026-03-01T12:00:00Z run snapshot --repo "$WORK/repo" "$WORK/src"
++	check "snapshot output" test "$OUT" = "created 20260301T120000Z"
++	check "archive exists" test -f "$WORK/repo/snap-20260301T120000Z.tar.gz"
++	ROTATE_NOW=2026-03-01T12:00:00Z run snapshot --repo "$WORK/repo" "$WORK/src"
++	check "duplicate id is exit 1" test "$CODE" -eq 1
++	run list --repo "$WORK/repo"
++	local size
++	size=$(stat -c %s "$WORK/repo/snap-20260301T120000Z.tar.gz")
++	check "list line" test "$OUT" = $'20260301T120000Z\t2026-03-01 12:00:00\t'"$size"
++	check "no lock left" test ! -e "$WORK/repo/.rotate.lock"
++}
++
++test_snapshot_errors() {
++	fresh
++	run snapshot --repo "$WORK/repo" "$WORK/missing"
++	check "missing source is exit 3" test "$CODE" -eq 3
++	ROTATE_NOW=2026-02-30T00:00:00Z run snapshot --repo "$WORK/repo" "$WORK/src"
++	check "invalid ROTATE_NOW is exit 2" test "$CODE" -eq 2
++	run snapshot "$WORK/src"
++	check "missing --repo is exit 2" test "$CODE" -eq 2
++	run frobnicate
++	check "unknown command is exit 2" test "$CODE" -eq 2
++}
++
++test_restore_roundtrip() {
++	fresh
++	ROTATE_NOW=2026-03-01T12:00:00Z run snapshot --repo "$WORK/repo" --exclude '*.log' "$WORK/src"
++	run restore --repo "$WORK/repo" latest "$WORK/out/restored"
++	check "restore output" test "$OUT" = "restored 20260301T120000Z to $WORK/out/restored"
++	check "file restored" cmp -s "$WORK/src/a.txt" "$WORK/out/restored/a.txt"
++	check "hidden file restored" test -f "$WORK/out/restored/.hidden"
++	check "empty dir restored" test -d "$WORK/out/restored/sub/empty"
++	check "symlink restored" test -L "$WORK/out/restored/link"
++	check "excluded file skipped" test ! -e "$WORK/out/restored/sub/app.log"
++	run restore --repo "$WORK/repo" latest "$WORK/out/restored"
++	check "non-empty target is exit 1" test "$CODE" -eq 1
++	run restore --repo "$WORK/repo" 20990101T000000Z "$WORK/out/x"
++	check "unknown id is exit 1" test "$CODE" -eq 1
++	run restore --repo "$WORK/repo" yesterday "$WORK/out/x"
++	check "malformed id is exit 2" test "$CODE" -eq 2
++}
++
++test_restore_damaged() {
++	fresh
++	fake 20260301T120000Z
++	printf 'not a tarball' >"$WORK/repo/snap-20260301T120000Z.tar.gz"
++	run restore --repo "$WORK/repo" latest "$WORK/out"
++	check "damaged archive is exit 3" test "$CODE" -eq 3
++	check "target not created" test ! -e "$WORK/out"
++}
++
++test_prune_gfs() {
++	fresh
++	fake 20260301T120000Z 20260301T060000Z 20260228T120000Z 20260222T120000Z \
++		20260215T120000Z 20260131T120000Z 20251231T120000Z
++	run prune --repo "$WORK/repo" --keep-daily 2 --keep-weekly 2 --keep-monthly 2 --dry-run
++	local expected
++	expected=$'keep 20260301T120000Z daily,weekly,monthly\ndelete 20260301T060000Z'
++	expected+=$'\nkeep 20260228T120000Z daily,monthly\nkeep 20260222T120000Z weekly'
++	expected+=$'\ndelete 20260215T120000Z\ndelete 20260131T120000Z\ndelete 20251231T120000Z'
++	expected+=$'\nwould delete 4 of 7 snapshots'
++	check "dry-run plan" test "$OUT" = "$expected"
++	check "dry-run deletes nothing" test "$(find "$WORK/repo" -name 'snap-*' | wc -l)" -eq 7
++	run prune --repo "$WORK/repo" --keep-daily 2 --keep-weekly 2 --keep-monthly 2
++	check "prune summary" test "${OUT##*$'\n'}" = "deleted 4 of 7 snapshots"
++	check "prune deleted files" test "$(find "$WORK/repo" -name 'snap-*' | wc -l)" -eq 3
++	run prune --repo "$WORK/repo" --keep-daily 0 --keep-weekly 0 --keep-monthly 0
++	check "nothing to keep is exit 2" test "$CODE" -eq 2
++}
++
++test_lock() {
++	fresh
++	mkdir -p "$WORK/repo"
++	printf '%s\n' "$$" >"$WORK/repo/.rotate.lock"
++	run snapshot --repo "$WORK/repo" "$WORK/src"
++	check "live lock is exit 4" test "$CODE" -eq 4
++	check "live lock kept" test -f "$WORK/repo/.rotate.lock"
++	printf 'garbage\n' >"$WORK/repo/.rotate.lock"
++	ROTATE_NOW=2026-03-01T12:00:00Z run snapshot --repo "$WORK/repo" "$WORK/src"
++	check "stale lock replaced" test "$CODE" -eq 0
++	check "stale lock warning" test "$ERR" = "warning: removing stale lock"
++	check "lock released" test ! -e "$WORK/repo/.rotate.lock"
++}
++
++test_snapshot_and_list
++test_snapshot_errors
++test_restore_roundtrip
++test_restore_damaged
++test_prune_gfs
++test_lock
++
++printf '%d passed, %d failed\n' "$PASSED" "$FAILED"
++((FAILED == 0))

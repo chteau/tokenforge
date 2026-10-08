@@ -1,0 +1,11 @@
+{
+  "id": "c-cli",
+  "title": "Build the csvq CSV query tool in C",
+  "category": "greenfield",
+  "language": "c",
+  "rubric": "coding",
+  "timeout_s": 2400,
+  "relevant_files": [],
+  "allowed_change_globs": ["**"],
+  "reference_diff_lines": 1419
+}

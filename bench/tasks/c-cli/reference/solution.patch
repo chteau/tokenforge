@@ -1,0 +1,1498 @@
+diff --git a/.gitignore b/.gitignore
+index fe5c3cb..61aee45 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -1,2 +1,3 @@
+ *.o
+ /csvq
++/tests/test_csvq
+diff --git a/Makefile b/Makefile
+new file mode 100644
+index 0000000..a6542ca
+--- /dev/null
++++ b/Makefile
+@@ -0,0 +1,33 @@
++CC ?= gcc
++CFLAGS ?= -O2
++CFLAGS += -std=c11 -Wall -Wextra -Wpedantic $(EXTRA_CFLAGS)
++LDFLAGS += $(EXTRA_CFLAGS)
++
++LIB_OBJS = src/util.o src/csv.o src/query.o src/cli.o
++TEST_OBJS = tests/test_csvq.o
++
++.PHONY: all test clean
++
++all: csvq
++
++csvq: $(LIB_OBJS) src/main.o
++	$(CC) $(LDFLAGS) -o $@ $^
++
++tests/test_csvq: $(LIB_OBJS) $(TEST_OBJS)
++	$(CC) $(LDFLAGS) -o $@ $^
++
++test: tests/test_csvq
++	./tests/test_csvq
++
++%.o: %.c
++	$(CC) $(CFLAGS) -Isrc -c -o $@ $<
++
++src/util.o: src/util.h
++src/csv.o: src/csv.h src/util.h
++src/query.o: src/query.h src/csv.h src/util.h
++src/cli.o: src/cli.h src/csv.h src/query.h src/util.h
++src/main.o: src/cli.h
++tests/test_csvq.o: src/cli.h src/csv.h src/query.h src/util.h
++
++clean:
++	rm -f csvq tests/test_csvq src/*.o tests/*.o
+diff --git a/README.md b/README.md
+index 61854c1..8e9ffdd 100644
+--- a/README.md
++++ b/README.md
+@@ -1 +1,28 @@
+ # csvq — query CSV files from the command line
++
++`csvq` reads a CSV file (RFC 4180) and selects columns, filters rows, sorts and
++aggregates them, writing CSV to standard output.
++
++## Build and test
++
++```
++make            # builds ./csvq (C11, -Wall -Wextra)
++make test       # builds and runs tests/test_csvq
++make EXTRA_CFLAGS="-fsanitize=address,undefined"   # instrumented build
++```
++
++## Usage
++
++```
++csvq [--select COLS] [--where EXPR]... [--sort KEYS] [--group-by COLS]
++     [--agg LIST] [--limit N] [FILE]
++```
++
++```
++csvq sales.csv --where "amount > 50" --select rep,amount --sort amount:desc
++csvq sales.csv --group-by region --agg "count,sum(amount),avg(amount)"
++```
++
++Operators: `=`, `!=`, `<`, `<=`, `>`, `>=`, `contains`. Aggregates: `count`,
++`sum(col)`, `avg(col)`, `min(col)`, `max(col)`. Exit codes: 0 success, 2 usage
++error, 3 input error.
+diff --git a/src/cli.c b/src/cli.c
+new file mode 100644
+index 0000000..cea390a
+--- /dev/null
++++ b/src/cli.c
+@@ -0,0 +1,169 @@
++#include "cli.h"
++
++#include <errno.h>
++#include <stdlib.h>
++#include <string.h>
++
++#include "csv.h"
++#include "query.h"
++#include "util.h"
++
++static const char USAGE[] =
++    "usage: csvq [OPTIONS] [FILE]\n"
++    "\n"
++    "Query a CSV file (or standard input when FILE is omitted or '-').\n"
++    "\n"
++    "  --select COLS       output only these comma-separated columns\n"
++    "  --where EXPR        keep rows matching EXPR (repeatable, all must match)\n"
++    "                      operators: = != < <= > >= contains\n"
++    "  --sort KEYS         sort by comma-separated columns, each optionally :asc or :desc\n"
++    "  --group-by COLS     group rows by these columns\n"
++    "  --agg LIST          aggregates: count, sum(c), avg(c), min(c), max(c)\n"
++    "  --limit N           output at most N rows\n"
++    "  -h, --help          show this help\n";
++
++typedef struct {
++    Query query;
++    const char *file;
++    int seen_select, seen_sort, seen_group, seen_agg, seen_limit;
++} Options;
++
++static int usage_error(FILE *err, const char *fmt, const char *arg)
++{
++    fputs("error: ", err);
++    fprintf(err, fmt, arg);
++    fputc('\n', err);
++    return EXIT_USAGE;
++}
++
++static int parse_limit(const char *s, long *out)
++{
++    if (*s == '\0' || strlen(s) > 18)
++        return -1;
++    for (const char *p = s; *p; p++)
++        if (*p < '0' || *p > '9')
++            return -1;
++    *out = strtol(s, NULL, 10);
++    return 0;
++}
++
++/* Returns -1 to continue, or an exit code. */
++static int parse_args(int argc, char **argv, Options *o, FILE *out, FILE *err)
++{
++    Query *q = &o->query;
++    for (int i = 1; i < argc; i++) {
++        const char *a = argv[i];
++        if (strcmp(a, "-h") == 0 || strcmp(a, "--help") == 0) {
++            fputs(USAGE, out);
++            return EXIT_OK;
++        }
++        if (a[0] != '-' || strcmp(a, "-") == 0) {
++            if (o->file)
++                return usage_error(err, "unexpected argument: %s", a);
++            o->file = a;
++            continue;
++        }
++        int *seen = strcmp(a, "--select") == 0     ? &o->seen_select
++                    : strcmp(a, "--sort") == 0     ? &o->seen_sort
++                    : strcmp(a, "--group-by") == 0 ? &o->seen_group
++                    : strcmp(a, "--agg") == 0      ? &o->seen_agg
++                    : strcmp(a, "--limit") == 0    ? &o->seen_limit
++                                                   : NULL;
++        if (!seen && strcmp(a, "--where") != 0)
++            return usage_error(err, "unknown option: %s", a);
++        if (i + 1 >= argc)
++            return usage_error(err, "option %s requires a value", a);
++        if (seen && (*seen)++)
++            return usage_error(err, "option %s given more than once", a);
++        const char *v = argv[++i];
++
++        if (strcmp(a, "--where") == 0) {
++            Condition c;
++            if (parse_condition(v, &c) != 0)
++                return usage_error(err, "invalid expression: %s", v);
++            q->conds = xrealloc(q->conds, (q->nconds + 1) * sizeof *q->conds);
++            q->conds[q->nconds++] = c;
++        } else if (seen == &o->seen_select) {
++            q->has_select = 1;
++            if (split_list(v, &q->select) != 0)
++                return usage_error(err, "invalid column list: %s", v);
++        } else if (seen == &o->seen_group) {
++            q->has_group = 1;
++            if (split_list(v, &q->group_by) != 0)
++                return usage_error(err, "invalid column list: %s", v);
++        } else if (seen == &o->seen_sort) {
++            if (parse_sort_keys(v, &q->sort, &q->nsort) != 0)
++                return usage_error(err, "invalid column list: %s", v);
++        } else if (seen == &o->seen_agg) {
++            if (parse_aggregates(v, &q->aggs, &q->naggs) != 0)
++                return usage_error(err, "invalid aggregate: %s", v);
++        } else if (parse_limit(v, &q->limit) != 0) {
++            return usage_error(err, "invalid limit: %s", v);
++        }
++    }
++    if (q->has_select && (q->has_group || q->naggs > 0))
++        return usage_error(err, "%s", "--select cannot be combined with --group-by or --agg");
++    return -1;
++}
++
++static int load_table(const char *file, FILE *in, Table *t, FILE *err)
++{
++    FILE *f = in;
++    const char *name = file && strcmp(file, "-") != 0 ? file : NULL;
++    if (name) {
++        f = fopen(name, "rb");
++        if (!f) {
++            fprintf(err, "error: %s: %s\n", name, strerror(errno));
++            return EXIT_INPUT;
++        }
++    }
++    size_t len = 0;
++    char *data = read_all(f, &len);
++    if (name)
++        fclose(f);
++    if (!data) {
++        fprintf(err, "error: %s: read error\n", name ? name : "<stdin>");
++        return EXIT_INPUT;
++    }
++    CsvError e;
++    int rc = csv_parse(data, len, t, &e);
++    free(data);
++    if (rc != 0) {
++        if (e.line)
++            fprintf(err, "error: line %zu: %s\n", e.line, e.msg);
++        else
++            fprintf(err, "error: %s\n", e.msg);
++        return EXIT_INPUT;
++    }
++    return EXIT_OK;
++}
++
++int cli_run(int argc, char **argv, FILE *in, FILE *out, FILE *err)
++{
++    Options o;
++    memset(&o, 0, sizeof o);
++    query_init(&o.query);
++    int rc = parse_args(argc, argv, &o, out, err);
++    if (rc >= 0) {
++        query_free(&o.query);
++        return rc;
++    }
++
++    Table input, result;
++    rc = load_table(o.file, in, &input, err);
++    if (rc == EXIT_OK) {
++        const char *bad = NULL;
++        if (query_run(&o.query, &input, &result, &bad) != 0) {
++            fprintf(err, "error: unknown column: %s\n", bad);
++            rc = EXIT_USAGE;
++        } else {
++            csv_write_record(out, result.header.fields, result.header.nfields);
++            for (size_t r = 0; r < result.nrows; r++)
++                csv_write_record(out, result.rows[r].fields, result.rows[r].nfields);
++            table_free(&result);
++        }
++        table_free(&input);
++    }
++    query_free(&o.query);
++    return rc;
++}
+diff --git a/src/cli.h b/src/cli.h
+new file mode 100644
+index 0000000..dd5cf9e
+--- /dev/null
++++ b/src/cli.h
+@@ -0,0 +1,12 @@
++#ifndef CSVQ_CLI_H
++#define CSVQ_CLI_H
++
++#include <stdio.h>
++
++enum { EXIT_OK = 0, EXIT_USAGE = 2, EXIT_INPUT = 3 };
++
++/* Runs csvq with the given arguments (argv[0] is the program name).
++ * Results go to `out`, error messages to `err`. Returns the exit code. */
++int cli_run(int argc, char **argv, FILE *in, FILE *out, FILE *err);
++
++#endif
+diff --git a/src/csv.c b/src/csv.c
+new file mode 100644
+index 0000000..c9a1d14
+--- /dev/null
++++ b/src/csv.c
+@@ -0,0 +1,232 @@
++#include "csv.h"
++
++#include <stdlib.h>
++#include <string.h>
++
++#include "util.h"
++
++void table_init(Table *t)
++{
++    memset(t, 0, sizeof *t);
++}
++
++void table_add_row(Table *t, Record row)
++{
++    if (t->nrows == t->cap) {
++        t->cap = t->cap ? t->cap * 2 : 64;
++        t->rows = xrealloc(t->rows, t->cap * sizeof *t->rows);
++    }
++    t->rows[t->nrows++] = row;
++}
++
++void record_free(Record *r)
++{
++    for (size_t i = 0; i < r->nfields; i++)
++        free(r->fields[i]);
++    free(r->fields);
++    r->fields = NULL;
++    r->nfields = 0;
++}
++
++void table_free(Table *t)
++{
++    record_free(&t->header);
++    for (size_t i = 0; i < t->nrows; i++)
++        record_free(&t->rows[i]);
++    free(t->rows);
++    table_init(t);
++}
++
++char *read_all(FILE *f, size_t *len)
++{
++    size_t cap = 4096, n = 0;
++    char *buf = xmalloc(cap);
++    for (;;) {
++        if (n == cap) {
++            cap *= 2;
++            buf = xrealloc(buf, cap);
++        }
++        size_t got = fread(buf + n, 1, cap - n, f);
++        n += got;
++        if (got == 0)
++            break;
++    }
++    if (ferror(f)) {
++        free(buf);
++        return NULL;
++    }
++    *len = n;
++    return buf;
++}
++
++/* Parser state over an in-memory buffer. */
++typedef struct {
++    const char *s;
++    size_t len;
++    size_t pos;
++    size_t line;
++    CsvError *err;
++} Parser;
++
++static int fail(Parser *p, size_t line, const char *msg)
++{
++    p->err->line = line;
++    snprintf(p->err->msg, sizeof p->err->msg, "%s", msg);
++    return -1;
++}
++
++/* Length of the line terminator at the current position (0 if none). */
++static size_t eol_len(const Parser *p)
++{
++    if (p->pos < p->len && p->s[p->pos] == '\n')
++        return 1;
++    if (p->pos + 1 < p->len && p->s[p->pos] == '\r' && p->s[p->pos + 1] == '\n')
++        return 2;
++    return 0;
++}
++
++static int at_field_end(const Parser *p)
++{
++    return p->pos >= p->len || p->s[p->pos] == ',' || eol_len(p) > 0;
++}
++
++static int parse_field(Parser *p, char **out)
++{
++    StrBuf sb;
++    sb_init(&sb);
++    if (p->pos < p->len && p->s[p->pos] == '"') {
++        size_t start_line = p->line;
++        p->pos++;
++        for (;;) {
++            if (p->pos >= p->len) {
++                sb_free(&sb);
++                return fail(p, start_line, "unterminated quoted field");
++            }
++            char c = p->s[p->pos];
++            if (c == '"') {
++                if (p->pos + 1 < p->len && p->s[p->pos + 1] == '"') {
++                    sb_putc(&sb, '"');
++                    p->pos += 2;
++                    continue;
++                }
++                p->pos++;
++                break;
++            }
++            if (c == '\n')
++                p->line++;
++            sb_putc(&sb, c);
++            p->pos++;
++        }
++        if (!at_field_end(p)) {
++            sb_free(&sb);
++            return fail(p, p->line, "unexpected character after closing quote");
++        }
++    } else {
++        while (!at_field_end(p)) {
++            char c = p->s[p->pos];
++            if (c == '"') {
++                sb_free(&sb);
++                return fail(p, p->line, "unexpected quote in unquoted field");
++            }
++            sb_putc(&sb, c);
++            p->pos++;
++        }
++    }
++    *out = sb_take(&sb);
++    sb_free(&sb);
++    return 0;
++}
++
++/* Parses one record starting at the current position (which is not at EOF). */
++static int parse_record(Parser *p, Record *rec)
++{
++    rec->fields = NULL;
++    rec->nfields = 0;
++    rec->line = p->line;
++    for (;;) {
++        char *field;
++        if (parse_field(p, &field) != 0) {
++            record_free(rec);
++            return -1;
++        }
++        rec->fields = xrealloc(rec->fields, (rec->nfields + 1) * sizeof *rec->fields);
++        rec->fields[rec->nfields++] = field;
++        if (p->pos < p->len && p->s[p->pos] == ',') {
++            p->pos++;
++            continue;
++        }
++        size_t e = eol_len(p);
++        if (e) {
++            p->pos += e;
++            p->line++;
++        }
++        return 0;
++    }
++}
++
++int csv_parse(const char *data, size_t len, Table *out, CsvError *err)
++{
++    Parser p = {data, len, 0, 1, err};
++    int have_header = 0;
++    table_init(out);
++    if (len >= 3 && memcmp(data, "\xEF\xBB\xBF", 3) == 0)
++        p.pos = 3;
++    while (p.pos < p.len) {
++        size_t e = eol_len(&p);
++        if (e) { /* empty line */
++            p.pos += e;
++            p.line++;
++            continue;
++        }
++        Record rec;
++        if (parse_record(&p, &rec) != 0) {
++            table_free(out);
++            return -1;
++        }
++        if (!have_header) {
++            out->header = rec;
++            have_header = 1;
++            continue;
++        }
++        if (rec.nfields != out->header.nfields) {
++            char msg[96];
++            snprintf(msg, sizeof msg, "expected %zu fields, got %zu", out->header.nfields,
++                     rec.nfields);
++            size_t line = rec.line;
++            record_free(&rec);
++            table_free(out);
++            return fail(&p, line, msg);
++        }
++        table_add_row(out, rec);
++    }
++    if (!have_header) {
++        table_free(out);
++        return fail(&p, 0, "empty input");
++    }
++    return 0;
++}
++
++void csv_write_field(FILE *out, const char *field)
++{
++    if (strpbrk(field, ",\"\r\n") == NULL) {
++        fputs(field, out);
++        return;
++    }
++    fputc('"', out);
++    for (const char *c = field; *c; c++) {
++        if (*c == '"')
++            fputc('"', out);
++        fputc(*c, out);
++    }
++    fputc('"', out);
++}
++
++void csv_write_record(FILE *out, char *const *fields, size_t n)
++{
++    for (size_t i = 0; i < n; i++) {
++        if (i)
++            fputc(',', out);
++        csv_write_field(out, fields[i]);
++    }
++    fputc('\n', out);
++}
+diff --git a/src/csv.h b/src/csv.h
+new file mode 100644
+index 0000000..e41b0f9
+--- /dev/null
++++ b/src/csv.h
+@@ -0,0 +1,42 @@
++#ifndef CSVQ_CSV_H
++#define CSVQ_CSV_H
++
++#include <stdio.h>
++#include <stddef.h>
++
++/* One CSV record. `line` is the 1-based physical line on which it starts. */
++typedef struct {
++    char **fields;
++    size_t nfields;
++    size_t line;
++} Record;
++
++/* A parsed CSV document: the header plus data rows. */
++typedef struct {
++    Record header;
++    Record *rows;
++    size_t nrows;
++    size_t cap;
++} Table;
++
++typedef struct {
++    size_t line; /* 0 when the error is not tied to a line */
++    char msg[128];
++} CsvError;
++
++/* Parses RFC 4180 text. Returns 0 on success, -1 with *err filled otherwise. */
++int csv_parse(const char *data, size_t len, Table *out, CsvError *err);
++
++/* Reads a whole stream into memory. Returns NULL on a read error. */
++char *read_all(FILE *f, size_t *len);
++
++void table_init(Table *t);
++void table_add_row(Table *t, Record row);
++void record_free(Record *r);
++void table_free(Table *t);
++
++/* Writes one field, quoting it when it contains a comma, quote, CR or LF. */
++void csv_write_field(FILE *out, const char *field);
++void csv_write_record(FILE *out, char *const *fields, size_t n);
++
++#endif
+diff --git a/src/main.c b/src/main.c
+new file mode 100644
+index 0000000..4eb6536
+--- /dev/null
++++ b/src/main.c
+@@ -0,0 +1,13 @@
++#include <stdio.h>
++
++#include "cli.h"
++
++int main(int argc, char **argv)
++{
++    int rc = cli_run(argc, argv, stdin, stdout, stderr);
++    if (fflush(stdout) != 0) {
++        fputs("error: cannot write output\n", stderr);
++        return EXIT_INPUT;
++    }
++    return rc;
++}
+diff --git a/src/query.c b/src/query.c
+new file mode 100644
+index 0000000..3f06048
+--- /dev/null
++++ b/src/query.c
+@@ -0,0 +1,459 @@
++#include "query.h"
++
++#include <stdint.h>
++#include <stdlib.h>
++#include <string.h>
++
++void query_init(Query *q)
++{
++    memset(q, 0, sizeof *q);
++    q->limit = -1;
++}
++
++void query_free(Query *q)
++{
++    strlist_free(&q->select);
++    strlist_free(&q->group_by);
++    for (size_t i = 0; i < q->nconds; i++) {
++        free(q->conds[i].column);
++        free(q->conds[i].value);
++    }
++    free(q->conds);
++    for (size_t i = 0; i < q->nsort; i++)
++        free(q->sort[i].column);
++    free(q->sort);
++    for (size_t i = 0; i < q->naggs; i++) {
++        free(q->aggs[i].column);
++        free(q->aggs[i].name);
++    }
++    free(q->aggs);
++    query_init(q);
++}
++
++/* ---- option parsing ---- */
++
++static const struct {
++    const char *text;
++    CondOp op;
++} OPERATORS[] = {
++    {"!=", OP_NE}, {"<=", OP_LE}, {">=", OP_GE}, {"=", OP_EQ},
++    {"<", OP_LT},  {">", OP_GT},  {" contains ", OP_CONTAINS},
++};
++
++int parse_condition(const char *expr, Condition *out)
++{
++    for (const char *p = expr; *p; p++) {
++        for (size_t i = 0; i < sizeof OPERATORS / sizeof OPERATORS[0]; i++) {
++            size_t n = strlen(OPERATORS[i].text);
++            if (strncmp(p, OPERATORS[i].text, n) != 0)
++                continue;
++            char *column = trim_dup(expr, (size_t)(p - expr));
++            if (column[0] == '\0') {
++                free(column);
++                return -1;
++            }
++            out->column = column;
++            out->op = OPERATORS[i].op;
++            out->value = trim_dup(p + n, strlen(p + n));
++            out->col = 0;
++            return 0;
++        }
++    }
++    return -1;
++}
++
++static int ends_with(const char *s, const char *suffix)
++{
++    size_t a = strlen(s), b = strlen(suffix);
++    return a >= b && strcmp(s + a - b, suffix) == 0;
++}
++
++int parse_sort_keys(const char *s, SortKey **out, size_t *n)
++{
++    StrList items;
++    int rc = split_list(s, &items);
++    *out = NULL;
++    *n = 0;
++    if (rc == 0) {
++        *out = xmalloc(items.len * sizeof **out);
++        for (size_t i = 0; i < items.len; i++) {
++            char *item = items.items[i];
++            int desc = 0;
++            size_t len = strlen(item);
++            if (ends_with(item, ":desc")) {
++                desc = 1;
++                len -= 5;
++            } else if (ends_with(item, ":asc")) {
++                len -= 4;
++            }
++            if (len == 0)
++                rc = -1;
++            (*out)[i] = (SortKey){xstrndup(item, len), desc, 0};
++            (*n)++;
++        }
++    }
++    strlist_free(&items);
++    return rc;
++}
++
++static int parse_aggregate(const char *spec, Aggregate *a)
++{
++    static const struct {
++        const char *name;
++        AggFunc func;
++    } FUNCS[] = {{"sum", AGG_SUM}, {"avg", AGG_AVG}, {"min", AGG_MIN}, {"max", AGG_MAX}};
++    if (strcmp(spec, "count") == 0) {
++        *a = (Aggregate){AGG_COUNT, NULL, xstrdup("count"), 0};
++        return 0;
++    }
++    const char *open = strchr(spec, '(');
++    size_t len = strlen(spec);
++    if (!open || len < 2 || spec[len - 1] != ')' || open + 1 >= spec + len - 1)
++        return -1;
++    for (size_t i = 0; i < sizeof FUNCS / sizeof FUNCS[0]; i++) {
++        size_t fl = strlen(FUNCS[i].name);
++        if ((size_t)(open - spec) == fl && strncmp(spec, FUNCS[i].name, fl) == 0) {
++            char *column = xstrndup(open + 1, (size_t)(spec + len - 1 - (open + 1)));
++            *a = (Aggregate){FUNCS[i].func, column, xstrdup(spec), 0};
++            return 0;
++        }
++    }
++    return -1;
++}
++
++int parse_aggregates(const char *s, Aggregate **out, size_t *n)
++{
++    StrList items;
++    int rc = split_list(s, &items);
++    *out = xmalloc(items.len * sizeof **out);
++    *n = 0;
++    for (size_t i = 0; rc == 0 && i < items.len; i++) {
++        if (parse_aggregate(items.items[i], &(*out)[*n]) != 0)
++            rc = -1;
++        else
++            (*n)++;
++    }
++    strlist_free(&items);
++    return rc;
++}
++
++/* ---- evaluation ---- */
++
++int compare_values(const char *a, const char *b)
++{
++    double x, y;
++    int na = parse_number(a, &x), nb = parse_number(b, &y);
++    if (na && nb)
++        return (x > y) - (x < y);
++    if (na != nb)
++        return na ? -1 : 1;
++    int c = strcmp(a, b);
++    return (c > 0) - (c < 0);
++}
++
++int condition_matches(const Condition *c, const char *field)
++{
++    if (c->op == OP_CONTAINS)
++        return strstr(field, c->value) != NULL;
++    double x, y;
++    int cmp;
++    if (parse_number(field, &x) && parse_number(c->value, &y))
++        cmp = (x > y) - (x < y);
++    else
++        cmp = strcmp(field, c->value);
++    switch (c->op) {
++    case OP_EQ: return cmp == 0;
++    case OP_NE: return cmp != 0;
++    case OP_LT: return cmp < 0;
++    case OP_LE: return cmp <= 0;
++    case OP_GT: return cmp > 0;
++    case OP_GE: return cmp >= 0;
++    default: return 0;
++    }
++}
++
++static int find_column(const Record *header, const char *name, size_t *col)
++{
++    for (size_t i = 0; i < header->nfields; i++) {
++        if (strcmp(header->fields[i], name) == 0) {
++            *col = i;
++            return 0;
++        }
++    }
++    return -1;
++}
++
++/* Stable merge sort of records by the resolved sort keys. */
++static int compare_records(const Record *a, const Record *b, const SortKey *keys, size_t n)
++{
++    for (size_t i = 0; i < n; i++) {
++        int c = compare_values(a->fields[keys[i].col], b->fields[keys[i].col]);
++        if (c)
++            return keys[i].desc ? -c : c;
++    }
++    return 0;
++}
++
++static void merge_sort(Record *rows, Record *tmp, size_t n, const SortKey *keys, size_t nk)
++{
++    if (n < 2)
++        return;
++    size_t mid = n / 2;
++    merge_sort(rows, tmp, mid, keys, nk);
++    merge_sort(rows + mid, tmp, n - mid, keys, nk);
++    size_t i = 0, j = mid, k = 0;
++    while (i < mid && j < n)
++        tmp[k++] = compare_records(&rows[j], &rows[i], keys, nk) < 0 ? rows[j++] : rows[i++];
++    while (i < mid)
++        tmp[k++] = rows[i++];
++    while (j < n)
++        tmp[k++] = rows[j++];
++    memcpy(rows, tmp, n * sizeof *rows);
++}
++
++/* ---- aggregation ---- */
++
++typedef struct {
++    size_t count, nnum;
++    double sum, min, max;
++} AggState;
++
++typedef struct {
++    char **keys;     /* slot -> joined key (NULL when empty) */
++    size_t *groups;  /* slot -> group index */
++    size_t cap;
++} GroupMap;
++
++static uint64_t hash_str(const char *s)
++{
++    uint64_t h = 1469598103934665603ULL;
++    for (; *s; s++)
++        h = (h ^ (unsigned char)*s) * 1099511628211ULL;
++    return h;
++}
++
++static void map_grow(GroupMap *m);
++
++/* Returns the group index for key, inserting `next` if it is new (*inserted = 1). */
++static size_t map_get(GroupMap *m, const char *key, size_t next, int *inserted)
++{
++    if ((next + 1) * 2 > m->cap)
++        map_grow(m);
++    size_t i = hash_str(key) & (m->cap - 1);
++    while (m->keys[i]) {
++        if (strcmp(m->keys[i], key) == 0) {
++            *inserted = 0;
++            return m->groups[i];
++        }
++        i = (i + 1) & (m->cap - 1);
++    }
++    m->keys[i] = xstrdup(key);
++    m->groups[i] = next;
++    *inserted = 1;
++    return next;
++}
++
++static void map_grow(GroupMap *m)
++{
++    GroupMap n = {NULL, NULL, m->cap ? m->cap * 2 : 64};
++    n.keys = xmalloc(n.cap * sizeof *n.keys);
++    memset(n.keys, 0, n.cap * sizeof *n.keys);
++    n.groups = xmalloc(n.cap * sizeof *n.groups);
++    for (size_t i = 0; i < m->cap; i++) {
++        if (!m->keys[i])
++            continue;
++        size_t j = hash_str(m->keys[i]) & (n.cap - 1);
++        while (n.keys[j])
++            j = (j + 1) & (n.cap - 1);
++        n.keys[j] = m->keys[i];
++        n.groups[j] = m->groups[i];
++    }
++    free(m->keys);
++    free(m->groups);
++    *m = n;
++}
++
++static void map_free(GroupMap *m)
++{
++    for (size_t i = 0; i < m->cap; i++)
++        free(m->keys[i]);
++    free(m->keys);
++    free(m->groups);
++}
++
++static char *number_str(double v)
++{
++    char buf[512];
++    format_number(v, buf, sizeof buf);
++    return xstrdup(buf);
++}
++
++static char *agg_result(const Aggregate *a, const AggState *s)
++{
++    switch (a->func) {
++    case AGG_COUNT: return number_str((double)s->count);
++    case AGG_SUM: return number_str(s->sum);
++    case AGG_AVG: return s->nnum ? number_str(s->sum / (double)s->nnum) : xstrdup("");
++    case AGG_MIN: return s->nnum ? number_str(s->min) : xstrdup("");
++    case AGG_MAX: return s->nnum ? number_str(s->max) : xstrdup("");
++    }
++    return xstrdup("");
++}
++
++static void aggregate(const Query *q, const size_t *gcols, const Table *in, Table *out)
++{
++    size_t ng = q->group_by.len, na = q->naggs, ncols = ng + na;
++    out->header.nfields = ncols;
++    out->header.fields = xmalloc(ncols * sizeof(char *));
++    for (size_t i = 0; i < ng; i++)
++        out->header.fields[i] = xstrdup(q->group_by.items[i]);
++    for (size_t i = 0; i < na; i++)
++        out->header.fields[ng + i] = xstrdup(q->aggs[i].name);
++
++    GroupMap map = {NULL, NULL, 0};
++    AggState *states = NULL;
++    size_t ngroups = 0;
++    StrBuf key;
++    sb_init(&key);
++    for (size_t r = 0; r < in->nrows; r++) {
++        const Record *row = &in->rows[r];
++        key.len = 0;
++        key.data[0] = '\0';
++        for (size_t i = 0; i < ng; i++) {
++            if (i)
++                sb_putc(&key, '\x1f');
++            sb_puts(&key, row->fields[gcols[i]]);
++        }
++        int inserted;
++        size_t g = map_get(&map, key.data, ngroups, &inserted);
++        if (inserted) {
++            Record rec = {xmalloc(ncols * sizeof(char *)), ncols, row->line};
++            for (size_t i = 0; i < ng; i++)
++                rec.fields[i] = xstrdup(row->fields[gcols[i]]);
++            table_add_row(out, rec);
++            states = xrealloc(states, (ngroups + 1) * (na ? na : 1) * sizeof *states);
++            memset(&states[ngroups * na], 0, na * sizeof *states);
++            ngroups++;
++        }
++        for (size_t i = 0; i < na; i++) {
++            AggState *s = &states[g * na + i];
++            double v;
++            s->count++;
++            if (q->aggs[i].func == AGG_COUNT || !parse_number(row->fields[q->aggs[i].col], &v))
++                continue;
++            if (s->nnum == 0 || v < s->min)
++                s->min = v;
++            if (s->nnum == 0 || v > s->max)
++                s->max = v;
++            s->sum += v;
++            s->nnum++;
++        }
++    }
++    if (ng == 0 && ngroups == 0) { /* overall aggregate over zero rows: one row */
++        Record rec = {xmalloc(ncols * sizeof(char *)), ncols, 0};
++        table_add_row(out, rec);
++        states = xrealloc(states, (na ? na : 1) * sizeof *states);
++        memset(states, 0, na * sizeof *states);
++        ngroups = 1;
++    }
++    for (size_t g = 0; g < ngroups; g++)
++        for (size_t i = 0; i < na; i++)
++            out->rows[g].fields[ng + i] = agg_result(&q->aggs[i], &states[g * na + i]);
++    sb_free(&key);
++    free(states);
++    map_free(&map);
++}
++
++/* Replaces each record by the given columns (copied) in that order. */
++static void project(Table *t, const size_t *cols, size_t n)
++{
++    for (size_t r = 0; r <= t->nrows; r++) {
++        Record *rec = r == 0 ? &t->header : &t->rows[r - 1];
++        char **fields = xmalloc(n * sizeof(char *));
++        for (size_t i = 0; i < n; i++)
++            fields[i] = xstrdup(rec->fields[cols[i]]);
++        record_free(rec);
++        rec->fields = fields;
++        rec->nfields = n;
++    }
++}
++
++int query_run(const Query *q, Table *in, Table *out, const char **bad_column)
++{
++    int agg_mode = q->has_group || q->naggs > 0;
++    size_t *gcols = NULL, *scols = NULL;
++    int rc = -1;
++    table_init(out);
++
++    for (size_t i = 0; i < q->nconds; i++)
++        if (find_column(&in->header, q->conds[i].column, &q->conds[i].col) != 0) {
++            *bad_column = q->conds[i].column;
++            goto done;
++        }
++    if (agg_mode) {
++        gcols = xmalloc(q->group_by.len * sizeof *gcols);
++        for (size_t i = 0; i < q->group_by.len; i++)
++            if (find_column(&in->header, q->group_by.items[i], &gcols[i]) != 0) {
++                *bad_column = q->group_by.items[i];
++                goto done;
++            }
++        for (size_t i = 0; i < q->naggs; i++)
++            if (q->aggs[i].column &&
++                find_column(&in->header, q->aggs[i].column, &q->aggs[i].col) != 0) {
++                *bad_column = q->aggs[i].column;
++                goto done;
++            }
++    } else if (q->has_select) {
++        scols = xmalloc(q->select.len * sizeof *scols);
++        for (size_t i = 0; i < q->select.len; i++)
++            if (find_column(&in->header, q->select.items[i], &scols[i]) != 0) {
++                *bad_column = q->select.items[i];
++                goto done;
++            }
++    }
++
++    /* Filter in place. */
++    size_t kept = 0;
++    for (size_t r = 0; r < in->nrows; r++) {
++        int ok = 1;
++        for (size_t i = 0; ok && i < q->nconds; i++)
++            ok = condition_matches(&q->conds[i], in->rows[r].fields[q->conds[i].col]);
++        if (ok)
++            in->rows[kept++] = in->rows[r];
++        else
++            record_free(&in->rows[r]);
++    }
++    in->nrows = kept;
++
++    if (agg_mode) {
++        aggregate(q, gcols, in, out);
++        table_free(in);
++    } else {
++        *out = *in;
++        table_init(in);
++    }
++
++    for (size_t i = 0; i < q->nsort; i++)
++        if (find_column(&out->header, q->sort[i].column, &q->sort[i].col) != 0) {
++            *bad_column = q->sort[i].column;
++            table_free(out);
++            goto done;
++        }
++    if (q->nsort > 0 && out->nrows > 1) {
++        Record *tmp = xmalloc(out->nrows * sizeof *tmp);
++        merge_sort(out->rows, tmp, out->nrows, q->sort, q->nsort);
++        free(tmp);
++    }
++    if (q->limit >= 0 && (size_t)q->limit < out->nrows) {
++        for (size_t r = (size_t)q->limit; r < out->nrows; r++)
++            record_free(&out->rows[r]);
++        out->nrows = (size_t)q->limit;
++    }
++    if (scols)
++        project(out, scols, q->select.len);
++    rc = 0;
++done:
++    free(gcols);
++    free(scols);
++    return rc;
++}
+diff --git a/src/query.h b/src/query.h
+new file mode 100644
+index 0000000..27f1bbd
+--- /dev/null
++++ b/src/query.h
+@@ -0,0 +1,64 @@
++#ifndef CSVQ_QUERY_H
++#define CSVQ_QUERY_H
++
++#include <stddef.h>
++
++#include "csv.h"
++#include "util.h"
++
++typedef enum { OP_EQ, OP_NE, OP_LT, OP_LE, OP_GT, OP_GE, OP_CONTAINS } CondOp;
++
++typedef struct {
++    char *column;
++    CondOp op;
++    char *value;
++    size_t col; /* resolved column index */
++} Condition;
++
++typedef struct {
++    char *column;
++    int desc;
++    size_t col;
++} SortKey;
++
++typedef enum { AGG_COUNT, AGG_SUM, AGG_AVG, AGG_MIN, AGG_MAX } AggFunc;
++
++typedef struct {
++    AggFunc func;
++    char *column; /* NULL for count */
++    char *name;   /* output header, e.g. "sum(amount)" */
++    size_t col;
++} Aggregate;
++
++typedef struct {
++    int has_select;
++    StrList select;
++    Condition *conds;
++    size_t nconds;
++    SortKey *sort;
++    size_t nsort;
++    int has_group;
++    StrList group_by;
++    Aggregate *aggs;
++    size_t naggs;
++    long limit; /* -1: no limit */
++} Query;
++
++void query_init(Query *q);
++void query_free(Query *q);
++
++/* Parsers for option values. Each returns 0 on success and -1 on a syntax error. */
++int parse_condition(const char *expr, Condition *out);
++int parse_sort_keys(const char *s, SortKey **out, size_t *n);
++int parse_aggregates(const char *s, Aggregate **out, size_t *n);
++
++int condition_matches(const Condition *c, const char *field);
++
++/* Sort order: numbers (ascending by value) before other strings (byte order). */
++int compare_values(const char *a, const char *b);
++
++/* Runs the query. `in` is consumed. On success fills `out` and returns 0; when a
++ * column name does not exist returns -1 and points *bad_column at the name. */
++int query_run(const Query *q, Table *in, Table *out, const char **bad_column);
++
++#endif
+diff --git a/src/util.c b/src/util.c
+new file mode 100644
+index 0000000..c23fe6f
+--- /dev/null
++++ b/src/util.c
+@@ -0,0 +1,156 @@
++#include "util.h"
++
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++
++void *xmalloc(size_t n)
++{
++    void *p = malloc(n ? n : 1);
++    if (!p) {
++        fputs("error: out of memory\n", stderr);
++        exit(3);
++    }
++    return p;
++}
++
++void *xrealloc(void *p, size_t n)
++{
++    void *q = realloc(p, n ? n : 1);
++    if (!q) {
++        fputs("error: out of memory\n", stderr);
++        exit(3);
++    }
++    return q;
++}
++
++char *xstrndup(const char *s, size_t n)
++{
++    char *d = xmalloc(n + 1);
++    memcpy(d, s, n);
++    d[n] = '\0';
++    return d;
++}
++
++char *xstrdup(const char *s)
++{
++    return xstrndup(s, strlen(s));
++}
++
++void sb_init(StrBuf *sb)
++{
++    sb->cap = 16;
++    sb->len = 0;
++    sb->data = xmalloc(sb->cap);
++    sb->data[0] = '\0';
++}
++
++void sb_putc(StrBuf *sb, char c)
++{
++    if (sb->len + 1 >= sb->cap) {
++        sb->cap *= 2;
++        sb->data = xrealloc(sb->data, sb->cap);
++    }
++    sb->data[sb->len++] = c;
++    sb->data[sb->len] = '\0';
++}
++
++void sb_puts(StrBuf *sb, const char *s)
++{
++    while (*s)
++        sb_putc(sb, *s++);
++}
++
++char *sb_take(StrBuf *sb)
++{
++    char *s = sb->data;
++    sb_init(sb);
++    return s;
++}
++
++void sb_free(StrBuf *sb)
++{
++    free(sb->data);
++    sb->data = NULL;
++    sb->len = sb->cap = 0;
++}
++
++char *trim_dup(const char *s, size_t n)
++{
++    while (n > 0 && *s == ' ') {
++        s++;
++        n--;
++    }
++    while (n > 0 && s[n - 1] == ' ')
++        n--;
++    return xstrndup(s, n);
++}
++
++int split_list(const char *s, StrList *out)
++{
++    out->items = NULL;
++    out->len = 0;
++    for (;;) {
++        const char *comma = strchr(s, ',');
++        size_t n = comma ? (size_t)(comma - s) : strlen(s);
++        char *item = trim_dup(s, n);
++        out->items = xrealloc(out->items, (out->len + 1) * sizeof *out->items);
++        out->items[out->len++] = item;
++        if (item[0] == '\0')
++            return -1;
++        if (!comma)
++            return 0;
++        s = comma + 1;
++    }
++}
++
++void strlist_free(StrList *l)
++{
++    for (size_t i = 0; i < l->len; i++)
++        free(l->items[i]);
++    free(l->items);
++    l->items = NULL;
++    l->len = 0;
++}
++
++static int is_digit(char c)
++{
++    return c >= '0' && c <= '9';
++}
++
++int parse_number(const char *s, double *out)
++{
++    const char *p = s;
++    if (*p == '+' || *p == '-')
++        p++;
++    if (!is_digit(*p))
++        return 0;
++    while (is_digit(*p))
++        p++;
++    if (*p == '.') {
++        p++;
++        if (!is_digit(*p))
++            return 0;
++        while (is_digit(*p))
++            p++;
++    }
++    if (*p != '\0')
++        return 0;
++    *out = strtod(s, NULL);
++    return 1;
++}
++
++void format_number(double v, char *buf, size_t n)
++{
++    snprintf(buf, n, "%.6f", v);
++    char *dot = strchr(buf, '.');
++    if (dot) {
++        char *end = buf + strlen(buf) - 1;
++        while (end > dot && *end == '0')
++            *end-- = '\0';
++        if (end == dot)
++            *end = '\0';
++    }
++    if (strcmp(buf, "-0") == 0)
++        memcpy(buf, "0", 2);
++}
+diff --git a/src/util.h b/src/util.h
+new file mode 100644
+index 0000000..f0d6960
+--- /dev/null
++++ b/src/util.h
+@@ -0,0 +1,44 @@
++#ifndef CSVQ_UTIL_H
++#define CSVQ_UTIL_H
++
++#include <stddef.h>
++
++/* Allocation helpers: abort the program with a message when memory runs out. */
++void *xmalloc(size_t n);
++void *xrealloc(void *p, size_t n);
++char *xstrdup(const char *s);
++char *xstrndup(const char *s, size_t n);
++
++/* Growable byte buffer, always NUL-terminated. */
++typedef struct {
++    char *data;
++    size_t len;
++    size_t cap;
++} StrBuf;
++
++void sb_init(StrBuf *sb);
++void sb_putc(StrBuf *sb, char c);
++void sb_puts(StrBuf *sb, const char *s);
++char *sb_take(StrBuf *sb); /* returns the string, resets the buffer */
++void sb_free(StrBuf *sb);
++
++/* A list of strings. */
++typedef struct {
++    char **items;
++    size_t len;
++} StrList;
++
++/* Splits on commas and trims surrounding spaces. Returns -1 if any item is empty. */
++int split_list(const char *s, StrList *out);
++void strlist_free(StrList *l);
++
++/* Copies s with leading and trailing spaces removed. */
++char *trim_dup(const char *s, size_t n);
++
++/* Numbers: [+-]?[0-9]+(\.[0-9]+)? ; returns 1 and sets *out when s is one. */
++int parse_number(const char *s, double *out);
++
++/* "%.6f" with trailing zeros (and a trailing dot) removed; "-0" becomes "0". */
++void format_number(double v, char *buf, size_t n);
++
++#endif
+diff --git a/tests/test_csvq.c b/tests/test_csvq.c
+new file mode 100644
+index 0000000..2838881
+--- /dev/null
++++ b/tests/test_csvq.c
+@@ -0,0 +1,167 @@
++/* Unit and end-to-end tests for csvq, using a minimal assertion harness. */
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++
++#include "cli.h"
++#include "csv.h"
++#include "query.h"
++#include "util.h"
++
++static int failures = 0;
++static int checks = 0;
++
++#define CHECK(cond)                                                         \
++    do {                                                                    \
++        checks++;                                                           \
++        if (!(cond)) {                                                      \
++            failures++;                                                     \
++            fprintf(stderr, "%s:%d: check failed: %s\n", __FILE__, __LINE__, #cond); \
++        }                                                                   \
++    } while (0)
++
++#define CHECK_STR(a, b) CHECK(strcmp((a), (b)) == 0)
++
++/* Runs csvq on `input` with the given arguments and captures stdout/stderr. */
++typedef struct {
++    int code;
++    char out[4096];
++    char err[1024];
++} Run;
++
++static void slurp(FILE *f, char *buf, size_t n)
++{
++    rewind(f);
++    size_t got = fread(buf, 1, n - 1, f);
++    buf[got] = '\0';
++    fclose(f);
++}
++
++static Run run(const char *input, int argc, char **args)
++{
++    Run r;
++    FILE *in = tmpfile(), *out = tmpfile(), *err = tmpfile();
++    fputs(input, in);
++    rewind(in);
++    char *argv[16] = {"csvq"};
++    for (int i = 0; i < argc && i < 15; i++)
++        argv[i + 1] = args[i];
++    r.code = cli_run(argc + 1, argv, in, out, err);
++    fclose(in);
++    slurp(out, r.out, sizeof r.out);
++    slurp(err, r.err, sizeof r.err);
++    return r;
++}
++
++#define RUN(input, ...)                                                    \
++    run((input), (int)(sizeof((char *[]){__VA_ARGS__}) / sizeof(char *)), \
++        (char *[]){__VA_ARGS__})
++
++static const char PEOPLE[] = "name,city,age\n"
++                             "ann,Paris,31\n"
++                             "bob,Berlin,25\n"
++                             "cid,Paris,9\n";
++
++static void test_numbers(void)
++{
++    double v;
++    CHECK(parse_number("42", &v) && v == 42);
++    CHECK(parse_number("-1.5", &v) && v == -1.5);
++    CHECK(!parse_number("1.", &v));
++    CHECK(!parse_number(" 1", &v));
++    CHECK(!parse_number("", &v));
++    char buf[64];
++    format_number(2.5, buf, sizeof buf);
++    CHECK_STR(buf, "2.5");
++    format_number(10.0, buf, sizeof buf);
++    CHECK_STR(buf, "10");
++    format_number(0.1 + 0.2, buf, sizeof buf);
++    CHECK_STR(buf, "0.3");
++    format_number(-0.0000001, buf, sizeof buf);
++    CHECK_STR(buf, "0");
++}
++
++static void test_parser(void)
++{
++    Table t;
++    CsvError e;
++    const char *doc = "a,b\r\n\"x,1\",\"say \"\"hi\"\"\"\n\"multi\nline\",\n";
++    CHECK(csv_parse(doc, strlen(doc), &t, &e) == 0);
++    CHECK(t.nrows == 2);
++    CHECK_STR(t.rows[0].fields[0], "x,1");
++    CHECK_STR(t.rows[0].fields[1], "say \"hi\"");
++    CHECK_STR(t.rows[1].fields[0], "multi\nline");
++    CHECK_STR(t.rows[1].fields[1], "");
++    table_free(&t);
++
++    const char *bad = "a\n\"open\n";
++    CHECK(csv_parse(bad, strlen(bad), &t, &e) == -1);
++    CHECK(e.line == 2);
++    CHECK_STR(e.msg, "unterminated quoted field");
++
++    const char *ragged = "a,b\n1,2\n\n3\n";
++    CHECK(csv_parse(ragged, strlen(ragged), &t, &e) == -1);
++    CHECK(e.line == 4);
++    CHECK_STR(e.msg, "expected 2 fields, got 1");
++}
++
++static void test_conditions(void)
++{
++    Condition c;
++    CHECK(parse_condition("age >= 18", &c) == 0);
++    CHECK_STR(c.column, "age");
++    CHECK(c.op == OP_GE);
++    CHECK(condition_matches(&c, "18") && !condition_matches(&c, "9"));
++    free(c.column);
++    free(c.value);
++    CHECK(parse_condition("name contains an", &c) == 0);
++    CHECK(c.op == OP_CONTAINS && condition_matches(&c, "joan"));
++    free(c.column);
++    free(c.value);
++    CHECK(parse_condition("=x", &c) == -1);
++    CHECK(parse_condition("nothing", &c) == -1);
++    CHECK(compare_values("9", "10") < 0);
++    CHECK(compare_values("10", "abc") < 0);
++}
++
++static void test_cli(void)
++{
++    Run r = RUN(PEOPLE, "--select", "name,age", "--where", "city=Paris", "--sort", "age");
++    CHECK(r.code == 0);
++    CHECK_STR(r.out, "name,age\ncid,9\nann,31\n");
++
++    r = RUN(PEOPLE, "--group-by", "city", "--agg", "count,avg(age)", "--sort", "count:desc");
++    CHECK(r.code == 0);
++    CHECK_STR(r.out, "city,count,avg(age)\nParis,2,20\nBerlin,1,25\n");
++
++    r = RUN(PEOPLE, "--agg", "sum(age),max(age)", "--where", "age>100");
++    CHECK_STR(r.out, "sum(age),max(age)\n0,\n");
++
++    r = RUN(PEOPLE, "--select", "nope");
++    CHECK(r.code == 2);
++    CHECK_STR(r.err, "error: unknown column: nope\n");
++    CHECK_STR(r.out, "");
++
++    r = RUN(PEOPLE, "--limit", "-1");
++    CHECK(r.code == 2);
++
++    r = RUN("a,b\n\"x\"y,1\n", "-");
++    CHECK(r.code == 3);
++    CHECK(strncmp(r.err, "error: line 2: ", 15) == 0);
++
++    r = RUN("h\nsay \"hi\"\n", "--limit", "0");
++    CHECK(r.code == 3);
++
++    r = RUN("t\n\"a,b\"\n", "-");
++    CHECK_STR(r.out, "t\n\"a,b\"\n");
++}
++
++int main(void)
++{
++    test_numbers();
++    test_parser();
++    test_conditions();
++    test_cli();
++    printf("%d checks, %d failures\n", checks, failures);
++    return failures ? 1 : 0;
++}

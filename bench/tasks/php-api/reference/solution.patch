@@ -1,0 +1,1171 @@
+diff --git a/README.md b/README.md
+index c9a85e2..6ba22eb 100644
+--- a/README.md
++++ b/README.md
+@@ -1 +1,27 @@
+ # boxoffice — an event-ticketing JSON API
++
++A small JSON API for selling tickets: events, expiring seat holds, purchases,
++partial refunds and idempotent retries. PHP 8.5 with SQLite (PDO), no dependencies.
++
++## Run
++
++```
++BOXOFFICE_DB=var/boxoffice.sqlite php -S 127.0.0.1:8080 -t public public/index.php
++```
++
++Send `X-Clock: 2026-05-01T10:00:00Z` to pin "now" for a request (handy for tests).
++
++## Test
++
++```
++php tests/run.php
++```
++
++## Layout
++
++- `public/index.php` — front controller
++- `src/Http/` — request, response, router, HTTP errors
++- `src/Validator.php`, `src/Clock.php` — input validation and timestamps
++- `src/Database.php`, `src/Repository.php` — SQLite schema and queries
++- `src/Ticketing.php` — availability, holds, purchases, refunds
++- `src/Idempotency.php` — `Idempotency-Key` storage and replay
+diff --git a/public/index.php b/public/index.php
+new file mode 100644
+index 0000000..c6bc39a
+--- /dev/null
++++ b/public/index.php
+@@ -0,0 +1,12 @@
++<?php
++
++declare(strict_types=1);
++
++require __DIR__ . '/../src/autoload.php';
++
++use Boxoffice\App;
++use Boxoffice\Http\Request;
++
++$dbPath = getenv('BOXOFFICE_DB') ?: __DIR__ . '/../var/boxoffice.sqlite';
++
++App::create($dbPath)->handle(Request::fromGlobals())->send();
+diff --git a/src/Api.php b/src/Api.php
+new file mode 100644
+index 0000000..eba2bfe
+--- /dev/null
++++ b/src/Api.php
+@@ -0,0 +1,91 @@
++<?php
++
++declare(strict_types=1);
++
++namespace Boxoffice;
++
++use Boxoffice\Http\Request;
++use Boxoffice\Http\Response;
++
++/** Endpoint handlers: validate input, call the ticketing rules, shape the response. */
++final class Api
++{
++    public function __construct(
++        private readonly Ticketing $tickets,
++        private readonly Idempotency $idempotency,
++        private readonly int $now,
++    ) {
++    }
++
++    public function createEvent(Request $request): Response
++    {
++        return $this->idempotency->run($request, function () use ($request): Response {
++            $v = new Validator($request->json());
++            $data = [
++                'name' => $v->string('name', 200),
++                'venue' => $v->string('venue', 200),
++                'starts_at' => $v->timestamp('starts_at'),
++                'capacity' => $v->int('capacity', 1, 100000),
++                'price_cents' => $v->int('price_cents', 0, 1000000),
++            ];
++            $v->check();
++            return new Response(201, $this->tickets->createEvent($data, $this->now));
++        });
++    }
++
++    public function listEvents(Request $request): Response
++    {
++        $upcoming = ($request->query['upcoming'] ?? '') === '1';
++        return new Response(200, ['events' => $this->tickets->listEvents($this->now, $upcoming)]);
++    }
++
++    public function showEvent(Request $request, int $id): Response
++    {
++        return new Response(200, $this->tickets->event($id, $this->now));
++    }
++
++    public function createHold(Request $request, int $eventId): Response
++    {
++        $v = new Validator($request->json());
++        $quantity = $v->int('quantity', 1, 10);
++        $ttl = $v->int('ttl_seconds', 60, 3600, 600);
++        $v->check();
++        return new Response(201, $this->tickets->createHold($eventId, $quantity, $ttl, $this->now));
++    }
++
++    public function showHold(Request $request, int $id): Response
++    {
++        return new Response(200, $this->tickets->hold($id, $this->now));
++    }
++
++    public function releaseHold(Request $request, int $id): Response
++    {
++        return new Response(200, $this->tickets->releaseHold($id, $this->now));
++    }
++
++    public function createPurchase(Request $request): Response
++    {
++        return $this->idempotency->run($request, function () use ($request): Response {
++            $v = new Validator($request->json());
++            $holdId = $v->int('hold_id', 1, PHP_INT_MAX);
++            $email = $v->email('email');
++            $v->check();
++            return new Response(201, $this->tickets->purchase($holdId, $email, $this->now));
++        });
++    }
++
++    public function showPurchase(Request $request, int $id): Response
++    {
++        return new Response(200, $this->tickets->purchaseById($id));
++    }
++
++    public function createRefund(Request $request, int $purchaseId): Response
++    {
++        return $this->idempotency->run($request, function () use ($request, $purchaseId): Response {
++            $v = new Validator($request->json(allowEmpty: true));
++            $quantity = $v->optionalInt('quantity', 1, PHP_INT_MAX);
++            $v->check();
++            return new Response(201, $this->tickets->refund($purchaseId, $quantity, $this->now));
++        });
++    }
++}
+diff --git a/src/App.php b/src/App.php
+new file mode 100644
+index 0000000..3af081d
+--- /dev/null
++++ b/src/App.php
+@@ -0,0 +1,57 @@
++<?php
++
++declare(strict_types=1);
++
++namespace Boxoffice;
++
++use Boxoffice\Http\HttpError;
++use Boxoffice\Http\Request;
++use Boxoffice\Http\Response;
++use Boxoffice\Http\Router;
++use Throwable;
++
++/** Wires routes to handlers and turns every outcome into a JSON response. */
++final class App
++{
++    public function __construct(private readonly Repository $repo)
++    {
++    }
++
++    public static function create(string $dbPath): self
++    {
++        return new self(new Repository(Database::connect($dbPath)));
++    }
++
++    public function handle(Request $request): Response
++    {
++        try {
++            $clock = $request->header('X-Clock');
++            $now = $clock === null ? time() : Clock::parse($clock);
++            if ($now === null) {
++                throw new HttpError(400, 'invalid_clock', 'X-Clock must look like 2026-05-01T19:30:00Z.');
++            }
++            $router = $this->routes(new Api(new Ticketing($this->repo), new Idempotency($this->repo), $now));
++            return $this->repo->transaction(static fn (): Response => $router->dispatch($request));
++        } catch (HttpError $e) {
++            return $e->toResponse();
++        } catch (Throwable $e) {
++            error_log((string) $e);
++            return new Response(500, ['error' => ['code' => 'internal_error', 'message' => 'Internal server error.']]);
++        }
++    }
++
++    private function routes(Api $api): Router
++    {
++        $r = new Router();
++        $r->add('GET', '/events', $api->listEvents(...));
++        $r->add('POST', '/events', $api->createEvent(...));
++        $r->add('GET', '/events/{id}', $api->showEvent(...));
++        $r->add('POST', '/events/{id}/holds', $api->createHold(...));
++        $r->add('GET', '/holds/{id}', $api->showHold(...));
++        $r->add('DELETE', '/holds/{id}', $api->releaseHold(...));
++        $r->add('POST', '/purchases', $api->createPurchase(...));
++        $r->add('GET', '/purchases/{id}', $api->showPurchase(...));
++        $r->add('POST', '/purchases/{id}/refunds', $api->createRefund(...));
++        return $r;
++    }
++}
+diff --git a/src/Clock.php b/src/Clock.php
+new file mode 100644
+index 0000000..c7f89e1
+--- /dev/null
++++ b/src/Clock.php
+@@ -0,0 +1,35 @@
++<?php
++
++declare(strict_types=1);
++
++namespace Boxoffice;
++
++use DateTimeImmutable;
++use DateTimeZone;
++
++/** Timestamps are UTC "YYYY-MM-DDTHH:MM:SSZ" strings; internally they are Unix seconds. */
++final class Clock
++{
++    private const FORMAT = 'Y-m-d\TH:i:s\Z';
++
++    public function __construct(public readonly int $now)
++    {
++    }
++
++    public static function parse(string $text): ?int
++    {
++        if (!preg_match('/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/', $text)) {
++            return null;
++        }
++        $dt = DateTimeImmutable::createFromFormat('!' . self::FORMAT, $text, new DateTimeZone('UTC'));
++        if ($dt === false || $dt->format(self::FORMAT) !== $text) {
++            return null; // rejects rollovers such as 2026-02-30 or 25:00:00
++        }
++        return $dt->getTimestamp();
++    }
++
++    public static function format(int $timestamp): string
++    {
++        return gmdate(self::FORMAT, $timestamp);
++    }
++}
+diff --git a/src/Database.php b/src/Database.php
+new file mode 100644
+index 0000000..98635e0
+--- /dev/null
++++ b/src/Database.php
+@@ -0,0 +1,50 @@
++<?php
++
++declare(strict_types=1);
++
++namespace Boxoffice;
++
++use PDO;
++
++/** Opens the SQLite database and creates the schema on first use. */
++final class Database
++{
++    private const SCHEMA = [
++        'CREATE TABLE IF NOT EXISTS events (
++            id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, venue TEXT NOT NULL,
++            starts_at INTEGER NOT NULL, capacity INTEGER NOT NULL, price_cents INTEGER NOT NULL)',
++        "CREATE TABLE IF NOT EXISTS holds (
++            id INTEGER PRIMARY KEY AUTOINCREMENT, event_id INTEGER NOT NULL REFERENCES events(id),
++            quantity INTEGER NOT NULL, expires_at INTEGER NOT NULL, created_at INTEGER NOT NULL,
++            state TEXT NOT NULL DEFAULT 'open')",
++        'CREATE TABLE IF NOT EXISTS purchases (
++            id INTEGER PRIMARY KEY AUTOINCREMENT, event_id INTEGER NOT NULL REFERENCES events(id),
++            hold_id INTEGER NOT NULL UNIQUE REFERENCES holds(id), email TEXT NOT NULL,
++            quantity INTEGER NOT NULL, amount_cents INTEGER NOT NULL, created_at INTEGER NOT NULL)',
++        'CREATE TABLE IF NOT EXISTS refunds (
++            id INTEGER PRIMARY KEY AUTOINCREMENT, purchase_id INTEGER NOT NULL REFERENCES purchases(id),
++            quantity INTEGER NOT NULL, amount_cents INTEGER NOT NULL, created_at INTEGER NOT NULL)',
++        'CREATE TABLE IF NOT EXISTS idempotency_keys (
++            idem_key TEXT PRIMARY KEY, method TEXT NOT NULL, path TEXT NOT NULL,
++            fingerprint TEXT NOT NULL, status INTEGER NOT NULL, response TEXT NOT NULL)',
++    ];
++
++    public static function connect(string $path): PDO
++    {
++        $dir = dirname($path);
++        if (!is_dir($dir)) {
++            mkdir($dir, 0777, true);
++        }
++        $pdo = new PDO('sqlite:' . $path, null, null, [
++            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
++            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
++            PDO::ATTR_STRINGIFY_FETCHES => false,
++        ]);
++        $pdo->exec('PRAGMA foreign_keys = ON');
++        $pdo->exec('PRAGMA busy_timeout = 5000');
++        foreach (self::SCHEMA as $sql) {
++            $pdo->exec($sql);
++        }
++        return $pdo;
++    }
++}
+diff --git a/src/Http/HttpError.php b/src/Http/HttpError.php
+new file mode 100644
+index 0000000..1a31b0c
+--- /dev/null
++++ b/src/Http/HttpError.php
+@@ -0,0 +1,37 @@
++<?php
++
++declare(strict_types=1);
++
++namespace Boxoffice\Http;
++
++use RuntimeException;
++
++/** An error that maps directly onto an HTTP error response. */
++final class HttpError extends RuntimeException
++{
++    /** @param array<string, string> $fields */
++    public function __construct(
++        public readonly int $status,
++        public readonly string $errorCode,
++        string $message,
++        public readonly array $fields = [],
++        public readonly array $headers = [],
++    ) {
++        parent::__construct($message);
++    }
++
++    /** @param array<string, string> $fields */
++    public static function validation(array $fields): self
++    {
++        return new self(422, 'validation_failed', 'The request body is invalid.', $fields);
++    }
++
++    public function toResponse(): Response
++    {
++        $error = ['code' => $this->errorCode, 'message' => $this->getMessage()];
++        if ($this->fields !== []) {
++            $error['fields'] = $this->fields;
++        }
++        return new Response($this->status, ['error' => $error], $this->headers);
++    }
++}
+diff --git a/src/Http/Request.php b/src/Http/Request.php
+new file mode 100644
+index 0000000..59689d1
+--- /dev/null
++++ b/src/Http/Request.php
+@@ -0,0 +1,72 @@
++<?php
++
++declare(strict_types=1);
++
++namespace Boxoffice\Http;
++
++use JsonException;
++
++final class Request
++{
++    /** @var array<string, string> lower-cased header name => value */
++    private array $headers = [];
++
++    /**
++     * @param array<string, string> $headers
++     * @param array<string, string> $query
++     */
++    public function __construct(
++        public readonly string $method,
++        public readonly string $path,
++        array $headers = [],
++        public readonly array $query = [],
++        public readonly string $body = '',
++    ) {
++        foreach ($headers as $name => $value) {
++            $this->headers[strtolower($name)] = $value;
++        }
++    }
++
++    public static function fromGlobals(): self
++    {
++        $headers = [];
++        foreach ($_SERVER as $key => $value) {
++            if (str_starts_with($key, 'HTTP_')) {
++                $headers[str_replace('_', '-', substr($key, 5))] = (string) $value;
++            }
++        }
++        $uri = (string) ($_SERVER['REQUEST_URI'] ?? '/');
++        $path = (string) parse_url($uri, PHP_URL_PATH);
++        $query = [];
++        parse_str((string) parse_url($uri, PHP_URL_QUERY), $query);
++        return new self(
++            strtoupper((string) ($_SERVER['REQUEST_METHOD'] ?? 'GET')),
++            $path === '' ? '/' : $path,
++            $headers,
++            array_map(static fn ($v) => is_string($v) ? $v : '', $query),
++            (string) file_get_contents('php://input'),
++        );
++    }
++
++    public function header(string $name): ?string
++    {
++        return $this->headers[strtolower($name)] ?? null;
++    }
++
++    /** Decodes the body, which must be a JSON object (or empty when allowed). @return array<string, mixed> */
++    public function json(bool $allowEmpty = false): array
++    {
++        if ($allowEmpty && trim($this->body) === '') {
++            return [];
++        }
++        try {
++            $data = json_decode($this->body, false, 64, JSON_THROW_ON_ERROR);
++        } catch (JsonException) {
++            throw new HttpError(400, 'invalid_json', 'The request body is not valid JSON.');
++        }
++        if (!$data instanceof \stdClass) {
++            throw new HttpError(400, 'invalid_json', 'The request body must be a JSON object.');
++        }
++        return json_decode($this->body, true, 64, JSON_THROW_ON_ERROR);
++    }
++}
+diff --git a/src/Http/Response.php b/src/Http/Response.php
+new file mode 100644
+index 0000000..3e9c344
+--- /dev/null
++++ b/src/Http/Response.php
+@@ -0,0 +1,31 @@
++<?php
++
++declare(strict_types=1);
++
++namespace Boxoffice\Http;
++
++final class Response
++{
++    /** @param array<string, string> $headers */
++    public function __construct(
++        public readonly int $status,
++        public readonly array $body,
++        public readonly array $headers = [],
++    ) {
++    }
++
++    public function withHeader(string $name, string $value): self
++    {
++        return new self($this->status, $this->body, [...$this->headers, $name => $value]);
++    }
++
++    public function send(): void
++    {
++        http_response_code($this->status);
++        header('Content-Type: application/json');
++        foreach ($this->headers as $name => $value) {
++            header("$name: $value");
++        }
++        echo json_encode($this->body, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_PRESERVE_ZERO_FRACTION);
++    }
++}
+diff --git a/src/Http/Router.php b/src/Http/Router.php
+new file mode 100644
+index 0000000..d992bb1
+--- /dev/null
++++ b/src/Http/Router.php
+@@ -0,0 +1,44 @@
++<?php
++
++declare(strict_types=1);
++
++namespace Boxoffice\Http;
++
++/** Maps "METHOD /path/{id}" routes onto handlers; {id} matches a positive integer. */
++final class Router
++{
++    /** @var array<string, array<string, callable>> pattern => method => handler */
++    private array $routes = [];
++
++    public function add(string $method, string $pattern, callable $handler): void
++    {
++        $this->routes[$pattern][$method] = $handler;
++    }
++
++    public function dispatch(Request $request): Response
++    {
++        foreach ($this->routes as $pattern => $handlers) {
++            $params = $this->match($pattern, $request->path);
++            if ($params === null) {
++                continue;
++            }
++            $handler = $handlers[$request->method] ?? null;
++            if ($handler === null) {
++                throw new HttpError(405, 'method_not_allowed', 'Method not allowed.', [],
++                    ['Allow' => implode(', ', array_keys($handlers))]);
++            }
++            return $handler($request, ...$params);
++        }
++        throw new HttpError(404, 'not_found', 'No such resource.');
++    }
++
++    /** @return list<int>|null */
++    private function match(string $pattern, string $path): ?array
++    {
++        $regex = '#^' . str_replace('\{id\}', '([1-9][0-9]{0,17})', preg_quote($pattern, '#')) . '$#';
++        if (!preg_match($regex, $path, $m)) {
++            return null;
++        }
++        return array_map('intval', array_slice($m, 1));
++    }
++}
+diff --git a/src/Idempotency.php b/src/Idempotency.php
+new file mode 100644
+index 0000000..b1f6526
+--- /dev/null
++++ b/src/Idempotency.php
+@@ -0,0 +1,72 @@
++<?php
++
++declare(strict_types=1);
++
++namespace Boxoffice;
++
++use Boxoffice\Http\HttpError;
++use Boxoffice\Http\Request;
++use Boxoffice\Http\Response;
++
++/** Stores the first response for an Idempotency-Key and replays it for identical retries. */
++final class Idempotency
++{
++    public function __construct(private readonly Repository $repo)
++    {
++    }
++
++    /** @param callable(): Response $handler */
++    public function run(Request $request, callable $handler): Response
++    {
++        $key = $request->header('Idempotency-Key');
++        if ($key === null) {
++            return $handler();
++        }
++        if (!preg_match('/^[\x21-\x7E]{1,255}$/', $key)) {
++            throw new HttpError(400, 'invalid_idempotency_key', 'Idempotency-Key must be 1-255 printable ASCII characters.');
++        }
++        $fingerprint = self::fingerprint($request->body);
++        $stored = $this->repo->idempotencyRecord($key);
++        if ($stored !== null) {
++            if ($stored['method'] !== $request->method || $stored['path'] !== $request->path
++                || $stored['fingerprint'] !== $fingerprint) {
++                throw new HttpError(422, 'idempotency_key_reused',
++                    'This Idempotency-Key was already used for a different request.');
++            }
++            return (new Response((int) $stored['status'], json_decode($stored['response'], true)))
++                ->withHeader('Idempotent-Replayed', 'true');
++        }
++        try {
++            $response = $handler();
++        } catch (HttpError $e) {
++            $response = $e->toResponse();
++        }
++        if ($response->status < 500) {
++            $this->repo->insert('idempotency_keys', ['idem_key' => $key, 'method' => $request->method,
++                'path' => $request->path, 'fingerprint' => $fingerprint, 'status' => $response->status,
++                'response' => json_encode($response->body, JSON_PRESERVE_ZERO_FRACTION)]);
++        }
++        return $response;
++    }
++
++    /** Canonical form of the body: decoded JSON with object keys sorted, or the raw text. */
++    private static function fingerprint(string $body): string
++    {
++        $data = json_decode($body, true);
++        if ($data === null && trim($body) !== 'null') {
++            return hash('sha256', 'raw:' . $body);
++        }
++        return hash('sha256', 'json:' . json_encode(self::canonical($data)));
++    }
++
++    private static function canonical(mixed $value): mixed
++    {
++        if (!is_array($value)) {
++            return $value;
++        }
++        if (!array_is_list($value)) {
++            ksort($value, SORT_STRING);
++        }
++        return array_map(self::canonical(...), $value);
++    }
++}
+diff --git a/src/Repository.php b/src/Repository.php
+new file mode 100644
+index 0000000..f8e7b78
+--- /dev/null
++++ b/src/Repository.php
+@@ -0,0 +1,111 @@
++<?php
++
++declare(strict_types=1);
++
++namespace Boxoffice;
++
++use PDO;
++
++/** Row-level data access; every query uses bound parameters. */
++final class Repository
++{
++    private const TABLES = ['events', 'holds', 'purchases', 'refunds', 'idempotency_keys'];
++
++    public function __construct(private readonly PDO $pdo)
++    {
++    }
++
++    /** @param array<string, int|string> $row */
++    public function insert(string $table, array $row): int
++    {
++        $cols = array_keys($row);
++        $sql = sprintf('INSERT INTO %s (%s) VALUES (%s)', self::table($table), implode(', ', $cols),
++            implode(', ', array_map(static fn ($c) => ':' . $c, $cols)));
++        $this->run($sql, $row);
++        return (int) $this->pdo->lastInsertId();
++    }
++
++    /** @return array<string, mixed>|null */
++    public function find(string $table, int $id): ?array
++    {
++        $row = $this->run(sprintf('SELECT * FROM %s WHERE id = :id', self::table($table)), ['id' => $id])->fetch();
++        return $row === false ? null : $row;
++    }
++
++    /** @return list<array<string, mixed>> */
++    public function events(?int $after): array
++    {
++        if ($after === null) {
++            return $this->run('SELECT * FROM events ORDER BY starts_at, id')->fetchAll();
++        }
++        return $this->run('SELECT * FROM events WHERE starts_at > :t ORDER BY starts_at, id', ['t' => $after])
++            ->fetchAll();
++    }
++
++    public function heldQuantity(int $eventId, int $now): int
++    {
++        return $this->scalar("SELECT COALESCE(SUM(quantity), 0) FROM holds
++            WHERE event_id = :e AND state = 'open' AND expires_at > :now", ['e' => $eventId, 'now' => $now]);
++    }
++
++    public function soldQuantity(int $eventId): int
++    {
++        return $this->scalar('SELECT COALESCE(SUM(quantity), 0) FROM purchases WHERE event_id = :e', ['e' => $eventId])
++            - $this->scalar('SELECT COALESCE(SUM(r.quantity), 0) FROM refunds r
++                JOIN purchases p ON p.id = r.purchase_id WHERE p.event_id = :e', ['e' => $eventId]);
++    }
++
++    public function setHoldState(int $holdId, string $state): void
++    {
++        $this->run('UPDATE holds SET state = :s WHERE id = :id', ['s' => $state, 'id' => $holdId]);
++    }
++
++    /** @return list<array<string, mixed>> */
++    public function refunds(int $purchaseId): array
++    {
++        return $this->run('SELECT * FROM refunds WHERE purchase_id = :p ORDER BY id', ['p' => $purchaseId])
++            ->fetchAll();
++    }
++
++    /** @return array<string, mixed>|null */
++    public function idempotencyRecord(string $key): ?array
++    {
++        $row = $this->run('SELECT * FROM idempotency_keys WHERE idem_key = :k', ['k' => $key])->fetch();
++        return $row === false ? null : $row;
++    }
++
++    public function transaction(callable $fn): mixed
++    {
++        $this->pdo->exec('BEGIN IMMEDIATE');
++        try {
++            $result = $fn();
++            $this->pdo->exec('COMMIT');
++            return $result;
++        } catch (\Throwable $e) {
++            $this->pdo->exec('ROLLBACK');
++            throw $e;
++        }
++    }
++
++    private static function table(string $table): string
++    {
++        if (!in_array($table, self::TABLES, true)) {
++            throw new \InvalidArgumentException("unknown table $table");
++        }
++        return $table;
++    }
++
++    /** @param array<string, mixed> $params */
++    private function scalar(string $sql, array $params): int
++    {
++        return (int) $this->run($sql, $params)->fetchColumn();
++    }
++
++    /** @param array<string, mixed> $params */
++    private function run(string $sql, array $params = []): \PDOStatement
++    {
++        $stmt = $this->pdo->prepare($sql);
++        $stmt->execute($params);
++        return $stmt;
++    }
++}
+diff --git a/src/Ticketing.php b/src/Ticketing.php
+new file mode 100644
+index 0000000..aa8d9ca
+--- /dev/null
++++ b/src/Ticketing.php
+@@ -0,0 +1,178 @@
++<?php
++
++declare(strict_types=1);
++
++namespace Boxoffice;
++
++use Boxoffice\Http\HttpError;
++
++/** Ticketing rules: availability, holds, purchases and refunds. Returns API-shaped arrays. */
++final class Ticketing
++{
++    public function __construct(private readonly Repository $repo)
++    {
++    }
++
++    /** @param array{name: string, venue: string, starts_at: int, capacity: int, price_cents: int} $data */
++    public function createEvent(array $data, int $now): array
++    {
++        return $this->event($this->repo->insert('events', $data), $now);
++    }
++
++    /** @return list<array<string, mixed>> */
++    public function listEvents(int $now, bool $upcomingOnly): array
++    {
++        return array_map(fn (array $row) => $this->presentEvent($row, $now),
++            $this->repo->events($upcomingOnly ? $now : null));
++    }
++
++    public function event(int $id, int $now): array
++    {
++        return $this->presentEvent($this->eventRow($id), $now);
++    }
++
++    public function createHold(int $eventId, int $quantity, int $ttl, int $now): array
++    {
++        $event = $this->event($eventId, $now);
++        if ($now >= Clock::parse($event['starts_at'])) {
++            throw new HttpError(409, 'event_closed', 'The event has already started.');
++        }
++        if ($quantity > $event['available']) {
++            throw new HttpError(409, 'insufficient_seats', "Only {$event['available']} seats are available.");
++        }
++        $id = $this->repo->insert('holds', ['event_id' => $eventId, 'quantity' => $quantity,
++            'expires_at' => $now + $ttl, 'created_at' => $now]);
++        return $this->hold($id, $now);
++    }
++
++    public function hold(int $id, int $now): array
++    {
++        return $this->presentHold($this->holdRow($id), $now);
++    }
++
++    public function releaseHold(int $id, int $now): array
++    {
++        $hold = $this->hold($id, $now);
++        if ($hold['status'] !== 'active') {
++            throw new HttpError(409, 'hold_not_active', "The hold is {$hold['status']}.");
++        }
++        $this->repo->setHoldState($id, 'released');
++        return $this->hold($id, $now);
++    }
++
++    public function purchase(int $holdId, string $email, int $now): array
++    {
++        $hold = $this->hold($holdId, $now);
++        if ($hold['status'] === 'expired') {
++            throw new HttpError(409, 'hold_expired', 'The hold has expired.');
++        }
++        if ($hold['status'] !== 'active') {
++            throw new HttpError(409, 'hold_not_active', "The hold is {$hold['status']}.");
++        }
++        $event = $this->eventRow($hold['event_id']);
++        $this->repo->setHoldState($holdId, 'purchased');
++        $id = $this->repo->insert('purchases', ['event_id' => $hold['event_id'], 'hold_id' => $holdId,
++            'email' => $email, 'quantity' => $hold['quantity'],
++            'amount_cents' => $hold['quantity'] * $event['price_cents'], 'created_at' => $now]);
++        return $this->purchaseById($id);
++    }
++
++    public function purchaseById(int $id): array
++    {
++        $row = $this->repo->find('purchases', $id)
++            ?? throw new HttpError(404, 'purchase_not_found', 'No such purchase.');
++        $refunds = array_map(fn (array $r) => $this->presentRefund($r), $this->repo->refunds($id));
++        $refundedQty = array_sum(array_column($refunds, 'quantity'));
++        return [
++            'id' => $row['id'],
++            'event_id' => $row['event_id'],
++            'hold_id' => $row['hold_id'],
++            'email' => $row['email'],
++            'quantity' => $row['quantity'],
++            'amount_cents' => $row['amount_cents'],
++            'refunded_quantity' => $refundedQty,
++            'refunded_cents' => array_sum(array_column($refunds, 'amount_cents')),
++            'status' => match (true) {
++                $refundedQty === 0 => 'paid',
++                $refundedQty < $row['quantity'] => 'partially_refunded',
++                default => 'refunded',
++            },
++            'created_at' => Clock::format($row['created_at']),
++            'refunds' => $refunds,
++        ];
++    }
++
++    public function refund(int $purchaseId, ?int $quantity, int $now): array
++    {
++        $purchase = $this->purchaseById($purchaseId);
++        if ($now >= $this->eventRow($purchase['event_id'])['starts_at']) {
++            throw new HttpError(409, 'event_closed', 'Refunds close when the event starts.');
++        }
++        $remaining = $purchase['quantity'] - $purchase['refunded_quantity'];
++        if ($remaining === 0) {
++            throw new HttpError(409, 'already_refunded', 'Every ticket has already been refunded.');
++        }
++        $quantity ??= $remaining;
++        if ($quantity > $remaining) {
++            throw new HttpError(409, 'refund_exceeds_purchase', "Only $remaining tickets can be refunded.");
++        }
++        $unit = intdiv($purchase['amount_cents'], $purchase['quantity']);
++        $id = $this->repo->insert('refunds', ['purchase_id' => $purchaseId, 'quantity' => $quantity,
++            'amount_cents' => $quantity * $unit, 'created_at' => $now]);
++        return $this->presentRefund($this->repo->find('refunds', $id));
++    }
++
++    private function eventRow(int $id): array
++    {
++        return $this->repo->find('events', $id) ?? throw new HttpError(404, 'event_not_found', 'No such event.');
++    }
++
++    private function holdRow(int $id): array
++    {
++        return $this->repo->find('holds', $id) ?? throw new HttpError(404, 'hold_not_found', 'No such hold.');
++    }
++
++    private function presentEvent(array $row, int $now): array
++    {
++        $held = $this->repo->heldQuantity($row['id'], $now);
++        $sold = $this->repo->soldQuantity($row['id']);
++        return [
++            'id' => $row['id'],
++            'name' => $row['name'],
++            'venue' => $row['venue'],
++            'starts_at' => Clock::format($row['starts_at']),
++            'capacity' => $row['capacity'],
++            'price_cents' => $row['price_cents'],
++            'available' => $row['capacity'] - $held - $sold,
++            'held' => $held,
++            'sold' => $sold,
++        ];
++    }
++
++    private function presentHold(array $row, int $now): array
++    {
++        $status = match ($row['state']) {
++            'open' => $now < $row['expires_at'] ? 'active' : 'expired',
++            default => $row['state'],
++        };
++        return [
++            'id' => $row['id'],
++            'event_id' => $row['event_id'],
++            'quantity' => $row['quantity'],
++            'status' => $status,
++            'expires_at' => Clock::format($row['expires_at']),
++            'created_at' => Clock::format($row['created_at']),
++        ];
++    }
++
++    private function presentRefund(array $row): array
++    {
++        return [
++            'id' => $row['id'],
++            'purchase_id' => $row['purchase_id'],
++            'quantity' => $row['quantity'],
++            'amount_cents' => $row['amount_cents'],
++            'created_at' => Clock::format($row['created_at']),
++        ];
++    }
++}
+diff --git a/src/Validator.php b/src/Validator.php
+new file mode 100644
+index 0000000..c7c13d4
+--- /dev/null
++++ b/src/Validator.php
+@@ -0,0 +1,84 @@
++<?php
++
++declare(strict_types=1);
++
++namespace Boxoffice;
++
++use Boxoffice\Http\HttpError;
++
++/** Collects field errors for one request body and reports them all at once. */
++final class Validator
++{
++    /** @var array<string, string> */
++    private array $errors = [];
++
++    /** @param array<string, mixed> $data */
++    public function __construct(private readonly array $data)
++    {
++    }
++
++    public function string(string $field, int $max): ?string
++    {
++        $value = $this->data[$field] ?? null;
++        if (!is_string($value)) {
++            return $this->fail($field, $value === null ? 'is required' : 'must be a string');
++        }
++        $value = trim($value);
++        $len = mb_strlen($value, 'UTF-8');
++        if ($len < 1 || $len > $max) {
++            return $this->fail($field, "must be 1 to $max characters");
++        }
++        return $value;
++    }
++
++    public function int(string $field, int $min, int $max, ?int $default = null): ?int
++    {
++        if (!array_key_exists($field, $this->data) && $default !== null) {
++            return $default;
++        }
++        $value = $this->data[$field] ?? null;
++        if (!is_int($value)) {
++            return $this->fail($field, $value === null ? 'is required' : 'must be an integer');
++        }
++        if ($value < $min || $value > $max) {
++            return $this->fail($field, "must be between $min and $max");
++        }
++        return $value;
++    }
++
++    public function optionalInt(string $field, int $min, int $max): ?int
++    {
++        return array_key_exists($field, $this->data) ? $this->int($field, $min, $max) : null;
++    }
++
++    public function timestamp(string $field): ?int
++    {
++        $value = $this->data[$field] ?? null;
++        $ts = is_string($value) ? Clock::parse($value) : null;
++        return $ts ?? $this->fail($field, 'must be a timestamp like 2026-05-01T19:30:00Z');
++    }
++
++    public function email(string $field): ?string
++    {
++        $value = $this->data[$field] ?? null;
++        $parts = is_string($value) ? explode('@', $value) : [];
++        $valid = count($parts) === 2 && strlen($value) <= 254
++            && preg_match('/^\S+$/', $parts[0]) && preg_match('/^\S+$/', $parts[1])
++            && str_contains(substr($parts[1], 1, -1), '.');
++        return $valid ? $value : $this->fail($field, 'must be a valid email address');
++    }
++
++    /** Throws a 422 if any field failed. */
++    public function check(): void
++    {
++        if ($this->errors !== []) {
++            throw HttpError::validation($this->errors);
++        }
++    }
++
++    private function fail(string $field, string $message): null
++    {
++        $this->errors[$field] = $message;
++        return null;
++    }
++}
+diff --git a/src/autoload.php b/src/autoload.php
+new file mode 100644
+index 0000000..81fd16e
+--- /dev/null
++++ b/src/autoload.php
+@@ -0,0 +1,14 @@
++<?php
++
++declare(strict_types=1);
++
++spl_autoload_register(static function (string $class): void {
++    $prefix = 'Boxoffice\\';
++    if (!str_starts_with($class, $prefix)) {
++        return;
++    }
++    $file = __DIR__ . '/' . str_replace('\\', '/', substr($class, strlen($prefix))) . '.php';
++    if (is_file($file)) {
++        require $file;
++    }
++});
+diff --git a/tests/ApiTest.php b/tests/ApiTest.php
+new file mode 100644
+index 0000000..8da12ff
+--- /dev/null
++++ b/tests/ApiTest.php
+@@ -0,0 +1,64 @@
++<?php
++
++declare(strict_types=1);
++
++return [
++    'event validation reports every field' => function (): void {
++        $r = call(fresh_app(), 'POST', '/events', ['name' => '  ', 'capacity' => '5']);
++        assert_same(422, $r->status);
++        assert_same(['name', 'venue', 'starts_at', 'capacity', 'price_cents'],
++            array_keys($r->body['error']['fields']));
++    },
++    'hold reduces availability and expires' => function (): void {
++        $app = fresh_app();
++        $event = make_event($app, 4);
++        $hold = call($app, 'POST', "/events/{$event['id']}/holds", ['quantity' => 3, 'ttl_seconds' => 60]);
++        assert_same(201, $hold->status);
++        assert_same(1, call($app, 'GET', "/events/{$event['id']}")->body['available']);
++        $later = ['X-Clock' => '2026-05-01T10:01:00Z'];
++        assert_same('expired', call($app, 'GET', '/holds/1', null, $later)->body['status']);
++        assert_same(4, call($app, 'GET', "/events/{$event['id']}", null, $later)->body['available']);
++    },
++    'insufficient seats' => function (): void {
++        $app = fresh_app();
++        make_event($app, 2);
++        $r = call($app, 'POST', '/events/1/holds', ['quantity' => 3]);
++        assert_same('insufficient_seats', $r->body['error']['code']);
++    },
++    'purchase then partial refund' => function (): void {
++        $app = fresh_app();
++        make_event($app, 10, 1500);
++        call($app, 'POST', '/events/1/holds', ['quantity' => 4]);
++        $p = call($app, 'POST', '/purchases', ['hold_id' => 1, 'email' => 'fan@example.com']);
++        assert_same(201, $p->status);
++        assert_same(6000, $p->body['amount_cents']);
++        $r = call($app, 'POST', '/purchases/1/refunds', ['quantity' => 1]);
++        assert_same(1500, $r->body['amount_cents']);
++        $p = call($app, 'GET', '/purchases/1');
++        assert_same('partially_refunded', $p->body['status']);
++        assert_same(7, call($app, 'GET', '/events/1')->body['available']);
++        call($app, 'POST', '/purchases/1/refunds');
++        assert_same('already_refunded', call($app, 'POST', '/purchases/1/refunds')->body['error']['code']);
++    },
++    'idempotent purchase is replayed' => function (): void {
++        $app = fresh_app();
++        make_event($app);
++        call($app, 'POST', '/events/1/holds', ['quantity' => 1]);
++        $h = ['Idempotency-Key' => 'k-1'];
++        $a = call($app, 'POST', '/purchases', ['hold_id' => 1, 'email' => 'a@b.co'], $h);
++        $b = call($app, 'POST', '/purchases', ['email' => 'a@b.co', 'hold_id' => 1], $h);
++        assert_same($a->body, $b->body);
++        assert_same('true', $b->headers['Idempotent-Replayed'] ?? null);
++        $c = call($app, 'POST', '/purchases', ['hold_id' => 2, 'email' => 'a@b.co'], $h);
++        assert_same('idempotency_key_reused', $c->body['error']['code']);
++    },
++    'routing errors' => function (): void {
++        $app = fresh_app();
++        assert_same(404, call($app, 'GET', '/nope')->status);
++        assert_same(404, call($app, 'GET', '/events/0')->status);
++        $r = call($app, 'DELETE', '/events');
++        assert_same(405, $r->status);
++        assert_same('GET, POST', $r->headers['Allow']);
++        assert_same(400, call($app, 'GET', '/events', null, ['X-Clock' => 'tomorrow'])->status);
++    },
++];
+diff --git a/tests/ClockTest.php b/tests/ClockTest.php
+new file mode 100644
+index 0000000..af52c29
+--- /dev/null
++++ b/tests/ClockTest.php
+@@ -0,0 +1,17 @@
++<?php
++
++declare(strict_types=1);
++
++use Boxoffice\Clock;
++
++return [
++    'clock parses and formats round trip' => function (): void {
++        $ts = Clock::parse('2026-05-01T19:30:00Z');
++        assert_same('2026-05-01T19:30:00Z', Clock::format($ts));
++    },
++    'clock rejects bad timestamps' => function (): void {
++        foreach (['2026-02-30T00:00:00Z', '2026-05-01 19:30:00', '2026-05-01T24:00:00Z', ''] as $bad) {
++            assert_same(null, Clock::parse($bad), $bad);
++        }
++    },
++];
+diff --git a/tests/helpers.php b/tests/helpers.php
+new file mode 100644
+index 0000000..2859f1c
+--- /dev/null
++++ b/tests/helpers.php
+@@ -0,0 +1,38 @@
++<?php
++
++declare(strict_types=1);
++
++use Boxoffice\App;
++use Boxoffice\Http\Request;
++use Boxoffice\Http\Response;
++
++/** An App backed by a fresh temporary database. */
++function fresh_app(): App
++{
++    $path = tempnam(sys_get_temp_dir(), 'boxoffice-test-');
++    register_shutdown_function(static fn () => @unlink($path));
++    return App::create($path);
++}
++
++function call(App $app, string $method, string $path, ?array $body = null, array $headers = []): Response
++{
++    $headers += ['X-Clock' => '2026-05-01T10:00:00Z'];
++    $raw = $body === null ? '' : json_encode($body);
++    return $app->handle(new Request($method, $path, $headers, [], $raw));
++}
++
++function assert_same(mixed $expected, mixed $actual, string $what = ''): void
++{
++    if ($expected !== $actual) {
++        throw new RuntimeException(sprintf('%s expected %s, got %s', $what,
++            var_export($expected, true), var_export($actual, true)));
++    }
++}
++
++function make_event(App $app, int $capacity = 10, int $price = 1000): array
++{
++    $r = call($app, 'POST', '/events', ['name' => 'Show', 'venue' => 'Hall',
++        'starts_at' => '2026-06-01T20:00:00Z', 'capacity' => $capacity, 'price_cents' => $price]);
++    assert_same(201, $r->status, 'create event');
++    return $r->body;
++}
+diff --git a/tests/run.php b/tests/run.php
+new file mode 100644
+index 0000000..9d5dde9
+--- /dev/null
++++ b/tests/run.php
+@@ -0,0 +1,24 @@
++<?php
++
++declare(strict_types=1);
++
++// Minimal test runner: every *Test.php file returns an array of name => closure.
++require __DIR__ . '/../src/autoload.php';
++require __DIR__ . '/helpers.php';
++
++$failures = 0;
++$count = 0;
++foreach (glob(__DIR__ . '/*Test.php') as $file) {
++    foreach (require $file as $name => $test) {
++        $count++;
++        try {
++            $test();
++            echo "ok   $name\n";
++        } catch (Throwable $e) {
++            $failures++;
++            echo "FAIL $name: {$e->getMessage()}\n";
++        }
++    }
++}
++echo "\n$count tests, $failures failures\n";
++exit($failures === 0 ? 0 : 1);

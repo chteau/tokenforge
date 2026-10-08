@@ -1,0 +1,932 @@
+diff --git a/README.md b/README.md
+index 4f854b5..9ce280f 100644
+--- a/README.md
++++ b/README.md
+@@ -1 +1,23 @@
+ # mdc — a small Markdown to HTML converter
++
++Converts a subset of Markdown (headings, emphasis, code, links, images, lists,
++blockquotes, tables) to an HTML fragment, with an optional table of contents and
++front-matter extraction to JSON.
++
++## Build
++
++Requires `kotlinc` (2.x) and a JRE; no other dependencies.
++
++    kotlinc src/main/kotlin -include-runtime -d build/mdc.jar
++
++## Test
++
++    kotlinc src/test/kotlin -cp build/mdc.jar -d build/test-classes
++    java -cp build/mdc.jar:build/test-classes TestMainKt
++
++## Usage
++
++    java -jar build/mdc.jar [--toc] [--toc-depth <n>] [--front-matter] [-o <file>] [<input>]
++
++Reads `<input>` (or stdin) and writes HTML to stdout (or `<file>`).
++`--front-matter` prints the document's front matter as a JSON object instead.
+diff --git a/src/main/kotlin/mdc/Blocks.kt b/src/main/kotlin/mdc/Blocks.kt
+new file mode 100644
+index 0000000..4b12792
+--- /dev/null
++++ b/src/main/kotlin/mdc/Blocks.kt
+@@ -0,0 +1,178 @@
++package mdc
++
++enum class Align { NONE, LEFT, RIGHT, CENTER }
++
++/** Block syntax tree. */
++sealed interface Block {
++    data class Heading(val level: Int, val content: List<Inline>) : Block
++    data class Paragraph(val lines: List<String>) : Block
++    data object Rule : Block
++    data class CodeBlock(val language: String?, val lines: List<String>) : Block
++    data class Quote(val children: List<Block>) : Block
++    data class ListBlock(val ordered: Boolean, val start: Int, val items: List<ListItem>) : Block
++    data class Table(val aligns: List<Align>, val header: List<String>, val rows: List<List<String>>) : Block
++}
++
++data class ListItem(val text: String, val children: List<Block.ListBlock>)
++
++private val HEADING = Regex("^(#{1,6}) (.*)$")
++private val RULE = Regex("^(-{3,}|\\*{3,}|_{3,})$")
++private val LIST_ITEM = Regex("^( *)([-*+]|[0-9]{1,9}\\.) +(.*)$")
++private val DELIM_CELL = Regex("^:?-+:?$")
++private const val FENCE = "```"
++
++/** Parses document lines (front matter already removed) into blocks. */
++fun parseBlocks(lines: List<String>): List<Block> = BlockParser(lines).parse()
++
++private class BlockParser(private val lines: List<String>) {
++    private var i = 0
++
++    fun parse(): List<Block> {
++        val blocks = mutableListOf<Block>()
++        while (i < lines.size) {
++            val line = lines[i]
++            when {
++                line.isBlank() -> i++
++                else -> blocks.addAll(startBlock() ?: listOf(paragraph()))
++            }
++        }
++        return blocks
++    }
++
++    /** Parses the non-paragraph block(s) starting at line [i], or returns null. */
++    private fun startBlock(): List<Block>? {
++        val line = lines[i]
++        HEADING.matchEntire(line)?.let { m ->
++            i++
++            return listOf(Block.Heading(m.groupValues[1].length, parseInline(m.groupValues[2].trim())))
++        }
++        if (RULE.matches(line)) {
++            i++
++            return listOf(Block.Rule)
++        }
++        if (line.startsWith(FENCE)) return listOf(codeBlock())
++        if (line.startsWith(">")) return listOf(quote())
++        if (LIST_ITEM.matches(line)) return lists()
++        return tableAt(i)?.let { listOf(it) }
++    }
++
++    private fun paragraph(): Block {
++        val text = mutableListOf(lines[i++].trim())
++        while (i < lines.size && lines[i].isNotBlank()) {
++            val save = i
++            if (startBlock() != null) {
++                i = save
++                break
++            }
++            text.add(lines[i++].trim())
++        }
++        return Block.Paragraph(text)
++    }
++
++    private fun codeBlock(): Block {
++        val info = lines[i].substring(FENCE.length).trim()
++        val language = info.split(' ').firstOrNull { it.isNotEmpty() }
++        i++
++        val content = mutableListOf<String>()
++        while (i < lines.size && lines[i].trimEnd() != FENCE) content.add(lines[i++])
++        if (i < lines.size) i++ // closing fence
++        return Block.CodeBlock(language, content)
++    }
++
++    private fun quote(): Block {
++        val inner = mutableListOf<String>()
++        while (i < lines.size && lines[i].startsWith(">")) {
++            val rest = lines[i++].substring(1)
++            inner.add(if (rest.startsWith(" ")) rest.substring(1) else rest)
++        }
++        return Block.Quote(parseBlocks(inner))
++    }
++
++    private data class RawItem(val depth: Int, val ordered: Boolean, val number: Int, val text: String)
++
++    /** Parses consecutive list items; a top-level ordered/unordered switch yields several lists. */
++    private fun lists(): List<Block> {
++        val items = mutableListOf<RawItem>()
++        while (i < lines.size) {
++            if (lines[i].isBlank()) {
++                var j = i
++                while (j < lines.size && lines[j].isBlank()) j++
++                if (j < lines.size && LIST_ITEM.matches(lines[j])) i = j else break
++            }
++            val m = LIST_ITEM.matchEntire(lines[i]) ?: break
++            val (indent, marker, text) = m.destructured
++            val depth = if (items.isEmpty()) 0 else minOf(indent.length / 2, items.last().depth + 1)
++            val ordered = marker.endsWith(".")
++            val number = if (ordered) marker.dropLast(1).toInt() else 0
++            items.add(RawItem(depth, ordered, number, text.trimEnd()))
++            i++
++        }
++        return buildLists(items, 0, 0).first
++    }
++
++    /** Builds the lists at [depth] from items starting at [from]; returns them and the index after. */
++    private fun buildLists(items: List<RawItem>, from: Int, depth: Int): Pair<List<Block.ListBlock>, Int> {
++        val lists = mutableListOf<Block.ListBlock>()
++        var k = from
++        while (k < items.size && items[k].depth >= depth) {
++            val ordered = items[k].ordered
++            val start = items[k].number
++            val entries = mutableListOf<ListItem>()
++            while (k < items.size && items[k].depth == depth && items[k].ordered == ordered) {
++                val text = items[k].text
++                val (children, next) = buildLists(items, k + 1, depth + 1)
++                entries.add(ListItem(text, children))
++                k = next
++            }
++            lists.add(Block.ListBlock(ordered, if (ordered) start else 1, entries))
++        }
++        return lists to k
++    }
++
++    private fun splitCells(line: String): List<String> {
++        var s = line.trim()
++        if (s.startsWith("|")) s = s.substring(1)
++        if (s.endsWith("|") && !s.endsWith("\\|")) s = s.dropLast(1)
++        val cells = mutableListOf<String>()
++        val cur = StringBuilder()
++        var k = 0
++        while (k < s.length) {
++            val c = s[k]
++            if (c == '\\' && k + 1 < s.length && s[k + 1] == '|') {
++                cur.append('|'); k += 2; continue
++            }
++            if (c == '|') {
++                cells.add(cur.toString().trim()); cur.clear()
++            } else {
++                cur.append(c)
++            }
++            k++
++        }
++        cells.add(cur.toString().trim())
++        return cells
++    }
++
++    private fun tableAt(at: Int): Block? {
++        if (at + 1 >= lines.size || '|' !in lines[at] || '|' !in lines[at + 1]) return null
++        val header = splitCells(lines[at])
++        val delims = splitCells(lines[at + 1])
++        if (delims.size != header.size || !delims.all { DELIM_CELL.matches(it) }) return null
++        val aligns = delims.map {
++            val left = it.startsWith(":")
++            val right = it.endsWith(":")
++            when {
++                left && right -> Align.CENTER
++                left -> Align.LEFT
++                right -> Align.RIGHT
++                else -> Align.NONE
++            }
++        }
++        i = at + 2
++        val rows = mutableListOf<List<String>>()
++        while (i < lines.size && '|' in lines[i] && lines[i].isNotBlank()) {
++            val cells = splitCells(lines[i++])
++            rows.add(List(header.size) { cells.getOrElse(it) { "" } })
++        }
++        return Block.Table(aligns, header, rows)
++    }
++}
+diff --git a/src/main/kotlin/mdc/Converter.kt b/src/main/kotlin/mdc/Converter.kt
+new file mode 100644
+index 0000000..f3e029c
+--- /dev/null
++++ b/src/main/kotlin/mdc/Converter.kt
+@@ -0,0 +1,16 @@
++package mdc
++
++/** Conversion settings; [tocDepth] only matters when [toc] is set. */
++data class Options(val toc: Boolean = false, val tocDepth: Int = 3)
++
++/** Converts a Markdown document (with optional front matter) to an HTML fragment. */
++fun convert(text: String, options: Options = Options()): String {
++    val doc = splitDocument(text)
++    val renderer = HtmlRenderer()
++    val body = renderer.render(parseBlocks(doc.body))
++    val lines = (if (options.toc) renderToc(renderer.headings, options.tocDepth) else emptyList()) + body
++    return if (lines.isEmpty()) "" else lines.joinToString("\n", postfix = "\n")
++}
++
++/** Returns the front matter of [text] as a JSON line (with trailing newline). */
++fun extractFrontMatter(text: String): String = frontMatterJson(splitDocument(text).frontMatter) + "\n"
+diff --git a/src/main/kotlin/mdc/FrontMatter.kt b/src/main/kotlin/mdc/FrontMatter.kt
+new file mode 100644
+index 0000000..d5c95dc
+--- /dev/null
++++ b/src/main/kotlin/mdc/FrontMatter.kt
+@@ -0,0 +1,82 @@
++package mdc
++
++import java.math.BigInteger
++
++/** Thrown for malformed front matter; the message is the user-facing error text. */
++class FrontMatterException(message: String) : Exception(message)
++
++/** A typed front-matter value. */
++sealed interface FmValue {
++    data object Null : FmValue
++    data class Bool(val value: Boolean) : FmValue
++    data class Num(val value: BigInteger) : FmValue
++    data class Str(val value: String) : FmValue
++    data class Arr(val items: List<String>) : FmValue
++}
++
++/** Front matter (keys in file order) and the remaining document lines. */
++data class Document(val frontMatter: Map<String, FmValue>, val body: List<String>)
++
++private val KEY_LINE = Regex("^([A-Za-z_][A-Za-z0-9_-]*):(.*)$")
++private val INTEGER = Regex("^-?[0-9]+$")
++
++/** Splits [text] into front matter and body lines. */
++fun splitDocument(text: String): Document {
++    val normalized = text.replace("\r\n", "\n")
++    val lines = normalized.split("\n").let { if (normalized.endsWith("\n")) it.dropLast(1) else it }
++    if (lines.firstOrNull() != "---") return Document(emptyMap(), lines)
++    val end = lines.subList(1, lines.size).indexOf("---")
++    if (end < 0) throw FrontMatterException("unterminated front matter")
++    val fm = LinkedHashMap<String, FmValue>()
++    for (idx in 1..end) {
++        val line = lines[idx]
++        if (line.isBlank() || line.startsWith("#")) continue
++        val m = KEY_LINE.matchEntire(line)
++            ?: throw FrontMatterException("front matter line ${idx + 1}: invalid line")
++        val key = m.groupValues[1]
++        if (key in fm) throw FrontMatterException("front matter line ${idx + 1}: duplicate key $key")
++        fm[key] = typedValue(m.groupValues[2].trim())
++    }
++    return Document(fm, lines.subList(end + 2, lines.size))
++}
++
++private fun typedValue(v: String): FmValue = when {
++    v.isEmpty() -> FmValue.Null
++    v == "true" -> FmValue.Bool(true)
++    v == "false" -> FmValue.Bool(false)
++    INTEGER.matches(v) -> FmValue.Num(BigInteger(v))
++    v.length >= 2 && v.startsWith("\"") && v.endsWith("\"") -> FmValue.Str(v.substring(1, v.length - 1))
++    v.startsWith("[") && v.endsWith("]") -> {
++        val inner = v.substring(1, v.length - 1)
++        FmValue.Arr(if (inner.isBlank()) emptyList() else inner.split(",").map { it.trim() })
++    }
++    else -> FmValue.Str(v)
++}
++
++fun jsonString(s: String): String = buildString {
++    append('"')
++    for (c in s) {
++        when {
++            c == '"' -> append("\\\"")
++            c == '\\' -> append("\\\\")
++            c == '\n' -> append("\\n")
++            c == '\r' -> append("\\r")
++            c == '\t' -> append("\\t")
++            c < ' ' -> append("\\u%04x".format(c.code))
++            else -> append(c)
++        }
++    }
++    append('"')
++}
++
++private fun json(v: FmValue): String = when (v) {
++    FmValue.Null -> "null"
++    is FmValue.Bool -> v.value.toString()
++    is FmValue.Num -> v.value.toString()
++    is FmValue.Str -> jsonString(v.value)
++    is FmValue.Arr -> v.items.joinToString(", ", "[", "]") { jsonString(it) }
++}
++
++/** Formats front matter as a one-line JSON object. */
++fun frontMatterJson(fm: Map<String, FmValue>): String =
++    fm.entries.joinToString(", ", "{", "}") { (k, v) -> jsonString(k) + ": " + json(v) }
+diff --git a/src/main/kotlin/mdc/Html.kt b/src/main/kotlin/mdc/Html.kt
+new file mode 100644
+index 0000000..c14c142
+--- /dev/null
++++ b/src/main/kotlin/mdc/Html.kt
+@@ -0,0 +1,84 @@
++package mdc
++
++/** A rendered heading, as recorded for the table of contents. */
++data class HeadingRef(val level: Int, val text: String, val slug: String)
++
++/** Renders blocks to HTML lines, assigning unique slugs to headings in document order. */
++class HtmlRenderer {
++    private val slugs = Slugger()
++    private val out = mutableListOf<String>()
++    val headings = mutableListOf<HeadingRef>()
++
++    fun render(blocks: List<Block>): List<String> {
++        blocks.forEach { block(it) }
++        return out
++    }
++
++    private fun block(b: Block) {
++        when (b) {
++            is Block.Heading -> {
++                val text = plainText(b.content)
++                val slug = slugs.unique(text)
++                headings.add(HeadingRef(b.level, text, slug))
++                out.add("<h${b.level} id=\"${escapeHtml(slug)}\">${renderInline(b.content)}</h${b.level}>")
++            }
++            is Block.Paragraph -> out.add("<p>" + inlineHtml(b.lines.joinToString("\n")) + "</p>")
++            Block.Rule -> out.add("<hr>")
++            is Block.CodeBlock -> {
++                val cls = b.language?.let { " class=\"language-${escapeHtml(it)}\"" } ?: ""
++                val body = b.lines.joinToString("") { escapeHtml(it) + "\n" }
++                out.add("<pre><code$cls>$body</code></pre>")
++            }
++            is Block.Quote -> {
++                out.add("<blockquote>")
++                b.children.forEach { block(it) }
++                out.add("</blockquote>")
++            }
++            is Block.ListBlock -> list(b)
++            is Block.Table -> table(b)
++        }
++    }
++
++    private fun list(l: Block.ListBlock) {
++        out.add(listOpenTag(l.ordered, l.start))
++        for (item in l.items) {
++            val text = inlineHtml(item.text)
++            if (item.children.isEmpty()) {
++                out.add("<li>$text</li>")
++            } else {
++                out.add("<li>$text")
++                item.children.forEach { list(it) }
++                out.add("</li>")
++            }
++        }
++        out.add(if (l.ordered) "</ol>" else "</ul>")
++    }
++
++    private fun table(t: Block.Table) {
++        fun row(cells: List<String>, tag: String) = cells.indices.joinToString("", "<tr>", "</tr>") { c ->
++            val align = when (t.aligns[c]) {
++                Align.NONE -> ""
++                Align.LEFT -> " align=\"left\""
++                Align.RIGHT -> " align=\"right\""
++                Align.CENTER -> " align=\"center\""
++            }
++            "<$tag$align>${inlineHtml(cells[c])}</$tag>"
++        }
++        out.add("<table>")
++        out.add("<thead>")
++        out.add(row(t.header, "th"))
++        out.add("</thead>")
++        if (t.rows.isNotEmpty()) {
++            out.add("<tbody>")
++            t.rows.forEach { out.add(row(it, "td")) }
++            out.add("</tbody>")
++        }
++        out.add("</table>")
++    }
++}
++
++fun listOpenTag(ordered: Boolean, start: Int): String = when {
++    !ordered -> "<ul>"
++    start != 1 -> "<ol start=\"$start\">"
++    else -> "<ol>"
++}
+diff --git a/src/main/kotlin/mdc/Inline.kt b/src/main/kotlin/mdc/Inline.kt
+new file mode 100644
+index 0000000..3e0e3cc
+--- /dev/null
++++ b/src/main/kotlin/mdc/Inline.kt
+@@ -0,0 +1,246 @@
++package mdc
++
++/** Escapes the four characters that are special in HTML text and attribute values. */
++fun escapeHtml(s: String): String {
++    val sb = StringBuilder(s.length)
++    for (c in s) {
++        when (c) {
++            '&' -> sb.append("&amp;")
++            '<' -> sb.append("&lt;")
++            '>' -> sb.append("&gt;")
++            '"' -> sb.append("&quot;")
++            else -> sb.append(c)
++        }
++    }
++    return sb.toString()
++}
++
++/** Inline syntax tree. */
++sealed interface Inline {
++    data class Text(val text: String) : Inline
++    data class Code(val code: String) : Inline
++    data class Emphasis(val children: List<Inline>) : Inline
++    data class Strong(val children: List<Inline>) : Inline
++    data class Link(val url: String, val title: String?, val children: List<Inline>) : Inline
++    data class Image(val url: String, val alt: String, val title: String?) : Inline
++}
++
++private const val ESCAPABLE = "\\`*_[]()#+-.!|>"
++
++/** Parses inline Markdown into a list of nodes. */
++fun parseInline(s: String): List<Inline> = InlineParser(s, allowLinks = true).parse()
++
++fun renderInline(nodes: List<Inline>): String = buildString { nodes.forEach { appendHtml(it) } }
++
++/** Plain text of the nodes: markup removed, code and alt text kept, not escaped. */
++fun plainText(nodes: List<Inline>): String = buildString { nodes.forEach { appendPlain(it) } }
++
++fun inlineHtml(s: String): String = renderInline(parseInline(s))
++
++private fun StringBuilder.appendHtml(n: Inline) {
++    when (n) {
++        is Inline.Text -> append(escapeHtml(n.text))
++        is Inline.Code -> append("<code>").append(escapeHtml(n.code)).append("</code>")
++        is Inline.Emphasis -> append("<em>").append(renderInline(n.children)).append("</em>")
++        is Inline.Strong -> append("<strong>").append(renderInline(n.children)).append("</strong>")
++        is Inline.Link -> {
++            append("<a href=\"").append(escapeHtml(n.url)).append('"')
++            n.title?.let { append(" title=\"").append(escapeHtml(it)).append('"') }
++            append('>').append(renderInline(n.children)).append("</a>")
++        }
++        is Inline.Image -> {
++            append("<img src=\"").append(escapeHtml(n.url)).append("\" alt=\"").append(escapeHtml(n.alt)).append('"')
++            n.title?.let { append(" title=\"").append(escapeHtml(it)).append('"') }
++            append('>')
++        }
++    }
++}
++
++private fun StringBuilder.appendPlain(n: Inline) {
++    when (n) {
++        is Inline.Text -> append(n.text)
++        is Inline.Code -> append(n.code)
++        is Inline.Emphasis -> n.children.forEach { appendPlain(it) }
++        is Inline.Strong -> n.children.forEach { appendPlain(it) }
++        is Inline.Link -> n.children.forEach { appendPlain(it) }
++        is Inline.Image -> append(n.alt)
++    }
++}
++
++private class InlineParser(private val s: String, private val allowLinks: Boolean) {
++    private val out = mutableListOf<Inline>()
++    private val text = StringBuilder()
++
++    fun parse(): List<Inline> {
++        var i = 0
++        while (i < s.length) {
++            i = step(i)
++        }
++        flush()
++        return out
++    }
++
++    private fun flush() {
++        if (text.isNotEmpty()) {
++            out.add(Inline.Text(text.toString()))
++            text.clear()
++        }
++    }
++
++    private fun emit(node: Inline) {
++        flush()
++        out.add(node)
++    }
++
++    /** Handles the construct starting at [i] and returns the index after it. */
++    private fun step(i: Int): Int {
++        val c = s[i]
++        return when {
++            c == '\\' && i + 1 < s.length && s[i + 1] in ESCAPABLE -> {
++                text.append(s[i + 1]); i + 2
++            }
++            c == '`' -> codeSpan(i)
++            c == '!' && i + 1 < s.length && s[i + 1] == '[' -> image(i) ?: run { text.append(c); i + 1 }
++            c == '[' && allowLinks -> link(i) ?: run { text.append(c); i + 1 }
++            c == '*' || c == '_' -> emphasis(i)
++            else -> {
++                text.append(c); i + 1
++            }
++        }
++    }
++
++    private fun runLength(i: Int, ch: Char): Int {
++        var j = i
++        while (j < s.length && s[j] == ch) j++
++        return j - i
++    }
++
++    private fun codeSpan(i: Int): Int {
++        val n = runLength(i, '`')
++        var j = i + n
++        while (j < s.length) {
++            if (s[j] == '`') {
++                val m = runLength(j, '`')
++                if (m == n) {
++                    emit(Inline.Code(s.substring(i + n, j)))
++                    return j + m
++                }
++                j += m
++            } else {
++                j++
++            }
++        }
++        text.append(s, i, i + n)
++        return i + n
++    }
++
++    /** Index of the first unescaped ']' at or after [from], or -1. */
++    private fun closingBracket(from: Int): Int {
++        var j = from
++        while (j < s.length) {
++            when (s[j]) {
++                '\\' -> j += 2
++                ']' -> return j
++                else -> j++
++            }
++        }
++        return -1
++    }
++
++    /** Parses `(url "title")` at [open]; returns url, title and the index after ')'. */
++    private fun destination(open: Int): Triple<String, String?, Int>? {
++        if (open >= s.length || s[open] != '(') return null
++        var j = open + 1
++        val start = j
++        while (j < s.length && s[j] != ')' && s[j] != ' ') j++
++        if (j >= s.length) return null
++        val url = s.substring(start, j)
++        if (s[j] == ')') return Triple(url, null, j + 1)
++        // a space: a quoted title must follow
++        if (j + 1 >= s.length || s[j + 1] != '"') return null
++        val endQuote = s.indexOf('"', j + 2)
++        if (endQuote < 0 || endQuote + 1 >= s.length || s[endQuote + 1] != ')') return null
++        return Triple(url, s.substring(j + 2, endQuote), endQuote + 2)
++    }
++
++    private fun image(i: Int): Int? {
++        val close = closingBracket(i + 2)
++        if (close < 0) return null
++        val (url, title, end) = destination(close + 1) ?: return null
++        emit(Inline.Image(url, s.substring(i + 2, close), title))
++        return end
++    }
++
++    private fun link(i: Int): Int? {
++        val close = closingBracket(i + 1)
++        if (close < 0) return null
++        val (url, title, end) = destination(close + 1) ?: return null
++        val children = InlineParser(s.substring(i + 1, close), allowLinks = false).parse()
++        emit(Inline.Link(url, title, children))
++        return end
++    }
++
++    private fun isWordChar(k: Int) = k in s.indices && s[k].isLetterOrDigit()
++
++    private fun intraword(k: Int) = s[k] == '_' && isWordChar(k - 1) && isWordChar(k + 1)
++
++    private fun emphasis(i: Int): Int {
++        val ch = s[i]
++        val run = runLength(i, ch)
++        if (run >= 2) {
++            val close = findStrongCloser(i + 2, ch)
++            if (close > 0 && !s[i + 2].isWhitespace()) {
++                emit(Inline.Strong(parseInline(s.substring(i + 2, close))))
++                return close + 2
++            }
++            text.append(s, i, i + run)
++            return i + run
++        }
++        if (intraword(i) || i + 1 >= s.length || s[i + 1].isWhitespace()) {
++            text.append(ch)
++            return i + 1
++        }
++        val close = findSingleCloser(i + 1, ch)
++        if (close < 0) {
++            text.append(ch)
++            return i + 1
++        }
++        emit(Inline.Emphasis(parseInline(s.substring(i + 1, close))))
++        return close + 1
++    }
++
++    /** Next position >= [from] of a closer, skipping escapes and code spans. */
++    private inline fun scan(from: Int, isCloser: (Int) -> Boolean): Int {
++        var j = from
++        while (j < s.length) {
++            when {
++                s[j] == '\\' -> j += 2
++                s[j] == '`' -> {
++                    val n = runLength(j, '`')
++                    var k = j + n
++                    var found = -1
++                    while (k < s.length) {
++                        if (s[k] == '`') {
++                            val m = runLength(k, '`')
++                            if (m == n) { found = k + m; break }
++                            k += m
++                        } else k++
++                    }
++                    j = if (found > 0) found else j + n
++                }
++                isCloser(j) -> return j
++                else -> j++
++            }
++        }
++        return -1
++    }
++
++    private fun findStrongCloser(from: Int, ch: Char): Int = scan(from) { j ->
++        j > from && j + 1 < s.length && s[j] == ch && s[j + 1] == ch && !s[j - 1].isWhitespace()
++    }
++
++    private fun findSingleCloser(from: Int, ch: Char): Int = scan(from) { j ->
++        j > from && s[j] == ch && s[j - 1] != ch && (j + 1 >= s.length || s[j + 1] != ch) &&
++            !s[j - 1].isWhitespace() && !intraword(j)
++    }
++}
+diff --git a/src/main/kotlin/mdc/Main.kt b/src/main/kotlin/mdc/Main.kt
+new file mode 100644
+index 0000000..c1722dd
+--- /dev/null
++++ b/src/main/kotlin/mdc/Main.kt
+@@ -0,0 +1,95 @@
++package mdc
++
++import java.io.File
++import java.io.IOException
++import kotlin.system.exitProcess
++
++private const val USAGE = """usage: mdc [--toc] [--toc-depth <n>] [--front-matter] [-o <file>] [<input>]
++
++Converts Markdown to an HTML fragment. Reads <input> or stdin, writes stdout or <file>.
++  --toc            prepend a table of contents
++  --toc-depth <n>  include headings of level <= n in the table of contents (1-6, default 3)
++  --front-matter   print the front matter as JSON instead of HTML
++  -o <file>        write the output to <file>
++"""
++
++private class UsageException(message: String) : Exception(message)
++
++private data class Args(
++    val options: Options,
++    val frontMatter: Boolean,
++    val output: String?,
++    val input: String?,
++)
++
++private fun parseArgs(argv: Array<String>): Args {
++    var toc = false
++    var depth = 3
++    var frontMatter = false
++    var output: String? = null
++    var input: String? = null
++    var k = 0
++    fun value(name: String): String {
++        if (k + 1 >= argv.size) throw UsageException("missing value for $name")
++        return argv[++k]
++    }
++    while (k < argv.size) {
++        when (val a = argv[k]) {
++            "--toc" -> toc = true
++            "--toc-depth" -> {
++                val v = value(a)
++                depth = v.toIntOrNull()?.takeIf { it in 1..6 }
++                    ?: throw UsageException("invalid --toc-depth value: $v")
++            }
++            "--front-matter" -> frontMatter = true
++            "-o" -> output = value(a)
++            else -> when {
++                a.startsWith("-") && a != "-" -> throw UsageException("unknown option: $a")
++                input != null -> throw UsageException("more than one input file")
++                else -> input = a
++            }
++        }
++        k++
++    }
++    return Args(Options(toc, depth), frontMatter, output, input)
++}
++
++private fun fail(code: Int, message: String): Nothing {
++    System.err.println("error: $message")
++    exitProcess(code)
++}
++
++fun main(argv: Array<String>) {
++    if (argv.size == 1 && (argv[0] == "--help" || argv[0] == "-h")) {
++        print(USAGE)
++        return
++    }
++    val args = try {
++        parseArgs(argv)
++    } catch (e: UsageException) {
++        fail(2, e.message ?: "usage error")
++    }
++    val source = args.input
++    val text = try {
++        if (source == null || source == "-") System.`in`.readBytes().toString(Charsets.UTF_8)
++        else File(source).readText(Charsets.UTF_8)
++    } catch (e: IOException) {
++        fail(1, "cannot read $source")
++    }
++    val result = try {
++        if (args.frontMatter) extractFrontMatter(text) else convert(text, args.options)
++    } catch (e: FrontMatterException) {
++        fail(3, e.message ?: "invalid front matter")
++    }
++    val out = args.output
++    if (out == null) {
++        System.out.write(result.toByteArray(Charsets.UTF_8))
++        System.out.flush()
++    } else {
++        try {
++            File(out).writeText(result, Charsets.UTF_8)
++        } catch (e: IOException) {
++            fail(1, "cannot write $out")
++        }
++    }
++}
+diff --git a/src/main/kotlin/mdc/Toc.kt b/src/main/kotlin/mdc/Toc.kt
+new file mode 100644
+index 0000000..194a209
+--- /dev/null
++++ b/src/main/kotlin/mdc/Toc.kt
+@@ -0,0 +1,61 @@
++package mdc
++
++/** Turns heading text into an anchor slug (without de-duplication). */
++fun slugify(text: String): String {
++    val sb = StringBuilder()
++    for (c in text.lowercase()) {
++        when {
++            c.isLetterOrDigit() -> sb.append(c)
++            c == ' ' || c == '-' -> if (sb.isNotEmpty() && sb.last() != '-') sb.append('-')
++        }
++    }
++    val slug = sb.toString().trim('-')
++    return slug.ifEmpty { "section" }
++}
++
++/** Hands out unique slugs: repeats get the smallest unused `-n` suffix. */
++class Slugger {
++    private val used = mutableSetOf<String>()
++
++    fun unique(text: String): String {
++        val base = slugify(text)
++        var slug = base
++        var n = 1
++        while (slug in used) slug = "$base-${n++}"
++        used.add(slug)
++        return slug
++    }
++}
++
++/** Renders the table of contents for the headings with level <= [depth]; empty when none match. */
++fun renderToc(headings: List<HeadingRef>, depth: Int): List<String> {
++    val included = headings.filter { it.level <= depth }
++    if (included.isEmpty()) return emptyList()
++    val minLevel = included.minOf { it.level }
++    var prev = -1
++    val items = included.map { h ->
++        val d = minOf(h.level - minLevel, prev + 1)
++        prev = d
++        d to h
++    }
++    val out = mutableListOf("<nav class=\"toc\">")
++    var k = 0
++    fun level(d: Int) {
++        out.add("<ul>")
++        while (k < items.size && items[k].first == d) {
++            val h = items[k++].second
++            val link = "<a href=\"#${escapeHtml(h.slug)}\">${escapeHtml(h.text)}</a>"
++            if (k < items.size && items[k].first > d) {
++                out.add("<li>$link")
++                level(d + 1)
++                out.add("</li>")
++            } else {
++                out.add("<li>$link</li>")
++            }
++        }
++        out.add("</ul>")
++    }
++    while (k < items.size) level(0)
++    out.add("</nav>")
++    return out
++}
+diff --git a/src/test/kotlin/TestMain.kt b/src/test/kotlin/TestMain.kt
+new file mode 100644
+index 0000000..5bdce5f
+--- /dev/null
++++ b/src/test/kotlin/TestMain.kt
+@@ -0,0 +1,94 @@
++import mdc.FrontMatterException
++import mdc.Options
++import mdc.convert
++import mdc.extractFrontMatter
++import mdc.slugify
++import kotlin.system.exitProcess
++
++private var passed = 0
++private val failures = mutableListOf<String>()
++
++private fun test(name: String, body: () -> Unit) {
++    try {
++        body()
++        passed++
++    } catch (e: Throwable) {
++        failures.add("$name: ${e.message}")
++    }
++}
++
++private fun assertEq(expected: Any?, actual: Any?) {
++    if (expected != actual) throw AssertionError("expected <$expected> but was <$actual>")
++}
++
++private fun lines(vararg l: String) = l.joinToString("") { it + "\n" }
++
++fun main() {
++    test("empty input gives empty output") { assertEq("", convert("")) }
++    test("heading with id") { assertEq(lines("<h2 id=\"a-b\">A <em>b</em></h2>"), convert("## A *b*\n")) }
++    test("paragraph joins lines") { assertEq(lines("<p>x\ny</p>"), convert(" x \ny\n")) }
++    test("escaping") { assertEq(lines("<p>&lt;a&gt; &amp; &quot;</p>"), convert("<a> & \"\n")) }
++    test("strong and emphasis nest") {
++        assertEq(lines("<p><strong>a <em>b</em> c</strong></p>"), convert("**a *b* c**\n"))
++    }
++    test("intraword underscore") { assertEq(lines("<p>a_b_c</p>"), convert("a_b_c\n")) }
++    test("code span keeps markup") { assertEq(lines("<p><code>*x* &lt;</code></p>"), convert("`*x* <`\n")) }
++    test("link with title") {
++        assertEq(lines("<p><a href=\"/u\" title=\"T\">go</a></p>"), convert("[go](/u \"T\")\n"))
++    }
++    test("image") { assertEq(lines("<p><img src=\"i.png\" alt=\"pic\"></p>"), convert("![pic](i.png)\n")) }
++    test("fenced code") {
++        assertEq(lines("<pre><code class=\"language-js\">a &lt; b\n</code></pre>"), convert("```js\na < b\n```\n"))
++    }
++    test("nested list") {
++        assertEq(lines("<ol start=\"2\">", "<li>a", "<ul>", "<li>b</li>", "</ul>", "</li>", "</ol>"),
++            convert("2. a\n   - b\n"))
++    }
++    test("blockquote") {
++        assertEq(lines("<blockquote>", "<h1 id=\"t\">t</h1>", "</blockquote>"), convert("> # t\n"))
++    }
++    test("table") {
++        assertEq(
++            lines("<table>", "<thead>", "<tr><th align=\"center\">a</th></tr>", "</thead>", "<tbody>",
++                "<tr><td align=\"center\">1</td></tr>", "</tbody>", "</table>"),
++            convert("|a|\n|:-:|\n|1|\n"),
++        )
++    }
++    test("slugify") {
++        assertEq("hello-world", slugify("Hello, -- World!"))
++        assertEq("section", slugify("!!!"))
++    }
++    test("duplicate slugs") {
++        assertEq(lines("<h1 id=\"a\">a</h1>", "<h1 id=\"a-1\">a</h1>"), convert("# a\n# a\n"))
++    }
++    test("toc") {
++        assertEq(
++            lines("<nav class=\"toc\">", "<ul>", "<li><a href=\"#x\">X</a>", "<ul>", "<li><a href=\"#y\">Y</a></li>",
++                "</ul>", "</li>", "</ul>", "</nav>", "<h1 id=\"x\">X</h1>", "<h2 id=\"y\">Y</h2>"),
++            convert("# X\n## Y\n", Options(toc = true)),
++        )
++    }
++    test("front matter json") {
++        assertEq("{\"t\": \"a\\\"b\", \"n\": -3, \"l\": [\"x\", \"y\"], \"e\": null}\n",
++            extractFrontMatter("---\nt: a\"b\nn: -3\nl: [x, y]\ne:\n---\nbody\n"))
++    }
++    test("front matter removed from html") { assertEq(lines("<p>body</p>"), convert("---\na: 1\n---\nbody\n")) }
++    test("front matter errors") {
++        for ((src, msg) in listOf(
++            "---\na: 1\n" to "unterminated front matter",
++            "---\nbad\n---\n" to "front matter line 2: invalid line",
++            "---\na: 1\na: 2\n---\n" to "front matter line 3: duplicate key a",
++        )) {
++            try {
++                extractFrontMatter(src)
++                throw AssertionError("no error for $src")
++            } catch (e: FrontMatterException) {
++                assertEq(msg, e.message)
++            }
++        }
++    }
++
++    println("$passed passed, ${failures.size} failed")
++    failures.forEach { println("FAIL $it") }
++    if (failures.isNotEmpty()) exitProcess(1)
++}

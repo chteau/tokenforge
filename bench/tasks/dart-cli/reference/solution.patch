@@ -1,0 +1,857 @@
+diff --git a/README.md b/README.md
+index 0512a9c..eaa635a 100644
+--- a/README.md
++++ b/README.md
+@@ -1 +1,27 @@
+ # habits — a command-line habit and streak tracker
++
++Track habits with a weekly goal, mark the days you did them, and see your day
++streaks, weekly-goal streaks and a weekly report. Data lives in a JSON file.
++
++## Build
++
++    dart pub get --offline
++    dart compile exe bin/habits.dart -o build/habits
++
++## Test
++
++    for t in test/*_test.dart; do dart run "$t"; done
++
++## Usage
++
++    habits add read --goal 5          # register a habit (5 days a week)
++    habits done read                  # mark today
++    habits done read 2026-10-05       # mark an earlier day
++    habits undo read 2026-10-05
++    habits list                       # streaks of all habits
++    habits streak read
++    habits report                     # this week's report
++    habits --file ~/habits.json list  # use another data file
++
++`HABITS_TODAY=YYYY-MM-DD` overrides today's date. Exit codes: 0 success,
++1 unknown habit / already exists / not done, 2 usage error, 3 I/O or corrupt file.
+diff --git a/bin/habits.dart b/bin/habits.dart
+new file mode 100644
+index 0000000..4175b50
+--- /dev/null
++++ b/bin/habits.dart
+@@ -0,0 +1,7 @@
++import 'dart:io';
++
++import 'package:habits/habits.dart';
++
++void main(List<String> args) {
++  exitCode = runCli(args, Platform.environment, stdout, stderr);
++}
+diff --git a/lib/habits.dart b/lib/habits.dart
+new file mode 100644
+index 0000000..f47763e
+--- /dev/null
++++ b/lib/habits.dart
+@@ -0,0 +1,8 @@
++/// A command-line habit and streak tracker.
++library;
++
++export 'src/cli.dart' show runCli, usage;
++export 'src/date.dart';
++export 'src/habit.dart';
++export 'src/report.dart';
++export 'src/store.dart';
+diff --git a/lib/src/cli.dart b/lib/src/cli.dart
+new file mode 100644
+index 0000000..f384e44
+--- /dev/null
++++ b/lib/src/cli.dart
+@@ -0,0 +1,197 @@
++import 'date.dart';
++import 'habit.dart';
++import 'report.dart';
++import 'store.dart';
++
++const usage = '''usage: habits [--file <path>] <command> [args]
++
++commands:
++  add <name> [--goal <n>]   register a habit (goal: days per week, 1-7, default 7)
++  remove <name>             delete a habit
++  done <name> [<date>]      mark a day as done (default today)
++  undo <name> [<date>]      unmark a day
++  list                      list habits with their streaks
++  streak <name>             show streak details for a habit
++  report [<date>]           weekly report for the week containing <date>
++
++Dates are YYYY-MM-DD. HABITS_TODAY overrides today's date.''';
++
++/// A failure with an exit code and a message for stderr.
++class CliError implements Exception {
++  final int code;
++  final String message;
++  CliError(this.code, this.message);
++}
++
++CliError _usage(String message) => CliError(2, message);
++
++/// Runs one command. Returns the process exit code.
++int runCli(List<String> args, Map<String, String> env, StringSink out,
++    StringSink err) {
++  try {
++    if (args.length == 1 && (args[0] == '--help' || args[0] == '-h')) {
++      out.writeln(usage);
++      return 0;
++    }
++    final lines = _dispatch(args, env);
++    for (final l in lines) {
++      out.writeln(l);
++    }
++    return 0;
++  } on CliError catch (e) {
++    err.writeln('error: ${e.message}');
++    return e.code;
++  } on StoreException catch (e) {
++    err.writeln('error: ${e.message}');
++    return 3;
++  }
++}
++
++List<String> _dispatch(List<String> args, Map<String, String> env) {
++  var rest = args;
++  var path = 'habits.json';
++  if (rest.isNotEmpty && rest[0] == '--file') {
++    if (rest.length < 2 || rest[1].isEmpty) throw _usage('--file needs a path');
++    path = rest[1];
++    rest = rest.sublist(2);
++  }
++  if (rest.isEmpty) throw _usage('missing command (see --help)');
++  final today = _today(env);
++  final command = rest[0];
++  final params = rest.sublist(1);
++  final store = Store(path);
++  final cmd = Commands(store, today);
++  switch (command) {
++    case 'add':
++      final (name, goal) = _parseAdd(params);
++      return cmd.add(name, goal);
++    case 'remove':
++      return cmd.remove(_name(_exactly(params, 1)[0]));
++    case 'done':
++    case 'undo':
++      _between(params, 1, 2);
++      final name = _name(params[0]);
++      final date = params.length == 2 ? _date(params[1]) : today;
++      return command == 'done' ? cmd.done(name, date) : cmd.undo(name, date);
++    case 'list':
++      _exactly(params, 0);
++      return cmd.list();
++    case 'streak':
++      return cmd.streak(_name(_exactly(params, 1)[0]));
++    case 'report':
++      _between(params, 0, 1);
++      return cmd.report(params.isEmpty ? today : _date(params[0]));
++    default:
++      throw _usage('unknown command: $command');
++  }
++}
++
++Date _today(Map<String, String> env) {
++  final value = env['HABITS_TODAY'] ?? '';
++  if (value.isEmpty) return Date.today();
++  return Date.tryParse(value) ?? (throw _usage('invalid HABITS_TODAY: $value'));
++}
++
++List<String> _exactly(List<String> params, int n) => _between(params, n, n);
++
++List<String> _between(List<String> params, int min, int max) {
++  if (params.length < min) throw _usage('missing argument');
++  if (params.length > max) throw _usage('unexpected argument: ${params[max]}');
++  return params;
++}
++
++String _name(String name) =>
++    isValidName(name) ? name : throw _usage('invalid habit name: $name');
++
++Date _date(String text) =>
++    Date.tryParse(text) ?? (throw _usage('invalid date: $text'));
++
++(String, int) _parseAdd(List<String> params) {
++  String? name;
++  int? goal;
++  for (var i = 0; i < params.length; i++) {
++    final p = params[i];
++    if (p == '--goal') {
++      if (goal != null) throw _usage('--goal given twice');
++      if (i + 1 >= params.length) throw _usage('--goal needs a value');
++      final text = params[++i];
++      final g = RegExp(r'^\d+$').hasMatch(text) ? int.tryParse(text) : null;
++      if (g == null || !isValidGoal(g)) throw _usage('invalid goal: $text');
++      goal = g;
++    } else if (name == null) {
++      name = _name(p);
++    } else {
++      throw _usage('unexpected argument: $p');
++    }
++  }
++  if (name == null) throw _usage('missing habit name');
++  return (name, goal ?? 7);
++}
++
++/// The command implementations, working on a store as of a given day.
++class Commands {
++  final Store store;
++  final Date today;
++
++  Commands(this.store, this.today);
++
++  Habit _find(Map<String, Habit> habits, String name) =>
++      habits[name] ?? (throw CliError(1, 'no such habit: $name'));
++
++  List<String> add(String name, int goal) {
++    final habits = store.load();
++    if (habits.containsKey(name))
++      throw CliError(1, 'habit already exists: $name');
++    habits[name] = Habit(name, goal);
++    store.save(habits);
++    return ['added $name'];
++  }
++
++  List<String> remove(String name) {
++    final habits = store.load();
++    _find(habits, name);
++    habits.remove(name);
++    store.save(habits);
++    return ['removed $name'];
++  }
++
++  List<String> done(String name, Date date) {
++    if (date.isAfter(today)) throw _usage('date is in the future: $date');
++    final habits = store.load();
++    final habit = _find(habits, name);
++    if (!habit.done.add(date)) return ['already done $name $date'];
++    store.save(habits);
++    return ['done $name $date'];
++  }
++
++  List<String> undo(String name, Date date) {
++    final habits = store.load();
++    final habit = _find(habits, name);
++    if (!habit.done.remove(date)) throw CliError(1, 'not done: $name $date');
++    store.save(habits);
++    return ['undone $name $date'];
++  }
++
++  List<String> list() => [
++        for (final h in store.load().values)
++          () {
++            final s = h.streaks(today);
++            return '${h.name}\tgoal ${h.goal}\tcurrent ${s.current}'
++                '\tbest ${s.best}\ttotal ${s.total}';
++          }(),
++      ];
++
++  List<String> streak(String name) {
++    final s = _find(store.load(), name).streaks(today);
++    return [
++      'current: ${s.current}',
++      'best: ${s.best}',
++      'total: ${s.total}',
++      'weekly: ${s.weekly}',
++      'last: ${s.last ?? 'never'}',
++    ];
++  }
++
++  List<String> report(Date day) =>
++      weeklyReport(store.load().values, day, today);
++}
+diff --git a/lib/src/date.dart b/lib/src/date.dart
+new file mode 100644
+index 0000000..fd2515d
+--- /dev/null
++++ b/lib/src/date.dart
+@@ -0,0 +1,100 @@
++/// A calendar date without time or time zone, stored as days since 1970-01-01.
++class Date implements Comparable<Date> {
++  /// Days since 1970-01-01 (which is day 0).
++  final int epochDay;
++
++  const Date.fromEpochDay(this.epochDay);
++
++  factory Date(int year, int month, int day) {
++    if (month < 1 || month > 12 || day < 1 || day > daysInMonth(year, month)) {
++      throw ArgumentError('invalid date $year-$month-$day');
++    }
++    return Date.fromEpochDay(_daysFromCivil(year, month, day));
++  }
++
++  static final _pattern = RegExp(r'^(\d{4})-(\d{2})-(\d{2})$');
++
++  /// Parses a strict `YYYY-MM-DD` date; returns null if it is malformed or not a real date.
++  static Date? tryParse(String text) {
++    final m = _pattern.firstMatch(text);
++    if (m == null) return null;
++    final y = int.parse(m.group(1)!);
++    final mo = int.parse(m.group(2)!);
++    final d = int.parse(m.group(3)!);
++    if (mo < 1 || mo > 12 || d < 1 || d > daysInMonth(y, mo)) return null;
++    return Date(y, mo, d);
++  }
++
++  /// Today's local calendar date.
++  factory Date.today() {
++    final now = DateTime.now();
++    return Date(now.year, now.month, now.day);
++  }
++
++  static bool isLeapYear(int y) => (y % 4 == 0 && y % 100 != 0) || y % 400 == 0;
++
++  static int daysInMonth(int y, int m) {
++    const days = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
++    return m == 2 && isLeapYear(y) ? 29 : days[m - 1];
++  }
++
++  // Howard Hinnant's days_from_civil / civil_from_days algorithms.
++  static int _daysFromCivil(int y, int m, int d) {
++    final yy = m <= 2 ? y - 1 : y;
++    final era = (yy >= 0 ? yy : yy - 399) ~/ 400;
++    final yoe = yy - era * 400;
++    final doy = (153 * (m + (m > 2 ? -3 : 9)) + 2) ~/ 5 + d - 1;
++    final doe = yoe * 365 + yoe ~/ 4 - yoe ~/ 100 + doy;
++    return era * 146097 + doe - 719468;
++  }
++
++  List<int> get _civil {
++    final z = epochDay + 719468;
++    final era = (z >= 0 ? z : z - 146096) ~/ 146097;
++    final doe = z - era * 146097;
++    final yoe = (doe - doe ~/ 1460 + doe ~/ 36524 - doe ~/ 146096) ~/ 365;
++    final doy = doe - (365 * yoe + yoe ~/ 4 - yoe ~/ 100);
++    final mp = (5 * doy + 2) ~/ 153;
++    final d = doy - (153 * mp + 2) ~/ 5 + 1;
++    final m = mp < 10 ? mp + 3 : mp - 9;
++    return [yoe + era * 400 + (m <= 2 ? 1 : 0), m, d];
++  }
++
++  int get year => _civil[0];
++  int get month => _civil[1];
++  int get day => _civil[2];
++
++  /// ISO weekday: Monday = 1 ... Sunday = 7.
++  int get weekday => (epochDay + 3) % 7 + 1;
++
++  Date addDays(int n) => Date.fromEpochDay(epochDay + n);
++
++  /// Monday of the ISO week containing this date.
++  Date get weekStart => addDays(1 - weekday);
++
++  /// ISO week-numbering year and week number.
++  (int, int) get isoWeek {
++    final thursday = weekStart.addDays(3);
++    final y = thursday.year;
++    final week = (thursday.epochDay - Date(y, 1, 1).epochDay) ~/ 7 + 1;
++    return (y, week);
++  }
++
++  bool isAfter(Date other) => epochDay > other.epochDay;
++
++  @override
++  int compareTo(Date other) => epochDay.compareTo(other.epochDay);
++
++  @override
++  bool operator ==(Object other) => other is Date && other.epochDay == epochDay;
++
++  @override
++  int get hashCode => epochDay.hashCode;
++
++  @override
++  String toString() {
++    final c = _civil;
++    String two(int v) => v.toString().padLeft(2, '0');
++    return '${c[0].toString().padLeft(4, '0')}-${two(c[1])}-${two(c[2])}';
++  }
++}
+diff --git a/lib/src/habit.dart b/lib/src/habit.dart
+new file mode 100644
+index 0000000..2594427
+--- /dev/null
++++ b/lib/src/habit.dart
+@@ -0,0 +1,68 @@
++import 'date.dart';
++
++final _namePattern = RegExp(r'^[a-z][a-z0-9-]{0,31}$');
++
++bool isValidName(String name) => _namePattern.hasMatch(name);
++
++bool isValidGoal(int goal) => goal >= 1 && goal <= 7;
++
++/// Streak figures for one habit as seen from a given day.
++class Streaks {
++  final int current;
++  final int best;
++  final int total;
++  final int weekly;
++  final Date? last;
++
++  const Streaks(this.current, this.best, this.total, this.weekly, this.last);
++}
++
++/// A habit with a weekly goal and the set of days it was done.
++class Habit {
++  final String name;
++  final int goal;
++  final Set<Date> done;
++
++  Habit(this.name, this.goal, [Iterable<Date> done = const []])
++      : done = done.toSet();
++
++  /// Done dates in ascending order.
++  List<Date> get sortedDone => done.toList()..sort();
++
++  /// Number of days done in the ISO week starting at [monday], up to and including [today].
++  int doneInWeek(Date monday, Date today) {
++    var n = 0;
++    for (var i = 0; i < 7; i++) {
++      final d = monday.addDays(i);
++      if (!d.isAfter(today) && done.contains(d)) n++;
++    }
++    return n;
++  }
++
++  Streaks streaks(Date today) {
++    final days = done.where((d) => !d.isAfter(today)).toList()..sort();
++    var best = 0;
++    var run = 0;
++    for (var i = 0; i < days.length; i++) {
++      run = i > 0 && days[i].epochDay == days[i - 1].epochDay + 1 ? run + 1 : 1;
++      if (run > best) best = run;
++    }
++    final present = days.toSet();
++    var end = today;
++    if (!present.contains(end)) end = today.addDays(-1);
++    var current = 0;
++    while (present.contains(end.addDays(-current))) {
++      current++;
++    }
++    var week = today.weekStart;
++    if (doneInWeek(week, today) < goal) week = week.addDays(-7);
++    var weekly = 0;
++    // goal >= 1, so the loop stops at the latest before the first done day.
++    while (doneInWeek(week, today) >= goal) {
++      weekly++;
++      week = week.addDays(-7);
++    }
++    return Streaks(
++        current, best, days.length, weekly, days.isEmpty ? null : days.last);
++  }
++}
+diff --git a/lib/src/report.dart b/lib/src/report.dart
+new file mode 100644
+index 0000000..4ec1a71
+--- /dev/null
++++ b/lib/src/report.dart
+@@ -0,0 +1,49 @@
++import 'date.dart';
++import 'habit.dart';
++
++/// Status of a habit's goal for one week, as shown in the report.
++String weekStatus(Habit habit, Date monday, Date today) {
++  final done = habit.doneInWeek(monday, today);
++  if (done >= habit.goal) return 'met';
++  var remaining = 0;
++  for (var i = 0; i < 7; i++) {
++    final d = monday.addDays(i);
++    if (d.isAfter(today)) {
++      remaining++;
++    } else if (d == today && !habit.done.contains(d)) {
++      remaining++;
++    }
++  }
++  if (done + remaining < habit.goal) return 'missed';
++  return 'need ${habit.goal - done}';
++}
++
++/// Renders the weekly report for the ISO week containing [day].
++List<String> weeklyReport(Iterable<Habit> habits, Date day, Date today) {
++  final monday = day.weekStart;
++  final (isoYear, week) = monday.isoWeek;
++  final lines = <String>[
++    'Week $isoYear-W${week.toString().padLeft(2, '0')} '
++        '($monday to ${monday.addDays(6)})',
++  ];
++  final list = habits.toList()..sort((a, b) => a.name.compareTo(b.name));
++  if (list.isEmpty) return lines..add('no habits');
++  final width = list.map((h) => h.name.length).reduce((a, b) => a > b ? a : b);
++  var met = 0;
++  for (final h in list) {
++    final cells = [
++      for (var i = 0; i < 7; i++) _cell(h, monday.addDays(i), today),
++    ];
++    final status = weekStatus(h, monday, today);
++    if (status == 'met') met++;
++    lines.add('${h.name.padRight(width)}  ${cells.join(' ')}  '
++        '${h.doneInWeek(monday, today)}/${h.goal}  $status');
++  }
++  lines.add('$met of ${list.length} goals met');
++  return lines;
++}
++
++String _cell(Habit h, Date d, Date today) {
++  if (d.isAfter(today)) return '-';
++  return h.done.contains(d) ? 'x' : '.';
++}
+diff --git a/lib/src/store.dart b/lib/src/store.dart
+new file mode 100644
+index 0000000..efcef42
+--- /dev/null
++++ b/lib/src/store.dart
+@@ -0,0 +1,101 @@
++import 'dart:convert';
++import 'dart:io';
++
++import 'date.dart';
++import 'habit.dart';
++
++/// Raised when the data file cannot be read, parsed or written.
++class StoreException implements Exception {
++  final String message;
++  StoreException(this.message);
++
++  @override
++  String toString() => message;
++}
++
++/// Loads and saves the habit list as JSON. The only code that touches the data file.
++class Store {
++  final String path;
++
++  Store(this.path);
++
++  /// Habits keyed by name, sorted by name. A missing file means no habits.
++  Map<String, Habit> load() {
++    final file = File(path);
++    if (FileSystemEntity.typeSync(path) == FileSystemEntityType.notFound) {
++      return {};
++    }
++    String text;
++    try {
++      text = file.readAsStringSync();
++    } on FileSystemException catch (e) {
++      throw StoreException(
++          'cannot read $path: ${e.osError?.message ?? e.message}');
++    }
++    final habits = _decode(text);
++    if (habits == null) throw StoreException('corrupt data file: $path');
++    return habits;
++  }
++
++  static Map<String, Habit>? _decode(String text) {
++    Object? data;
++    try {
++      data = jsonDecode(text);
++    } on FormatException {
++      return null;
++    }
++    if (data is! Map<String, Object?>) return null;
++    final list = data['habits'];
++    if (list is! List) return null;
++    final result = <String, Habit>{};
++    for (final entry in list) {
++      if (entry is! Map<String, Object?>) return null;
++      final name = entry['name'];
++      final goal = entry['goal'];
++      final done = entry['done'];
++      if (name is! String || !isValidName(name) || result.containsKey(name)) {
++        return null;
++      }
++      if (goal is! int || !isValidGoal(goal) || done is! List) return null;
++      final dates = <Date>[];
++      for (final d in done) {
++        final date = d is String ? Date.tryParse(d) : null;
++        if (date == null) return null;
++        dates.add(date);
++      }
++      result[name] = Habit(name, goal, dates);
++    }
++    return sorted(result);
++  }
++
++  static Map<String, Habit> sorted(Map<String, Habit> habits) {
++    final names = habits.keys.toList()..sort();
++    return {for (final n in names) n: habits[n]!};
++  }
++
++  /// Atomically replaces the data file with [habits].
++  void save(Map<String, Habit> habits) {
++    final data = {
++      'habits': [
++        for (final h in sorted(habits).values)
++          {
++            'name': h.name,
++            'goal': h.goal,
++            'done': [for (final d in h.sortedDone) d.toString()],
++          },
++      ],
++    };
++    final text = '${const JsonEncoder.withIndent('  ').convert(data)}\n';
++    final target = File(path);
++    final tmp = File('$path.tmp$pid');
++    try {
++      target.parent.createSync(recursive: true);
++      tmp.writeAsStringSync(text, flush: true);
++      tmp.renameSync(path);
++    } on FileSystemException catch (e) {
++      if (tmp.existsSync()) tmp.deleteSync();
++      throw StoreException(
++          'cannot write $path: ${e.osError?.message ?? e.message}');
++    }
++  }
++}
+diff --git a/pubspec.lock b/pubspec.lock
+new file mode 100644
+index 0000000..2643154
+--- /dev/null
++++ b/pubspec.lock
+@@ -0,0 +1,5 @@
++# Generated by pub
++# See https://dart.dev/tools/pub/glossary#lockfile
++packages: {}
++sdks:
++  dart: ">=3.5.0 <4.0.0"
+diff --git a/pubspec.yaml b/pubspec.yaml
+new file mode 100644
+index 0000000..3e6d28b
+--- /dev/null
++++ b/pubspec.yaml
+@@ -0,0 +1,7 @@
++name: habits
++description: A command-line habit and streak tracker.
++version: 1.0.0
++publish_to: none
++
++environment:
++  sdk: ^3.5.0
+diff --git a/test/check.dart b/test/check.dart
+new file mode 100644
+index 0000000..7259fb4
+--- /dev/null
++++ b/test/check.dart
+@@ -0,0 +1,28 @@
++import 'dart:io';
++
++/// A tiny test harness: run named checks, report failures, set the exit code.
++class Suite {
++  var _failures = 0;
++  var _count = 0;
++
++  void test(String name, void Function() body) {
++    _count++;
++    try {
++      body();
++    } catch (e) {
++      _failures++;
++      stderr.writeln('FAIL $name: $e');
++    }
++  }
++
++  void done() {
++    stdout.writeln('${_count - _failures}/$_count passed');
++    if (_failures > 0) exitCode = 1;
++  }
++}
++
++void expectEq(Object? actual, Object? expected) {
++  if (actual != expected) {
++    throw StateError('expected <$expected>, got <$actual>');
++  }
++}
+diff --git a/test/cli_test.dart b/test/cli_test.dart
+new file mode 100644
+index 0000000..ac3e107
+--- /dev/null
++++ b/test/cli_test.dart
+@@ -0,0 +1,44 @@
++import 'dart:io';
++
++import 'package:habits/habits.dart';
++
++import 'check.dart';
++
++void main() {
++  final s = Suite();
++  final dir = Directory.systemTemp.createTempSync('habits-test-');
++  final file = '${dir.path}/sub/habits.json';
++  (int, String, String) run(List<String> args, {String today = '2026-10-08'}) {
++    final out = StringBuffer();
++    final err = StringBuffer();
++    final code =
++        runCli(['--file', file, ...args], {'HABITS_TODAY': today}, out, err);
++    return (code, out.toString(), err.toString());
++  }
++
++  s.test('add, done and streak', () {
++    expectEq(run(['add', '--goal', '3', 'read']).$2, 'added read\n');
++    expectEq(run(['done', 'read', '2026-10-07']).$2, 'done read 2026-10-07\n');
++    expectEq(run(['done', 'read']).$2, 'done read 2026-10-08\n');
++    expectEq(run(['done', 'read']).$2, 'already done read 2026-10-08\n');
++    expectEq(run(['streak', 'read']).$2,
++        'current: 2\nbest: 2\ntotal: 2\nweekly: 0\nlast: 2026-10-08\n');
++  });
++  s.test('errors and exit codes', () {
++    expectEq(run(['add', 'read']).$1, 1);
++    expectEq(run(['done', 'nope']).$3, 'error: no such habit: nope\n');
++    expectEq(run(['done', 'read', '2026-10-09']).$1, 2);
++    expectEq(run(['add', 'Bad']).$1, 2);
++    expectEq(run(['undo', 'read', '2026-10-01']).$1, 1);
++    expectEq(run(['list'], today: 'soon').$1, 2);
++    expectEq(run(['frobnicate']).$1, 2);
++  });
++  s.test('corrupt file', () {
++    File(file).writeAsStringSync('{"habits": 3}');
++    final r = run(['list']);
++    expectEq(r.$1, 3);
++    expectEq(r.$3, 'error: corrupt data file: $file\n');
++  });
++  dir.deleteSync(recursive: true);
++  s.done();
++}
+diff --git a/test/date_test.dart b/test/date_test.dart
+new file mode 100644
+index 0000000..df2d624
+--- /dev/null
++++ b/test/date_test.dart
+@@ -0,0 +1,41 @@
++import 'package:habits/habits.dart';
++
++import 'check.dart';
++
++void main() {
++  final s = Suite();
++  s.test('parse and format round trip', () {
++    expectEq(Date.tryParse('2026-10-08').toString(), '2026-10-08');
++    expectEq(Date.tryParse('1970-01-01')!.epochDay, 0);
++  });
++  s.test('rejects malformed and impossible dates', () {
++    for (final t in [
++      '2026-1-05',
++      '20260105',
++      '2023-02-29',
++      '2026-04-31',
++      '2026-13-01',
++      'x'
++    ]) {
++      expectEq(Date.tryParse(t), null);
++    }
++    expectEq(Date.tryParse('2024-02-29').toString(), '2024-02-29');
++  });
++  s.test('adding days crosses month and year ends', () {
++    expectEq(Date(2024, 2, 28).addDays(1).toString(), '2024-02-29');
++    expectEq(Date(2023, 2, 28).addDays(1).toString(), '2023-03-01');
++    expectEq(Date(2026, 12, 31).addDays(1).toString(), '2027-01-01');
++  });
++  s.test('weekday', () {
++    expectEq(Date(2026, 10, 8).weekday, 4);
++    expectEq(Date(2026, 10, 5).weekday, 1);
++    expectEq(Date(2026, 10, 11).weekday, 7);
++  });
++  s.test('ISO weeks at year boundaries', () {
++    expectEq(Date(2027, 1, 1).isoWeek, (2026, 53));
++    expectEq(Date(2024, 12, 30).isoWeek, (2025, 1));
++    expectEq(Date(2021, 1, 3).isoWeek, (2020, 53));
++    expectEq(Date(2026, 10, 8).isoWeek, (2026, 41));
++  });
++  s.done();
++}
+diff --git a/test/report_test.dart b/test/report_test.dart
+new file mode 100644
+index 0000000..0ba2b98
+--- /dev/null
++++ b/test/report_test.dart
+@@ -0,0 +1,36 @@
++import 'package:habits/habits.dart';
++
++import 'check.dart';
++
++Date d(String s) => Date.tryParse(s)!;
++
++void main() {
++  final s = Suite();
++  final today = d('2026-10-08');
++  final habits = [
++    Habit('stretch', 3,
++        ['2026-10-05', '2026-10-06', '2026-10-07', '2026-10-08'].map(d)),
++    Habit('read', 5, ['2026-10-05', '2026-10-06', '2026-10-08'].map(d)),
++    Habit('run', 6, [d('2026-10-06')]),
++  ];
++  s.test('report layout', () {
++    expectEq(
++        weeklyReport(habits, today, today).join('\n'),
++        '''
++Week 2026-W41 (2026-10-05 to 2026-10-11)
++read     x x . x - - -  3/5  need 2
++run      . x . . - - -  1/6  missed
++stretch  x x x x - - -  4/3  met
++1 of 3 goals met'''
++            .trim());
++  });
++  s.test('past week is complete', () {
++    final lines = weeklyReport(habits, d('2026-09-30'), today);
++    expectEq(lines.first, 'Week 2026-W40 (2026-09-28 to 2026-10-04)');
++    expectEq(lines[1], 'read     . . . . . . .  0/5  missed');
++  });
++  s.test('no habits', () {
++    expectEq(weeklyReport([], today, today).last, 'no habits');
++  });
++  s.done();
++}
+diff --git a/test/streak_test.dart b/test/streak_test.dart
+new file mode 100644
+index 0000000..949bc96
+--- /dev/null
++++ b/test/streak_test.dart
+@@ -0,0 +1,50 @@
++import 'package:habits/habits.dart';
++
++import 'check.dart';
++
++Habit habit(List<String> days, {int goal = 7}) =>
++    Habit('h', goal, days.map((d) => Date.tryParse(d)!));
++
++Date d(String s) => Date.tryParse(s)!;
++
++void main() {
++  final s = Suite();
++  s.test('current streak ending today', () {
++    final h = habit(['2026-10-06', '2026-10-07', '2026-10-08']);
++    expectEq(h.streaks(d('2026-10-08')).current, 3);
++  });
++  s.test('streak survives until today ends', () {
++    final h = habit(['2026-10-06', '2026-10-07']);
++    expectEq(h.streaks(d('2026-10-08')).current, 2);
++    expectEq(h.streaks(d('2026-10-09')).current, 0);
++  });
++  s.test('streak across year and leap day', () {
++    final h = habit(['2025-12-30', '2025-12-31', '2026-01-01']);
++    expectEq(h.streaks(d('2026-01-01')).current, 3);
++    final leap = habit(['2024-02-28', '2024-02-29', '2024-03-01']);
++    expectEq(leap.streaks(d('2024-03-01')).best, 3);
++  });
++  s.test('best and total ignore future days', () {
++    final h = habit(
++        ['2026-01-01', '2026-01-02', '2026-01-05', '2026-01-06', '2026-01-07']);
++    final st = h.streaks(d('2026-01-06'));
++    expectEq(st.best, 2);
++    expectEq(st.total, 4);
++    expectEq(st.last, d('2026-01-06'));
++  });
++  s.test('weekly streak', () {
++    // Weeks of 2026-09-21, 09-28 meet goal 2; week of 10-05 has one day so far.
++    final h = habit(
++        ['2026-09-21', '2026-09-23', '2026-09-28', '2026-09-29', '2026-10-05'],
++        goal: 2);
++    expectEq(h.streaks(d('2026-10-08')).weekly, 2);
++    h.done.add(d('2026-10-08'));
++    expectEq(h.streaks(d('2026-10-08')).weekly, 3);
++  });
++  s.test('empty habit', () {
++    final st = habit([]).streaks(d('2026-10-08'));
++    expectEq(st.current + st.best + st.total + st.weekly, 0);
++    expectEq(st.last, null);
++  });
++  s.done();
++}

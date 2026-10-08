@@ -1,0 +1,11 @@
+{
+  "id": "java-http",
+  "title": "Build the shorty URL-shortener HTTP service in Java",
+  "category": "greenfield",
+  "language": "java",
+  "rubric": "coding",
+  "timeout_s": 2400,
+  "relevant_files": [],
+  "allowed_change_globs": ["**"],
+  "reference_diff_lines": 1229
+}

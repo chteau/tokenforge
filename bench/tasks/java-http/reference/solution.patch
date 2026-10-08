@@ -1,0 +1,1301 @@
+diff --git a/README.md b/README.md
+index 7d7883f..cdb8aad 100644
+--- a/README.md
++++ b/README.md
+@@ -1 +1,26 @@
+ # shorty — a small URL shortener service
++
++A URL shortener built on the JDK only (`com.sun.net.httpserver`, hand-written JSON).
++Links are kept in a JSON data file that is rewritten atomically on every change.
++
++## Build, test, run
++
++```
++./build.sh                      # -> build/shorty.jar (Java 21)
++./test.sh                       # builds, then runs src/test/java/shorty/AllTests
++java -jar build/shorty.jar --port 8080 --data links.json [--base-url URL] [--rate-limit N]
++```
++
++## API
++
++| request | result |
++|---|---|
++| `POST /api/links` `{"url", "code"?, "ttl_seconds"?}` | `201` link (`200` for an existing identical link) |
++| `GET /<code>` | `302` to the target, counts a hit (`410` once expired) |
++| `GET /api/links?limit=&offset=` | `{"total", "links"}` |
++| `GET /api/links/<code>` / `DELETE /api/links/<code>` | link / `204` |
++| `GET /api/stats` | `{"total_links", "total_hits", "top"}` |
++| `GET /healthz` | `{"status": "ok"}` |
++
++Errors are `{"error": "..."}`. Link creation is rate-limited per client IP
++(`--rate-limit` requests per sliding minute, default 30).
+diff --git a/build.sh b/build.sh
+new file mode 100755
+index 0000000..ff238c8
+--- /dev/null
++++ b/build.sh
+@@ -0,0 +1,8 @@
++#!/usr/bin/env bash
++# Compile the service and package it as build/shorty.jar.
++set -euo pipefail
++cd "$(dirname "$0")"
++rm -rf build/classes
++mkdir -p build/classes
++javac -Xlint:all -Werror --release 21 -d build/classes $(find src/main/java -name '*.java')
++jar --create --file build/shorty.jar --main-class shorty.Main -C build/classes .
+diff --git a/src/main/java/shorty/ApiException.java b/src/main/java/shorty/ApiException.java
+new file mode 100644
+index 0000000..6c5d4bf
+--- /dev/null
++++ b/src/main/java/shorty/ApiException.java
+@@ -0,0 +1,17 @@
++package shorty;
++
++/** An error that maps directly to an HTTP status and a JSON {"error": message} body. */
++public final class ApiException extends Exception {
++    private static final long serialVersionUID = 1L;
++
++    private final int status;
++
++    public ApiException(int status, String message) {
++        super(message);
++        this.status = status;
++    }
++
++    public int status() {
++        return status;
++    }
++}
+diff --git a/src/main/java/shorty/ApiServer.java b/src/main/java/shorty/ApiServer.java
+new file mode 100644
+index 0000000..f239a54
+--- /dev/null
++++ b/src/main/java/shorty/ApiServer.java
+@@ -0,0 +1,174 @@
++package shorty;
++
++import com.sun.net.httpserver.HttpExchange;
++import com.sun.net.httpserver.HttpServer;
++import java.io.IOException;
++import java.io.InputStream;
++import java.io.OutputStream;
++import java.net.InetSocketAddress;
++import java.net.URLDecoder;
++import java.nio.charset.StandardCharsets;
++import java.util.HashMap;
++import java.util.Locale;
++import java.util.Map;
++import java.util.concurrent.Executors;
++
++/** HTTP routing and request/response plumbing on top of the JDK's built-in server. */
++public final class ApiServer {
++    static final int MAX_BODY_BYTES = 8192;
++
++    private final LinkService service;
++    private final RateLimiter createLimiter;
++    private HttpServer server;
++
++    public ApiServer(LinkService service, RateLimiter createLimiter) {
++        this.service = service;
++        this.createLimiter = createLimiter;
++    }
++
++    public void start(int port) throws IOException {
++        server = HttpServer.create(new InetSocketAddress("127.0.0.1", port), 0);
++        server.createContext("/", this::handle);
++        server.setExecutor(Executors.newVirtualThreadPerTaskExecutor());
++        server.start();
++    }
++
++    public int port() {
++        return server.getAddress().getPort();
++    }
++
++    public void stop() {
++        server.stop(0);
++    }
++
++    private void handle(HttpExchange ex) throws IOException {
++        try (ex) {
++            try {
++                route(ex);
++            } catch (ApiException e) {
++                sendJson(ex, e.status(), Map.of("error", e.getMessage()));
++            } catch (RuntimeException e) {
++                sendJson(ex, 500, Map.of("error", "internal error"));
++            }
++        }
++    }
++
++    private void route(HttpExchange ex) throws IOException, ApiException {
++        String path = ex.getRequestURI().getRawPath();
++        String method = ex.getRequestMethod().toUpperCase(Locale.ROOT);
++
++        if (path.equals("/healthz")) {
++            requireMethod(method, "GET");
++            sendJson(ex, 200, Map.of("status", "ok"));
++        } else if (path.equals("/api/links")) {
++            if (method.equals("POST")) {
++                create(ex);
++            } else {
++                requireMethod(method, "GET");
++                list(ex);
++            }
++        } else if (path.startsWith("/api/links/") && path.indexOf('/', 11) < 0 && path.length() > 11) {
++            String code = path.substring(11);
++            if (method.equals("DELETE")) {
++                service.delete(code);
++                ex.sendResponseHeaders(204, -1);
++            } else {
++                requireMethod(method, "GET");
++                sendJson(ex, 200, service.get(code));
++            }
++        } else if (path.equals("/api/stats")) {
++            requireMethod(method, "GET");
++            sendJson(ex, 200, service.stats());
++        } else if (path.length() > 1 && path.indexOf('/', 1) < 0 && !path.equals("/api")) {
++            requireMethod(method, "GET");
++            String target = service.visit(path.substring(1));
++            ex.getResponseHeaders().set("Location", target);
++            ex.sendResponseHeaders(302, -1);
++        } else {
++            throw new ApiException(404, "not found");
++        }
++    }
++
++    private static void requireMethod(String method, String allowed) throws ApiException {
++        if (!method.equals(allowed)) {
++            throw new ApiException(405, "method not allowed");
++        }
++    }
++
++    private void create(HttpExchange ex) throws IOException, ApiException {
++        long retryAfter = createLimiter.acquire(ex.getRemoteAddress().getAddress().getHostAddress());
++        if (retryAfter > 0) {
++            ex.getResponseHeaders().set("Retry-After", Long.toString(retryAfter));
++            throw new ApiException(429, "rate limit exceeded");
++        }
++        String type = ex.getRequestHeaders().getFirst("Content-Type");
++        if (type == null || !type.toLowerCase(Locale.ROOT).startsWith("application/json")) {
++            throw new ApiException(415, "unsupported media type");
++        }
++        Object body;
++        try {
++            body = Json.parse(readBody(ex.getRequestBody()));
++        } catch (Json.ParseException e) {
++            throw new ApiException(400, "invalid json");
++        }
++        if (!(body instanceof Map<?, ?> raw)) {
++            throw new ApiException(400, "invalid json");
++        }
++        Map<String, Object> fields = new HashMap<>();
++        raw.forEach((k, v) -> fields.put((String) k, v));
++        LinkService.Created created = service.create(fields);
++        sendJson(ex, created.isNew() ? 201 : 200, created.link());
++    }
++
++    private static String readBody(InputStream in) throws IOException, ApiException {
++        byte[] data = in.readNBytes(MAX_BODY_BYTES + 1);
++        if (data.length > MAX_BODY_BYTES) {
++            throw new ApiException(413, "payload too large");
++        }
++        return new String(data, StandardCharsets.UTF_8);
++    }
++
++    private void list(HttpExchange ex) throws IOException, ApiException {
++        Map<String, String> query = parseQuery(ex.getRequestURI().getRawQuery());
++        int limit = intParam(query.get("limit"), 50, 1, 100, "invalid limit");
++        int offset = intParam(query.get("offset"), 0, 0, Integer.MAX_VALUE, "invalid offset");
++        sendJson(ex, 200, service.list(limit, offset));
++    }
++
++    private static int intParam(String v, int dflt, int min, int max, String error) throws ApiException {
++        if (v == null) {
++            return dflt;
++        }
++        if (!v.matches("[0-9]{1,10}")) {
++            throw new ApiException(400, error);
++        }
++        long n = Long.parseLong(v);
++        if (n < min || n > max) {
++            throw new ApiException(400, error);
++        }
++        return (int) n;
++    }
++
++    private static Map<String, String> parseQuery(String raw) {
++        Map<String, String> m = new HashMap<>();
++        if (raw == null || raw.isEmpty()) {
++            return m;
++        }
++        for (String part : raw.split("&")) {
++            int eq = part.indexOf('=');
++            String k = eq < 0 ? part : part.substring(0, eq);
++            String v = eq < 0 ? "" : part.substring(eq + 1);
++            m.put(URLDecoder.decode(k, StandardCharsets.UTF_8), URLDecoder.decode(v, StandardCharsets.UTF_8));
++        }
++        return m;
++    }
++
++    private static void sendJson(HttpExchange ex, int status, Object body) throws IOException {
++        byte[] bytes = Json.write(body).getBytes(StandardCharsets.UTF_8);
++        ex.getResponseHeaders().set("Content-Type", "application/json; charset=utf-8");
++        ex.sendResponseHeaders(status, bytes.length);
++        try (OutputStream out = ex.getResponseBody()) {
++            out.write(bytes);
++        }
++    }
++}
+diff --git a/src/main/java/shorty/Json.java b/src/main/java/shorty/Json.java
+new file mode 100644
+index 0000000..86d8f6a
+--- /dev/null
++++ b/src/main/java/shorty/Json.java
+@@ -0,0 +1,309 @@
++package shorty;
++
++import java.util.ArrayList;
++import java.util.Iterator;
++import java.util.LinkedHashMap;
++import java.util.List;
++import java.util.Map;
++
++/**
++ * Minimal JSON support. Parsing yields {@code Map<String,Object>} (insertion ordered),
++ * {@code List<Object>}, {@code String}, {@code Long} (integers), {@code Double},
++ * {@code Boolean} or {@code null}. Writing accepts the same types.
++ */
++public final class Json {
++
++    /** Thrown for malformed JSON text. */
++    public static final class ParseException extends Exception {
++        private static final long serialVersionUID = 1L;
++
++        ParseException(String message, int pos) {
++            super(message + " at offset " + pos);
++        }
++    }
++
++    private final String s;
++    private int pos;
++
++    private Json(String s) {
++        this.s = s;
++    }
++
++    public static Object parse(String text) throws ParseException {
++        Json p = new Json(text);
++        p.skipWs();
++        Object v = p.value();
++        p.skipWs();
++        if (p.pos != text.length()) {
++            throw new ParseException("trailing characters", p.pos);
++        }
++        return v;
++    }
++
++    private void skipWs() {
++        while (pos < s.length()) {
++            char c = s.charAt(pos);
++            if (c != ' ' && c != '\t' && c != '\n' && c != '\r') {
++                break;
++            }
++            pos++;
++        }
++    }
++
++    private ParseException error(String msg) {
++        return new ParseException(msg, pos);
++    }
++
++    private Object value() throws ParseException {
++        if (pos >= s.length()) {
++            throw error("unexpected end of input");
++        }
++        char c = s.charAt(pos);
++        switch (c) {
++            case '{':
++                return object();
++            case '[':
++                return array();
++            case '"':
++                return string();
++            case 't':
++                return literal("true", Boolean.TRUE);
++            case 'f':
++                return literal("false", Boolean.FALSE);
++            case 'n':
++                return literal("null", null);
++            default:
++                if (c == '-' || (c >= '0' && c <= '9')) {
++                    return number();
++                }
++                throw error("unexpected character '" + c + "'");
++        }
++    }
++
++    private Object literal(String word, Object v) throws ParseException {
++        if (!s.startsWith(word, pos)) {
++            throw error("invalid literal");
++        }
++        pos += word.length();
++        return v;
++    }
++
++    private Map<String, Object> object() throws ParseException {
++        Map<String, Object> m = new LinkedHashMap<>();
++        pos++;
++        skipWs();
++        if (pos < s.length() && s.charAt(pos) == '}') {
++            pos++;
++            return m;
++        }
++        while (true) {
++            skipWs();
++            if (pos >= s.length() || s.charAt(pos) != '"') {
++                throw error("expected string key");
++            }
++            String key = string();
++            skipWs();
++            expect(':');
++            skipWs();
++            m.put(key, value());
++            skipWs();
++            if (pos < s.length() && s.charAt(pos) == ',') {
++                pos++;
++                continue;
++            }
++            expect('}');
++            return m;
++        }
++    }
++
++    private List<Object> array() throws ParseException {
++        List<Object> list = new ArrayList<>();
++        pos++;
++        skipWs();
++        if (pos < s.length() && s.charAt(pos) == ']') {
++            pos++;
++            return list;
++        }
++        while (true) {
++            skipWs();
++            list.add(value());
++            skipWs();
++            if (pos < s.length() && s.charAt(pos) == ',') {
++                pos++;
++                continue;
++            }
++            expect(']');
++            return list;
++        }
++    }
++
++    private void expect(char c) throws ParseException {
++        if (pos >= s.length() || s.charAt(pos) != c) {
++            throw error("expected '" + c + "'");
++        }
++        pos++;
++    }
++
++    private String string() throws ParseException {
++        StringBuilder sb = new StringBuilder();
++        pos++; // opening quote
++        while (true) {
++            if (pos >= s.length()) {
++                throw error("unterminated string");
++            }
++            char c = s.charAt(pos++);
++            if (c == '"') {
++                return sb.toString();
++            }
++            if (c < 0x20) {
++                throw error("control character in string");
++            }
++            if (c != '\\') {
++                sb.append(c);
++                continue;
++            }
++            if (pos >= s.length()) {
++                throw error("unterminated escape");
++            }
++            char e = s.charAt(pos++);
++            switch (e) {
++                case '"', '\\', '/' -> sb.append(e);
++                case 'b' -> sb.append('\b');
++                case 'f' -> sb.append('\f');
++                case 'n' -> sb.append('\n');
++                case 'r' -> sb.append('\r');
++                case 't' -> sb.append('\t');
++                case 'u' -> {
++                    if (pos + 4 > s.length()) {
++                        throw error("bad unicode escape");
++                    }
++                    try {
++                        sb.append((char) Integer.parseInt(s.substring(pos, pos + 4), 16));
++                    } catch (NumberFormatException ex) {
++                        throw error("bad unicode escape");
++                    }
++                    pos += 4;
++                }
++                default -> throw error("bad escape");
++            }
++        }
++    }
++
++    private Object number() throws ParseException {
++        int start = pos;
++        if (s.charAt(pos) == '-') {
++            pos++;
++        }
++        int digits = pos;
++        while (pos < s.length() && Character.isDigit(s.charAt(pos))) {
++            pos++;
++        }
++        if (pos == digits) {
++            throw error("invalid number");
++        }
++        if (s.charAt(digits) == '0' && pos - digits > 1) {
++            throw error("leading zero");
++        }
++        boolean integral = true;
++        if (pos < s.length() && s.charAt(pos) == '.') {
++            integral = false;
++            pos++;
++            int f = pos;
++            while (pos < s.length() && Character.isDigit(s.charAt(pos))) {
++                pos++;
++            }
++            if (pos == f) {
++                throw error("invalid number");
++            }
++        }
++        if (pos < s.length() && (s.charAt(pos) == 'e' || s.charAt(pos) == 'E')) {
++            integral = false;
++            pos++;
++            if (pos < s.length() && (s.charAt(pos) == '+' || s.charAt(pos) == '-')) {
++                pos++;
++            }
++            int f = pos;
++            while (pos < s.length() && Character.isDigit(s.charAt(pos))) {
++                pos++;
++            }
++            if (pos == f) {
++                throw error("invalid number");
++            }
++        }
++        String text = s.substring(start, pos);
++        if (integral) {
++            try {
++                return Long.parseLong(text);
++            } catch (NumberFormatException ex) {
++                return Double.parseDouble(text);
++            }
++        }
++        return Double.parseDouble(text);
++    }
++
++    // ---- writing ----
++
++    public static String write(Object v) {
++        StringBuilder sb = new StringBuilder();
++        write(sb, v);
++        return sb.toString();
++    }
++
++    private static void write(StringBuilder sb, Object v) {
++        if (v == null) {
++            sb.append("null");
++        } else if (v instanceof String str) {
++            quote(sb, str);
++        } else if (v instanceof Boolean || v instanceof Long || v instanceof Integer) {
++            sb.append(v);
++        } else if (v instanceof Number n) {
++            sb.append(n.doubleValue());
++        } else if (v instanceof Map<?, ?> m) {
++            sb.append('{');
++            Iterator<? extends Map.Entry<?, ?>> it = m.entrySet().iterator();
++            while (it.hasNext()) {
++                Map.Entry<?, ?> e = it.next();
++                quote(sb, String.valueOf(e.getKey()));
++                sb.append(':');
++                write(sb, e.getValue());
++                if (it.hasNext()) {
++                    sb.append(',');
++                }
++            }
++            sb.append('}');
++        } else if (v instanceof List<?> list) {
++            sb.append('[');
++            for (int i = 0; i < list.size(); i++) {
++                if (i > 0) {
++                    sb.append(',');
++                }
++                write(sb, list.get(i));
++            }
++            sb.append(']');
++        } else {
++            throw new IllegalArgumentException("cannot encode " + v.getClass());
++        }
++    }
++
++    private static void quote(StringBuilder sb, String str) {
++        sb.append('"');
++        for (int i = 0; i < str.length(); i++) {
++            char c = str.charAt(i);
++            switch (c) {
++                case '"' -> sb.append("\\\"");
++                case '\\' -> sb.append("\\\\");
++                case '\n' -> sb.append("\\n");
++                case '\r' -> sb.append("\\r");
++                case '\t' -> sb.append("\\t");
++                default -> {
++                    if (c < 0x20) {
++                        sb.append(String.format("\\u%04x", (int) c));
++                    } else {
++                        sb.append(c);
++                    }
++                }
++            }
++        }
++        sb.append('"');
++    }
++}
+diff --git a/src/main/java/shorty/Link.java b/src/main/java/shorty/Link.java
+new file mode 100644
+index 0000000..c6e1758
+--- /dev/null
++++ b/src/main/java/shorty/Link.java
+@@ -0,0 +1,66 @@
++package shorty;
++
++import java.time.Instant;
++import java.util.LinkedHashMap;
++import java.util.Map;
++
++/** A short link. Mutable only through {@link LinkStore}, which guards it with its lock. */
++public final class Link {
++    final String code;
++    final String url;
++    final Instant createdAt;
++    final Instant expiresAt; // null: never expires
++    long hits;
++
++    Link(String code, String url, Instant createdAt, Instant expiresAt, long hits) {
++        this.code = code;
++        this.url = url;
++        this.createdAt = createdAt;
++        this.expiresAt = expiresAt;
++        this.hits = hits;
++    }
++
++    public String code() {
++        return code;
++    }
++
++    public String url() {
++        return url;
++    }
++
++    public long hits() {
++        return hits;
++    }
++
++    public Instant expiresAt() {
++        return expiresAt;
++    }
++
++    public boolean isExpired(Instant now) {
++        return expiresAt != null && !now.isBefore(expiresAt);
++    }
++
++    /** The fields stored in the data file. */
++    Map<String, Object> toStored() {
++        Map<String, Object> m = new LinkedHashMap<>();
++        m.put("code", code);
++        m.put("url", url);
++        m.put("created_at", createdAt.toString());
++        m.put("expires_at", expiresAt == null ? null : expiresAt.toString());
++        m.put("hits", hits);
++        return m;
++    }
++
++    /** The representation returned by the API. */
++    Map<String, Object> toApi(String baseUrl, Instant now) {
++        Map<String, Object> m = new LinkedHashMap<>();
++        m.put("code", code);
++        m.put("url", url);
++        m.put("short_url", baseUrl + "/" + code);
++        m.put("created_at", createdAt.toString());
++        m.put("expires_at", expiresAt == null ? null : expiresAt.toString());
++        m.put("hits", hits);
++        m.put("expired", isExpired(now));
++        return m;
++    }
++}
+diff --git a/src/main/java/shorty/LinkService.java b/src/main/java/shorty/LinkService.java
+new file mode 100644
+index 0000000..86776ac
+--- /dev/null
++++ b/src/main/java/shorty/LinkService.java
+@@ -0,0 +1,178 @@
++package shorty;
++
++import java.security.SecureRandom;
++import java.time.Clock;
++import java.time.Instant;
++import java.time.temporal.ChronoUnit;
++import java.util.ArrayList;
++import java.util.Comparator;
++import java.util.Iterator;
++import java.util.LinkedHashMap;
++import java.util.List;
++import java.util.Map;
++import java.util.Optional;
++import java.util.Set;
++import java.util.regex.Pattern;
++
++/** Business rules: validation, code generation, de-duplication, listing and statistics. */
++public final class LinkService {
++    static final int MAX_URL_LENGTH = 2048;
++    static final int CODE_LENGTH = 7;
++    private static final Pattern CODE = Pattern.compile("[A-Za-z0-9_-]{3,32}");
++    private static final Pattern URL = Pattern.compile("(?i)https?://[^/?#\\s][^\\s]*");
++    private static final Set<String> RESERVED = Set.of("api", "healthz");
++    private static final String ALPHABET =
++            "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
++
++    /** The outcome of a create request: the link and whether it was newly created. */
++    public record Created(Map<String, Object> link, boolean isNew) {
++    }
++
++    private final LinkStore store;
++    private final Clock clock;
++    private final String baseUrl;
++    private final SecureRandom random = new SecureRandom();
++
++    public LinkService(LinkStore store, Clock clock, String baseUrl) {
++        this.store = store;
++        this.clock = clock;
++        this.baseUrl = baseUrl;
++    }
++
++    private Instant now() {
++        return clock.instant().truncatedTo(ChronoUnit.SECONDS);
++    }
++
++    public static boolean isValidUrl(Object url) {
++        if (!(url instanceof String s) || s.length() > MAX_URL_LENGTH) {
++            return false;
++        }
++        for (int i = 0; i < s.length(); i++) {
++            if (s.charAt(i) < 0x20 || s.charAt(i) == 0x7f) {
++                return false;
++            }
++        }
++        return URL.matcher(s).matches();
++    }
++
++    public static boolean isValidCode(Object code) {
++        return code instanceof String s && CODE.matcher(s).matches() && !RESERVED.contains(s);
++    }
++
++    public Created create(Map<String, Object> body) throws ApiException {
++        Object url = body.get("url");
++        if (!isValidUrl(url)) {
++            throw new ApiException(400, "invalid url");
++        }
++        Object code = body.get("code");
++        if (code != null && !isValidCode(code)) {
++            throw new ApiException(400, "invalid code");
++        }
++        Object ttl = body.get("ttl_seconds");
++        if (ttl != null && !(ttl instanceof Long t && t >= 1 && t <= 315_360_000L)) {
++            throw new ApiException(400, "invalid ttl_seconds");
++        }
++        Instant now = now();
++        Instant expiresAt = ttl == null ? null : now.plusSeconds((Long) ttl);
++        String target = (String) url;
++
++        if (code == null && ttl == null) {
++            Optional<Link> same = store.find(l -> l.url().equals(target) && l.expiresAt() == null);
++            if (same.isPresent()) {
++                return new Created(view(same.get()), false);
++            }
++        }
++        Iterable<String> candidates = code != null ? List.of((String) code) : this::randomCodes;
++        Optional<Link> added = store.add(candidates, c -> new Link(c, target, now, expiresAt, 0));
++        if (added.isEmpty()) {
++            throw new ApiException(409, "code already exists");
++        }
++        return new Created(view(added.get()), true);
++    }
++
++    private Iterator<String> randomCodes() {
++        return new Iterator<>() {
++            private int left = 100;
++
++            @Override
++            public boolean hasNext() {
++                return left > 0;
++            }
++
++            @Override
++            public String next() {
++                left--;
++                StringBuilder sb = new StringBuilder(CODE_LENGTH);
++                for (int i = 0; i < CODE_LENGTH; i++) {
++                    sb.append(ALPHABET.charAt(random.nextInt(ALPHABET.length())));
++                }
++                return sb.toString();
++            }
++        };
++    }
++
++    private Map<String, Object> view(Link link) {
++        Instant now = clock.instant();
++        return store.read(all -> link.toApi(baseUrl, now));
++    }
++
++    public Map<String, Object> get(String code) throws ApiException {
++        return view(store.get(code).orElseThrow(() -> new ApiException(404, "not found")));
++    }
++
++    /** Resolves a code for a redirect, counting the visit. Returns the target URL. */
++    public String visit(String code) throws ApiException {
++        Link link = store.get(code).orElseThrow(() -> new ApiException(404, "not found"));
++        if (link.isExpired(clock.instant())) {
++            throw new ApiException(410, "link expired");
++        }
++        store.recordHit(link);
++        return link.url();
++    }
++
++    public void delete(String code) throws ApiException {
++        if (!store.delete(code)) {
++            throw new ApiException(404, "not found");
++        }
++    }
++
++    public Map<String, Object> list(int limit, int offset) {
++        Instant now = clock.instant();
++        return store.read(all -> {
++            List<Object> page = new ArrayList<>();
++            for (int i = offset; i < all.size() && page.size() < limit; i++) {
++                page.add(all.get(i).toApi(baseUrl, now));
++            }
++            Map<String, Object> m = new LinkedHashMap<>();
++            m.put("total", (long) all.size());
++            m.put("links", page);
++            return m;
++        });
++    }
++
++    public Map<String, Object> stats() {
++        return store.read(all -> {
++            long hits = 0;
++            for (Link l : all) {
++                hits += l.hits();
++            }
++            List<Object> top = new ArrayList<>();
++            all.stream()
++                    .filter(l -> l.hits() > 0)
++                    .sorted(Comparator.comparingLong(Link::hits).reversed().thenComparing(Link::code))
++                    .limit(5)
++                    .forEach(l -> {
++                        Map<String, Object> e = new LinkedHashMap<>();
++                        e.put("code", l.code());
++                        e.put("url", l.url());
++                        e.put("hits", l.hits());
++                        top.add(e);
++                    });
++            Map<String, Object> m = new LinkedHashMap<>();
++            m.put("total_links", (long) all.size());
++            m.put("total_hits", hits);
++            m.put("top", top);
++            return m;
++        });
++    }
++}
+diff --git a/src/main/java/shorty/LinkStore.java b/src/main/java/shorty/LinkStore.java
+new file mode 100644
+index 0000000..9e4189e
+--- /dev/null
++++ b/src/main/java/shorty/LinkStore.java
+@@ -0,0 +1,155 @@
++package shorty;
++
++import java.io.IOException;
++import java.io.UncheckedIOException;
++import java.nio.charset.StandardCharsets;
++import java.nio.file.Files;
++import java.nio.file.Path;
++import java.nio.file.StandardCopyOption;
++import java.time.Instant;
++import java.time.format.DateTimeParseException;
++import java.util.ArrayList;
++import java.util.LinkedHashMap;
++import java.util.List;
++import java.util.Map;
++import java.util.Optional;
++import java.util.function.Function;
++import java.util.function.Predicate;
++
++/**
++ * Thread-safe link storage backed by a JSON data file. Every mutation rewrites the file
++ * atomically (write a temporary file, then rename it over the data file).
++ */
++public final class LinkStore {
++
++    /** Thrown when the data file exists but cannot be understood. */
++    public static final class CorruptDataException extends Exception {
++        private static final long serialVersionUID = 1L;
++
++        CorruptDataException(String message) {
++            super(message);
++        }
++    }
++
++    private final Path file;
++    private final Map<String, Link> links = new LinkedHashMap<>();
++
++    private LinkStore(Path file) {
++        this.file = file;
++    }
++
++    /** Opens the store; a missing file means an empty store. */
++    public static LinkStore open(Path file) throws IOException, CorruptDataException {
++        LinkStore store = new LinkStore(file);
++        if (Files.exists(file)) {
++            store.load(Files.readString(file, StandardCharsets.UTF_8));
++        }
++        return store;
++    }
++
++    private void load(String text) throws CorruptDataException {
++        Object root;
++        try {
++            root = Json.parse(text);
++        } catch (Json.ParseException e) {
++            throw new CorruptDataException("invalid JSON: " + e.getMessage());
++        }
++        if (!(root instanceof Map<?, ?> m) || !(m.get("links") instanceof List<?> list)) {
++            throw new CorruptDataException("expected an object with a \"links\" array");
++        }
++        for (Object item : list) {
++            Link link = parseLink(item);
++            if (links.putIfAbsent(link.code, link) != null) {
++                throw new CorruptDataException("duplicate code " + link.code);
++            }
++        }
++    }
++
++    private static Link parseLink(Object item) throws CorruptDataException {
++        if (!(item instanceof Map<?, ?> m)
++                || !(m.get("code") instanceof String code)
++                || !(m.get("url") instanceof String url)
++                || !(m.get("created_at") instanceof String created)
++                || !(m.get("hits") instanceof Long hits) || hits < 0) {
++            throw new CorruptDataException("invalid link entry");
++        }
++        Object exp = m.get("expires_at");
++        try {
++            Instant expiresAt;
++            if (exp == null) {
++                expiresAt = null;
++            } else if (exp instanceof String s) {
++                expiresAt = Instant.parse(s);
++            } else {
++                throw new CorruptDataException("invalid expires_at for " + code);
++            }
++            return new Link(code, url, Instant.parse(created), expiresAt, hits);
++        } catch (DateTimeParseException e) {
++            throw new CorruptDataException("invalid timestamp for " + code);
++        }
++    }
++
++    private void save() {
++        List<Object> items = new ArrayList<>();
++        for (Link l : links.values()) {
++            items.add(l.toStored());
++        }
++        Map<String, Object> root = new LinkedHashMap<>();
++        root.put("links", items);
++        try {
++            Path dir = file.toAbsolutePath().getParent();
++            if (dir != null) {
++                Files.createDirectories(dir);
++            }
++            Path tmp = file.resolveSibling(file.getFileName() + ".tmp");
++            Files.writeString(tmp, Json.write(root) + "\n", StandardCharsets.UTF_8);
++            Files.move(tmp, file, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
++        } catch (IOException e) {
++            throw new UncheckedIOException(e);
++        }
++    }
++
++    public synchronized Optional<Link> get(String code) {
++        return Optional.ofNullable(links.get(code));
++    }
++
++    /** Returns the first link matching the predicate, in creation order. */
++    public synchronized Optional<Link> find(Predicate<Link> p) {
++        return links.values().stream().filter(p).findFirst();
++    }
++
++    /**
++     * Adds a link built by {@code factory} for the first code (from {@code codes}) that is
++     * not taken yet. Returns the new link, or empty if every candidate was taken.
++     */
++    public synchronized Optional<Link> add(Iterable<String> codes, Function<String, Link> factory) {
++        for (String code : codes) {
++            if (!links.containsKey(code)) {
++                Link link = factory.apply(code);
++                links.put(code, link);
++                save();
++                return Optional.of(link);
++            }
++        }
++        return Optional.empty();
++    }
++
++    public synchronized boolean delete(String code) {
++        if (links.remove(code) == null) {
++            return false;
++        }
++        save();
++        return true;
++    }
++
++    /** Counts a visit to the link and persists the new count. */
++    public synchronized void recordHit(Link link) {
++        link.hits++;
++        save();
++    }
++
++    /** Runs {@code f} on the links (in creation order) while holding the lock. */
++    public synchronized <T> T read(Function<List<Link>, T> f) {
++        return f.apply(new ArrayList<>(links.values()));
++    }
++}
+diff --git a/src/main/java/shorty/Main.java b/src/main/java/shorty/Main.java
+new file mode 100644
+index 0000000..8785024
+--- /dev/null
++++ b/src/main/java/shorty/Main.java
+@@ -0,0 +1,79 @@
++package shorty;
++
++import java.io.IOException;
++import java.nio.file.Path;
++import java.time.Clock;
++import java.util.HashMap;
++import java.util.Map;
++import java.util.Set;
++
++/** Command-line entry point: {@code shorty --port N --data FILE [--base-url URL] [--rate-limit N]}. */
++public final class Main {
++    private static final Set<String> OPTIONS = Set.of("--port", "--data", "--base-url", "--rate-limit");
++
++    private Main() {
++    }
++
++    public static void main(String[] args) {
++        Map<String, String> opts = new HashMap<>();
++        for (int i = 0; i < args.length; i++) {
++            String a = args[i];
++            if (!OPTIONS.contains(a)) {
++                usage("unknown argument: " + a);
++            }
++            if (i + 1 >= args.length) {
++                usage("option " + a + " requires a value");
++            }
++            opts.put(a, args[++i]);
++        }
++        if (!opts.containsKey("--port") || !opts.containsKey("--data")) {
++            usage("--port and --data are required");
++        }
++        int port = parseInt(opts.get("--port"), 1, 65535, "invalid port");
++        int rate = parseInt(opts.getOrDefault("--rate-limit", "30"), 1, 1_000_000, "invalid rate limit");
++        String baseUrl = opts.getOrDefault("--base-url", "http://localhost:" + port);
++        while (baseUrl.endsWith("/")) {
++            baseUrl = baseUrl.substring(0, baseUrl.length() - 1);
++        }
++
++        Path data = Path.of(opts.get("--data"));
++        LinkStore store;
++        try {
++            store = LinkStore.open(data);
++        } catch (IOException | LinkStore.CorruptDataException e) {
++            System.err.println("error: cannot load " + data + ": " + e.getMessage());
++            System.exit(1);
++            return;
++        }
++        Clock clock = Clock.systemUTC();
++        LinkService service = new LinkService(store, clock, baseUrl);
++        ApiServer server = new ApiServer(service, new RateLimiter(rate, 60_000, clock));
++        try {
++            server.start(port);
++        } catch (IOException e) {
++            System.err.println("error: cannot listen on port " + port + ": " + e.getMessage());
++            System.exit(1);
++        }
++        System.out.println("listening on http://127.0.0.1:" + server.port());
++        System.out.flush();
++    }
++
++    private static int parseInt(String v, int min, int max, String error) {
++        try {
++            int n = Integer.parseInt(v);
++            if (n >= min && n <= max) {
++                return n;
++            }
++        } catch (NumberFormatException e) {
++            // fall through
++        }
++        usage(error + ": " + v);
++        return 0;
++    }
++
++    private static void usage(String message) {
++        System.err.println("error: " + message);
++        System.err.println("usage: shorty --port N --data FILE [--base-url URL] [--rate-limit N]");
++        System.exit(2);
++    }
++}
+diff --git a/src/main/java/shorty/RateLimiter.java b/src/main/java/shorty/RateLimiter.java
+new file mode 100644
+index 0000000..858a69a
+--- /dev/null
++++ b/src/main/java/shorty/RateLimiter.java
+@@ -0,0 +1,39 @@
++package shorty;
++
++import java.time.Clock;
++import java.util.ArrayDeque;
++import java.util.Deque;
++import java.util.HashMap;
++import java.util.Map;
++
++/** Sliding-window rate limiter: at most {@code limit} requests per client per window. */
++public final class RateLimiter {
++    private final int limit;
++    private final long windowMillis;
++    private final Clock clock;
++    private final Map<String, Deque<Long>> requests = new HashMap<>();
++
++    public RateLimiter(int limit, long windowMillis, Clock clock) {
++        this.limit = limit;
++        this.windowMillis = windowMillis;
++        this.clock = clock;
++    }
++
++    /**
++     * Records a request from {@code client}. Returns 0 if it is allowed, otherwise the
++     * number of whole seconds (at least 1) until the client may try again.
++     */
++    public synchronized long acquire(String client) {
++        long now = clock.millis();
++        Deque<Long> q = requests.computeIfAbsent(client, k -> new ArrayDeque<>());
++        while (!q.isEmpty() && q.peekFirst() <= now - windowMillis) {
++            q.pollFirst();
++        }
++        if (q.size() >= limit) {
++            long waitMillis = q.peekFirst() + windowMillis - now;
++            return Math.max(1, (waitMillis + 999) / 1000);
++        }
++        q.addLast(now);
++        return 0;
++    }
++}
+diff --git a/src/test/java/shorty/AllTests.java b/src/test/java/shorty/AllTests.java
+new file mode 100644
+index 0000000..a10d42b
+--- /dev/null
++++ b/src/test/java/shorty/AllTests.java
+@@ -0,0 +1,169 @@
++package shorty;
++
++import java.net.URI;
++import java.net.http.HttpClient;
++import java.net.http.HttpRequest;
++import java.net.http.HttpResponse;
++import java.nio.file.Files;
++import java.nio.file.Path;
++import java.time.Clock;
++import java.time.Instant;
++import java.time.ZoneOffset;
++import java.util.ArrayList;
++import java.util.List;
++import java.util.Map;
++
++/** A tiny self-contained test runner: every {@code test*} method below is a test. */
++public final class AllTests {
++    private static int failures = 0;
++    private static final List<String> RAN = new ArrayList<>();
++
++    interface Body {
++        void run() throws Exception;
++    }
++
++    private static void test(String name, Body body) {
++        RAN.add(name);
++        try {
++            body.run();
++            System.out.println("ok   " + name);
++        } catch (Throwable t) {
++            failures++;
++            System.out.println("FAIL " + name + ": " + t);
++        }
++    }
++
++    private static void check(boolean cond, String what) {
++        if (!cond) {
++            throw new AssertionError(what);
++        }
++    }
++
++    private static void checkEq(Object expected, Object actual) {
++        if (expected == null ? actual != null : !expected.equals(actual)) {
++            throw new AssertionError("expected " + expected + ", got " + actual);
++        }
++    }
++
++    /** A clock that tests can move forward. */
++    static final class FakeClock extends Clock {
++        Instant now = Instant.parse("2026-03-01T10:00:00Z");
++
++        @Override
++        public ZoneOffset getZone() {
++            return ZoneOffset.UTC;
++        }
++
++        @Override
++        public Clock withZone(java.time.ZoneId zone) {
++            return this;
++        }
++
++        @Override
++        public Instant instant() {
++            return now;
++        }
++    }
++
++    public static void main(String[] args) throws Exception {
++        test("json round trip", () -> {
++            Object v = Json.parse("{\"a\": [1, 2.5, true, null], \"s\": \"x\\\"\\u00e9\\n\"}");
++            checkEq("{\"a\":[1,2.5,true,null],\"s\":\"x\\\"é\\n\"}", Json.write(v));
++        });
++        test("json rejects malformed input", () -> {
++            for (String bad : new String[] {"", "{", "{\"a\":}", "[1,]", "01", "\"x", "{} x", "tru"}) {
++                try {
++                    Json.parse(bad);
++                    throw new AssertionError("accepted " + bad);
++                } catch (Json.ParseException expected) {
++                    // ok
++                }
++            }
++        });
++        test("url validation", () -> {
++            check(LinkService.isValidUrl("https://example.com/a?b=c"), "https");
++            check(LinkService.isValidUrl("HTTP://x"), "upper-case scheme");
++            check(!LinkService.isValidUrl("ftp://x"), "ftp");
++            check(!LinkService.isValidUrl("https://"), "no host");
++            check(!LinkService.isValidUrl("https://a b"), "space");
++            check(!LinkService.isValidUrl(42L), "number");
++            check(!LinkService.isValidUrl("https://x/" + "a".repeat(2048)), "too long");
++        });
++        test("code validation", () -> {
++            check(LinkService.isValidCode("my-code_1"), "valid");
++            check(!LinkService.isValidCode("ab"), "short");
++            check(!LinkService.isValidCode("a".repeat(33)), "long");
++            check(!LinkService.isValidCode("api"), "reserved");
++            check(!LinkService.isValidCode("no/slash"), "slash");
++        });
++        test("rate limiter sliding window", () -> {
++            FakeClock clock = new FakeClock();
++            RateLimiter rl = new RateLimiter(2, 60_000, clock);
++            checkEq(0L, rl.acquire("a"));
++            clock.now = clock.now.plusSeconds(30);
++            checkEq(0L, rl.acquire("a"));
++            checkEq(30L, rl.acquire("a"));
++            checkEq(0L, rl.acquire("b"));
++            clock.now = clock.now.plusSeconds(30);
++            checkEq(0L, rl.acquire("a"));
++        });
++        test("service create, dedupe, expire and persist", () -> {
++            Path dir = Files.createTempDirectory("shorty-test");
++            Path file = dir.resolve("links.json");
++            FakeClock clock = new FakeClock();
++            LinkService svc = new LinkService(LinkStore.open(file), clock, "http://s");
++            LinkService.Created a = svc.create(Map.of("url", "https://a.example"));
++            check(a.isNew(), "new");
++            checkEq(7, ((String) a.link().get("code")).length());
++            LinkService.Created again = svc.create(Map.of("url", "https://a.example"));
++            check(!again.isNew(), "deduplicated");
++            checkEq(a.link().get("code"), again.link().get("code"));
++            svc.create(Map.of("url", "https://b.example", "code", "bee", "ttl_seconds", 10L));
++            try {
++                svc.create(Map.of("url", "https://c.example", "code", "bee"));
++                throw new AssertionError("duplicate code accepted");
++            } catch (ApiException e) {
++                checkEq(409, e.status());
++            }
++            checkEq("https://b.example", svc.visit("bee"));
++            clock.now = clock.now.plusSeconds(10);
++            try {
++                svc.visit("bee");
++                throw new AssertionError("expired link visited");
++            } catch (ApiException e) {
++                checkEq(410, e.status());
++            }
++            LinkService reopened = new LinkService(LinkStore.open(file), clock, "http://s");
++            checkEq(1L, reopened.get("bee").get("hits"));
++            checkEq(2L, reopened.stats().get("total_links"));
++        });
++        test("http end to end", () -> {
++            Path dir = Files.createTempDirectory("shorty-http");
++            Clock clock = Clock.systemUTC();
++            LinkService svc = new LinkService(LinkStore.open(dir.resolve("d.json")), clock, "http://s");
++            ApiServer server = new ApiServer(svc, new RateLimiter(2, 60_000, clock));
++            server.start(0);
++            try {
++                HttpClient client = HttpClient.newHttpClient();
++                String base = "http://127.0.0.1:" + server.port();
++                HttpRequest post = HttpRequest.newBuilder(URI.create(base + "/api/links"))
++                        .header("Content-Type", "application/json")
++                        .POST(HttpRequest.BodyPublishers.ofString("{\"url\":\"https://x.example\",\"code\":\"xyz\"}"))
++                        .build();
++                checkEq(201, client.send(post, HttpResponse.BodyHandlers.ofString()).statusCode());
++                HttpResponse<String> r = client.send(HttpRequest.newBuilder(URI.create(base + "/xyz")).build(),
++                        HttpResponse.BodyHandlers.ofString());
++                checkEq(302, r.statusCode());
++                checkEq("https://x.example", r.headers().firstValue("Location").orElse(""));
++                checkEq(409, client.send(post, HttpResponse.BodyHandlers.ofString()).statusCode());
++                HttpResponse<String> limited = client.send(post, HttpResponse.BodyHandlers.ofString());
++                checkEq(429, limited.statusCode());
++                check(limited.headers().firstValue("Retry-After").isPresent(), "Retry-After");
++            } finally {
++                server.stop();
++            }
++        });
++        System.out.println(RAN.size() + " tests, " + failures + " failures");
++        System.exit(failures == 0 ? 0 : 1);
++    }
++}
+diff --git a/test.sh b/test.sh
+new file mode 100755
+index 0000000..16017cf
+--- /dev/null
++++ b/test.sh
+@@ -0,0 +1,10 @@
++#!/usr/bin/env bash
++# Build, then compile and run the tests against the compiled classes.
++set -euo pipefail
++cd "$(dirname "$0")"
++./build.sh
++rm -rf build/test-classes
++mkdir -p build/test-classes
++javac -Xlint:all -Werror --release 21 -cp build/classes -d build/test-classes \
++  $(find src/test/java -name '*.java')
++java -cp build/classes:build/test-classes shorty.AllTests

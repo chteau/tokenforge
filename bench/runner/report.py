@@ -103,6 +103,10 @@ def build(sessions, root: Path, out_name="benchmark-report"):
                    (r.get("variant") or r.get("token_forge_plugin_sha256") not in ok_shas or (r.get("_lean") or False) != (want_lean or False))]
     other_cc = [r for r in runs if r.get("claude_code_version") != want_cc]
     runs = [r for r in runs if r not in other_build and r not in other_cc]
+    # tasks left out of the published comparison on purpose (benchmark.config.json "excluded_tasks": {id: reason});
+    # their runs stay in runs/ and are listed in the report
+    excluded_tasks = json.loads((root / "benchmark.config.json").read_text()).get("excluded_tasks", {})
+    runs = [r for r in runs if r.get("task") not in excluded_tasks]
     executed = [r for r in runs if r.get("status") in EXECUTED]
     not_run = [r for r in runs if r.get("status") not in EXECUTED]
     by_task = defaultdict(lambda: defaultdict(list))
@@ -230,6 +234,7 @@ def build(sessions, root: Path, out_name="benchmark-report"):
             "equivalent_builds": equiv},
             "excluded_runs_other_build": [f"{r['_session']}/{r.get('run_id')}" for r in other_build],
             "excluded_runs_other_claude_code": [f"{r['_session']}/{r.get('run_id')}" for r in other_cc],
+            "excluded_tasks": excluded_tasks,
             "aggregate": agg, "per_agent": per_agent, "per_category": per_cat, "per_task": per_task,
             "validation": validation,
             "runs": [{k: v for k, v in r.items() if not k.startswith("_")} | {"tools": (r.get("_tel") or {}).get("tools"),
@@ -254,6 +259,8 @@ def render_md(d):
           f"Sessions: {', '.join(d['sessions'])}.", ""]
     if d["excluded_runs_other_build"]:
         L += [f"Excluded: {len(d['excluded_runs_other_build'])} Token Forge runs of other plugin builds (listed in the JSON report).", ""]
+    for tid, why in (d.get("excluded_tasks") or {}).items():
+        L += [f"Excluded task `{tid}`: {why}", ""]
     L += ["## Executive summary", ""]
     ts = a["token_savings_percent"]
     if ts:

@@ -1,0 +1,11 @@
+{
+  "id": "php-api",
+  "title": "Build the boxoffice event-ticketing JSON API in PHP",
+  "category": "greenfield",
+  "language": "php",
+  "rubric": "coding",
+  "timeout_s": 2400,
+  "relevant_files": [],
+  "allowed_change_globs": ["**"],
+  "reference_diff_lines": 1057
+}

@@ -1,0 +1,11 @@
+{
+  "id": "elixir-app",
+  "title": "Build the jobq persistent job queue (OTP app + CLI) in Elixir",
+  "category": "greenfield",
+  "language": "elixir",
+  "rubric": "coding",
+  "timeout_s": 2400,
+  "relevant_files": [],
+  "allowed_change_globs": ["**"],
+  "reference_diff_lines": 921
+}
