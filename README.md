@@ -1,11 +1,11 @@
 <br/>
 <div align="center">
     <h1 align="center">
-        tokenforge
+        TokenForge
     </h1>
     <br>
     <a href="https://github.com/chteau/tokenforge">
-        <img src="assets/brand/tokenforge-logo.svg" alt="tokenforge logo" width="100">
+        <img src="assets/brand/tokenforge-logo.svg" alt="TokenForge logo" width="100">
     </a>
     <br>
     <br>
@@ -18,6 +18,12 @@
         <img src="https://img.shields.io/badge/macOS-000000?style=for-the-badge&logo=apple&logoColor=white" alt="macOS Badge" />
         <img src="https://img.shields.io/badge/Windows-0078D4?style=for-the-badge&logo=windows&logoColor=white" alt="Windows Badge" />
         <img src="https://img.shields.io/badge/License-MIT-green?style=for-the-badge" alt="MIT License Badge" />
+    </div>
+    <div align="center">
+        <a href="https://github.com/chteau/tokenforge/stargazers"><img src="https://img.shields.io/github/stars/chteau/tokenforge?style=flat-square&color=d16a47" alt="GitHub stars" /></a>
+        <a href="https://github.com/chteau/tokenforge/releases"><img src="https://img.shields.io/github/downloads/chteau/tokenforge/total?style=flat-square&label=downloads&color=d16a47" alt="Release downloads" /></a>
+        <a href="https://github.com/chteau/tokenforge/releases/latest"><img src="https://img.shields.io/github/v/release/chteau/tokenforge?style=flat-square&color=d16a47" alt="Latest release" /></a>
+        <a href="https://github.com/chteau/tokenforge/commits/master"><img src="https://img.shields.io/github/last-commit/chteau/tokenforge?style=flat-square" alt="Last commit" /></a>
     </div>
     <br/>
 </div>
