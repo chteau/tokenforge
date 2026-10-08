@@ -8,7 +8,7 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { detect } from '../hooks/prompt-router.mjs';
 import { existingBinary } from '../lib/tmapbin.mjs';
-import { rewrite, readReason, denyReason, routeCommand } from '../hooks/kit-router.mjs';
+import { toolFirst, rewrite, readReason, denyReason, routeCommand } from '../hooks/kit-router.mjs';
 
 // Hooks under test must never touch the developer's real Claude Code settings (session start applies the
 // first-run lean default there).
@@ -23,7 +23,7 @@ let seq = 0;
 const sid = () => `hk${process.pid}x${Date.now()}x${seq++}`;
 
 function run(hook, input, env = {}) {
-  const r = spawnSync('node', [HOOK(hook)], { input: JSON.stringify(input), encoding: 'utf8', env: { ...BASE_ENV, ...env } });
+  const r = spawnSync('node', [HOOK(hook)], { input: JSON.stringify(input), encoding: 'utf8', env: { ...BASE_ENV, TFORGE_TOOLS_FIRST: '0', ...env } });
   assert.equal(r.status, 0, r.stderr);
   return r.stdout ? JSON.parse(r.stdout).hookSpecificOutput : null;
 }
@@ -638,4 +638,19 @@ test('diagnose: counts skill and MCP calls from transcripts, lists long skills',
   const d = diagnose({ files: { [t]: { mtime: Date.now() } } });
   assert.deepEqual(d.skills.map((s) => [s.name, s.uses, s.tokens > d.longTokens]), [['wordy', 1, true]]);
   assert.deepEqual(d.mcps.map((m) => [m.name, m.uses]), [['idle', 0], ['used', 1]]);
+});
+
+test('toolFirst: raw code reads get the tread form, focused/other commands pass', () => {
+  assert.match(toolFirst('grep -rn foo src | head'), /tread/);
+  assert.match(toolFirst('rg foo'), /tread/);
+  assert.match(toolFirst('sed -n 40,70p src/a.rs'), /tread src\/a\.rs:40-70/);
+  assert.match(toolFirst('cat src/a.rs'), /tread/);
+  for (const c of ['grep -n x a.rs', 'ls | grep x', 'cat Cargo.lock', 'tail -5 app.log', 'cat > x.rs', 'tread a.rs', 'cat a.rs <<EOF\nx\nEOF']) assert.equal(toolFirst(c), null, c);
+});
+
+test('toolFirst end to end: denied once, repeat runs', () => {
+  const input = { session_id: 'tf-' + Math.random(), tool_name: 'Bash', tool_input: { command: 'cat src/a.rs' }, cwd: '/tmp' };
+  const run = () => spawnSync('node', [HOOK('kit-router.mjs')], { input: JSON.stringify(input), encoding: 'utf8', env: BASE_ENV }).stdout;
+  assert.match(run(), /tread src\/a\.rs/);
+  assert.equal(run(), '');
 });

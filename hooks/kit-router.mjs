@@ -496,6 +496,26 @@ export function routeCommand(cmd, { cwd, permissionMode } = {}) {
 const HEREDOC_WRITE = /(^|[;&\n]\s*)cat\s+>\s*\S+\s*<<-?\s*(['"]?)(\w+)\2[^\n]*\n[\s\S]*?\n\s*\3[ \t]*(?=\n|$)/g;
 export const onlyHeredocWrites = (cmd) => HEREDOC_WRITE.test(cmd) && !cmd.replace(HEREDOC_WRITE, '$1').replace(/[\s;&]+/g, '');
 
+// Our tools first: a raw read of code in Bash is refused once with the tread form; repeating the identical command runs it.
+export function toolFirst(cmd) {
+  if (/(^|[\s;&|(])(tkit|tread|tview|tmap)\s/.test(cmd) || cmd.includes('<<')) return null;
+  for (const [seg] of splitSegments(cmd) || []) {
+    const first = splitPipes(seg)[0];
+    const t = tokenize(first);
+    if (!t) continue;
+    const words = t.filter((x) => !x.startsWith('-'));
+    const exe = exeName(t[0]);
+    const files = words.slice(1).filter((x) => !/^\d+(,\d+)?p?$/.test(x));
+    if ((exe === 'rg' || (exe === 'grep' && t.some((x) => /^-[a-zA-Z]*[rR]|^--recursive/.test(x)))) && files.length)
+      return 'tokenforge: use `tread "path:/regex/"` (the definition around each match, several paths/patterns per call) instead of a recursive grep. Names: `tread NAME path`.';
+    if (exe === 'sed' && t.includes('-n') && t.every((x) => !/^-i|^--in-place/.test(x)) && words.length >= 3 && /^\d+,\d+p$/.test(words[1]))
+      return `tokenforge: use \`tread ${words[2]}:${words[1].slice(0, -1).replace(',', '-')}\` (batch several ranges in one call) instead of sed -n.`;
+    if (['cat', 'head'].includes(exe) && !seg.includes('>') && files.length === 1 && /\.(rs|[jt]sx?|mjs|py|go|java|kt|c|cc|cpp|h|hpp|cs|rb|php|swift|lua|luau|sh|toml|ya?ml|md)$/.test(files[0]) && !BULK.test(files[0]))
+      return `tokenforge: use \`tread ${files[0]}\` (or \`tread ${files[0]}:40-80\`, \`tread NAME ${files[0]}\`) instead of ${exe}.`;
+  }
+  return null;
+}
+
 async function onBash(input) {
   const ti = input.tool_input || {};
   const cmd = String(ti.command || '');
@@ -527,6 +547,8 @@ async function onBash(input) {
   const { onBashGrep, onDefGrep } = await import('./code-redirect.mjs');
   onDefGrep(input);
   if (process.env.TFORGE_REDIRECT === '1') onBashGrep(input);
+  const tf = toolFirst(cmd);
+  if (tf && !process.stdout.bytesWritten && process.env.TFORGE_TOOLS_FIRST !== '0' && !seenBefore(input.session_id, `toolfirst\0${cmd}`, 'kit')) deny('PreToolUse', tf + '\nRepeating the identical command runs it as is.');
 }
 
 // Claude Code saves oversized Bash output under .../tool-results/ and shows a preview; reading the
