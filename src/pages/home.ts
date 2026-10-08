@@ -93,7 +93,7 @@ export function home(view: HTMLElement): void {
       <div class="chart-box" id="db-existing"></div>
       <details class="data"><summary>Data table: all ${a.tasks} tasks</summary>${resultsTable()}</details>
     </article>
-    <p class="pcap">${a.tasks} tasks, ${a.scratchTasks} from-scratch projects in ${scratchLangs} languages. ${MODEL_NAME} on both sides, checked in every API response. Medians of 1–3 runs per side.${worse.length ? ` Quality was lower on one task (${worse.map((t) => t.label).join(', ')}): every hidden test passes, the design checks score lower.` : ''} <a href="#/benchmark">Method and caveats →</a></p>
+    <p class="pcap">${a.tasks} tasks, ${a.scratchTasks} from-scratch projects in ${scratchLangs} languages. ${MODEL_NAME} on both sides, checked in every API response. Medians of 1–3 runs per side.${worse.length ? ` Quality was lower on ${worse.length === 1 ? 'one task' : `${worse.length} tasks`} (${worse.map((t) => t.label).join(', ')}): every hidden test passes, the structural checks score lower.` : ''} <a href="#/benchmark">Method and caveats →</a></p>
   </section>
 
   <section class="psec" id="install">

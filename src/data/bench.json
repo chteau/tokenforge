@@ -5,7 +5,7 @@
   "claude-opus-5-5"
  ],
  "apiModels": {
-  "claude-opus-5-5": 59
+  "claude-opus-5-5": 75
  },
  "runsWithOtherModels": 0,
  "contaminatedRuns": 0,
@@ -13,23 +13,24 @@
  "tokenforgeVersion": "0.7.0",
  "defaultLean": "balanced",
  "aggregate": {
-  "tasks": 26,
-  "runs": 59,
-  "medianSavings": 51.51,
-  "meanSavings": 49.49,
-  "pooledSavings": 51.28,
+  "tasks": 34,
+  "runs": 75,
+  "medianSavings": 53.28,
+  "meanSavings": 50.06,
+  "pooledSavings": 51.71,
   "minSavings": 9.98,
   "maxSavings": 75.41,
-  "medianPriceWeighted": 31.21,
-  "medianToolCallReduction": 40,
-  "tasksCheaper": 26,
+  "medianPriceWeighted": 29.09,
+  "medianToolCallReduction": 49,
+  "tasksCheaper": 34,
   "tasksCostlier": 0,
   "firstRequestOverhead": -6735,
-  "scratchMedian": 53.275000000000006,
+  "scratchMedian": 54.75,
   "existingMedian": 46.51,
-  "scratchTasks": 16,
+  "scratchTasks": 24,
   "existingTasks": 10,
   "qualityWorse": [
+   "perl-cli",
    "banking-transfers"
   ]
  },
@@ -385,6 +386,74 @@
    "qualityDiff": 0
   },
   {
+   "id": "fsharp-cli",
+   "group": "scratch",
+   "label": "F# expense splitter (.NET)",
+   "short": "F# splitter",
+   "title": "Build the tally expense-splitting CLI in F# (.NET 8)",
+   "category": "greenfield",
+   "language": "F#",
+   "runs": {
+    "native": 1,
+    "tokenforge": 1
+   },
+   "native": {
+    "total": 847361,
+    "inputEq": 352428,
+    "requests": 18,
+    "toolCalls": 26,
+    "firstContext": 19523,
+    "quality": 97.5,
+    "output": 41657
+   },
+   "tokenforge": {
+    "total": 324094,
+    "inputEq": 252188,
+    "requests": 8,
+    "toolCalls": 7,
+    "firstContext": 12788,
+    "quality": 100,
+    "output": 34239
+   },
+   "savings": 61.75,
+   "savingsPriceWeighted": 28.44,
+   "qualityDiff": 2.5
+  },
+  {
+   "id": "ocaml-cli",
+   "group": "scratch",
+   "label": "OCaml assembler + VM (dune)",
+   "short": "OCaml VM",
+   "title": "Build the asm stack-machine assembler, disassembler and VM in OCaml",
+   "category": "greenfield",
+   "language": "OCaml",
+   "runs": {
+    "native": 1,
+    "tokenforge": 1
+   },
+   "native": {
+    "total": 683629,
+    "inputEq": 276596,
+    "requests": 16,
+    "toolCalls": 15,
+    "firstContext": 19696,
+    "quality": 97,
+    "output": 32308
+   },
+   "tokenforge": {
+    "total": 270095,
+    "inputEq": 209575,
+    "requests": 7,
+    "toolCalls": 6,
+    "firstContext": 12958,
+    "quality": 100,
+    "output": 28675
+   },
+   "savings": 60.49,
+   "savingsPriceWeighted": 24.23,
+   "qualityDiff": 3
+  },
+  {
    "id": "banking-web",
    "group": "existing",
    "label": "TS filters + CSV export",
@@ -419,6 +488,40 @@
    "qualityDiff": 0
   },
   {
+   "id": "lua-cli",
+   "group": "scratch",
+   "label": "Lua template engine",
+   "short": "Lua templates",
+   "title": "Build the tpl Mustache-style template engine CLI in Lua",
+   "category": "greenfield",
+   "language": "Lua",
+   "runs": {
+    "native": 1,
+    "tokenforge": 1
+   },
+   "native": {
+    "total": 780703,
+    "inputEq": 322983,
+    "requests": 16,
+    "toolCalls": 15,
+    "firstContext": 19943,
+    "quality": 100,
+    "output": 37990
+   },
+   "tokenforge": {
+    "total": 322560,
+    "inputEq": 261006,
+    "requests": 7,
+    "toolCalls": 6,
+    "firstContext": 13205,
+    "quality": 100,
+    "output": 36092
+   },
+   "savings": 58.68,
+   "savingsPriceWeighted": 19.19,
+   "qualityDiff": 0
+  },
+  {
    "id": "rust-cli",
    "group": "existing",
    "label": "Rust CLI feature",
@@ -450,6 +553,74 @@
    },
    "savings": 58.2,
    "savingsPriceWeighted": 43.63,
+   "qualityDiff": 0
+  },
+  {
+   "id": "zig-cli",
+   "group": "scratch",
+   "label": "Zig JSON toolkit",
+   "short": "Zig JSON",
+   "title": "Build the zj JSON toolkit CLI in Zig",
+   "category": "greenfield",
+   "language": "Zig",
+   "runs": {
+    "native": 1,
+    "tokenforge": 1
+   },
+   "native": {
+    "total": 964673,
+    "inputEq": 337901,
+    "requests": 21,
+    "toolCalls": 22,
+    "firstContext": 19118,
+    "quality": 97.07,
+    "output": 36645
+   },
+   "tokenforge": {
+    "total": 411503,
+    "inputEq": 237387,
+    "requests": 12,
+    "toolCalls": 11,
+    "firstContext": 12380,
+    "quality": 97.07,
+    "output": 28971
+   },
+   "savings": 57.34,
+   "savingsPriceWeighted": 29.75,
+   "qualityDiff": 0
+  },
+  {
+   "id": "r-cli",
+   "group": "scratch",
+   "label": "R survey statistics",
+   "short": "R survey",
+   "title": "Build the surveystat survey statistics CLI in R",
+   "category": "greenfield",
+   "language": "R",
+   "runs": {
+    "native": 1,
+    "tokenforge": 1
+   },
+   "native": {
+    "total": 659615,
+    "inputEq": 293618,
+    "requests": 15,
+    "toolCalls": 14,
+    "firstContext": 20063,
+    "quality": 97.07,
+    "output": 35339
+   },
+   "tokenforge": {
+    "total": 285403,
+    "inputEq": 254448,
+    "requests": 7,
+    "toolCalls": 6,
+    "firstContext": 13322,
+    "quality": 97.07,
+    "output": 35694
+   },
+   "savings": 56.73,
+   "savingsPriceWeighted": 13.34,
    "qualityDiff": 0
   },
   {
@@ -553,6 +724,40 @@
    "savings": 52.42,
    "savingsPriceWeighted": 30.25,
    "qualityDiff": 0
+  },
+  {
+   "id": "elixir-app",
+   "group": "scratch",
+   "label": "Elixir job queue (GenServer)",
+   "short": "Elixir queue",
+   "title": "Build the jobq persistent job queue (OTP app + CLI) in Elixir",
+   "category": "greenfield",
+   "language": "Elixir",
+   "runs": {
+    "native": 1,
+    "tokenforge": 1
+   },
+   "native": {
+    "total": 540060,
+    "inputEq": 238946,
+    "requests": 15,
+    "toolCalls": 14,
+    "firstContext": 18889,
+    "quality": 96.94,
+    "output": 28478
+   },
+   "tokenforge": {
+    "total": 266851,
+    "inputEq": 199003,
+    "requests": 8,
+    "toolCalls": 7,
+    "firstContext": 12157,
+    "quality": 100,
+    "output": 27063
+   },
+   "savings": 50.59,
+   "savingsPriceWeighted": 16.72,
+   "qualityDiff": 3.0600000000000023
   },
   {
    "id": "python-cli",
@@ -827,6 +1032,40 @@
    "qualityDiff": 3.3299999999999983
   },
   {
+   "id": "perl-cli",
+   "group": "scratch",
+   "label": "Perl config linter + merger",
+   "short": "Perl config",
+   "title": "Build the cfgmerge INI/.env config linter and merger in Perl",
+   "category": "greenfield",
+   "language": "Perl",
+   "runs": {
+    "native": 1,
+    "tokenforge": 1
+   },
+   "native": {
+    "total": 597805,
+    "inputEq": 313943,
+    "requests": 12,
+    "toolCalls": 14,
+    "firstContext": 19643,
+    "quality": 100,
+    "output": 39538
+   },
+   "tokenforge": {
+    "total": 376785,
+    "inputEq": 318804,
+    "requests": 7,
+    "toolCalls": 6,
+    "firstContext": 12917,
+    "quality": 97,
+    "output": 44569
+   },
+   "savings": 36.97,
+   "savingsPriceWeighted": -1.55,
+   "qualityDiff": -3
+  },
+  {
    "id": "banking-transfers",
    "group": "existing",
    "label": "Scheduled transfers (TS, multi-layer)",
@@ -859,6 +1098,40 @@
    "savings": 33.41,
    "savingsPriceWeighted": 19.87,
    "qualityDiff": -6
+  },
+  {
+   "id": "haskell-cli",
+   "group": "scratch",
+   "label": "Haskell spreadsheet evaluator",
+   "short": "Haskell sheet",
+   "title": "Build the cells spreadsheet formula evaluator in Haskell",
+   "category": "greenfield",
+   "language": "Haskell",
+   "runs": {
+    "native": 1,
+    "tokenforge": 1
+   },
+   "native": {
+    "total": 599458,
+    "inputEq": 310549,
+    "requests": 12,
+    "toolCalls": 11,
+    "firstContext": 19466,
+    "quality": 100,
+    "output": 38833
+   },
+   "tokenforge": {
+    "total": 402001,
+    "inputEq": 290622,
+    "requests": 9,
+    "toolCalls": 8,
+    "firstContext": 12734,
+    "quality": 100,
+    "output": 39638
+   },
+   "savings": 32.94,
+   "savingsPriceWeighted": 6.42,
+   "qualityDiff": 0
   },
   {
    "id": "c-cli",

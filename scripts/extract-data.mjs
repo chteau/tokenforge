@@ -24,6 +24,9 @@ const SCRATCH = {
   'java-http': 'Java URL shortener (JDK HTTP)', 'php-api': 'PHP ticketing API (SQLite)', 'swift-cli': 'Swift cron tool (SwiftPM)',
   'dart-cli': 'Dart habit tracker', 'bash-tool': 'Bash backup rotation', 'c-cli': 'C CSV query tool (Make)',
   'kotlin-cli': 'Kotlin Markdown converter',
+  'zig-cli': 'Zig JSON toolkit', 'elixir-app': 'Elixir job queue (GenServer)', 'haskell-cli': 'Haskell spreadsheet evaluator',
+  'ocaml-cli': 'OCaml assembler + VM (dune)', 'lua-cli': 'Lua template engine', 'r-cli': 'R survey statistics',
+  'fsharp-cli': 'F# expense splitter (.NET)', 'perl-cli': 'Perl config linter + merger',
 };
 const EXISTING = {
   'cross-module-debug': 'Cross-module debugging (TS)', 'go-feature': 'Go scheduled notifications', 'banking-web': 'TS filters + CSV export',
@@ -38,8 +41,10 @@ const SHORT = {
   'refactor': 'Rust refactor', 'architecture': 'Architecture',
   'java-http': 'Java shortener', 'php-api': 'PHP API', 'swift-cli': 'Swift cron', 'dart-cli': 'Dart habits', 'bash-tool': 'Bash backups',
   'c-cli': 'C CSV tool', 'kotlin-cli': 'Kotlin Markdown', 'ruby-cli': 'Ruby logs',
+  'zig-cli': 'Zig JSON', 'elixir-app': 'Elixir queue', 'haskell-cli': 'Haskell sheet', 'ocaml-cli': 'OCaml VM',
+  'lua-cli': 'Lua templates', 'r-cli': 'R survey', 'fsharp-cli': 'F# splitter', 'perl-cli': 'Perl config',
 };
-const LANG = { rust: 'Rust', go: 'Go', typescript: 'TypeScript', javascript: 'JavaScript', python: 'Python', cpp: 'C++', csharp: 'C#', luau: 'Luau', java: 'Java', php: 'PHP', swift: 'Swift', dart: 'Dart', bash: 'Bash', c: 'C', kotlin: 'Kotlin', ruby: 'Ruby' };
+const LANG = { rust: 'Rust', go: 'Go', typescript: 'TypeScript', javascript: 'JavaScript', python: 'Python', cpp: 'C++', csharp: 'C#', luau: 'Luau', java: 'Java', php: 'PHP', swift: 'Swift', dart: 'Dart', bash: 'Bash', c: 'C', kotlin: 'Kotlin', ruby: 'Ruby', zig: 'Zig', elixir: 'Elixir', haskell: 'Haskell', ocaml: 'OCaml', lua: 'Lua', r: 'R', fsharp: 'F#', perl: 'Perl' };
 
 const median = (xs) => {
   const s = [...xs].sort((a, b) => a - b);
