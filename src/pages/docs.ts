@@ -231,7 +231,7 @@ ${pre('TFORGE_RAW=1 cargo test')}
 
 <h2>Context budget</h2>
 <p><strong>Events:</strong> PostToolUse, UserPromptSubmit. <strong>Off:</strong> <code>TFORGE_WATCH=0</code>.</p>
-<p>The budget is 50k tokens of context per call, or the session’s fixed part plus 15k if that is larger. The warning is shown to you. It reaches Claude only with <code>TFORGE_WATCH_INJECT=1</code>. Over the budget, your next message is held once with a <code>/clear</code> suggestion. Send the same message again, or any slash command, and it goes through.</p>
+<p>The budget is 50k tokens of context per call, or the session’s fixed part plus 15k if that is larger. The warning is shown to you. It reaches Claude only with <code>TFORGE_WATCH_INJECT=1</code>. Over the budget your messages are never held: you get one alert per 10k step, and <code>.forge/HANDOFF.md</code> is written automatically from the session’s snapshots (no model call), so <code>/clear</code> at any moment loses nothing. A handoff you wrote yourself is never overwritten. <code>TFORGE_AUTO_HANDOFF=0</code> turns it off.</p>
 
 <h2>Snapshots</h2>
 <p><strong>Event:</strong> Stop (after every reply). Writes <code>.forge/snapshots/</code> from the transcript; costs no tokens. <strong>Off:</strong> <code>TFORGE_CHECKPOINT=0</code>.</p>
