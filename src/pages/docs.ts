@@ -17,6 +17,13 @@ export const DOCS: Doc[] = [
 ${pre('/plugin marketplace add chteau/tokenforge\n/plugin install tokenforge@tokenforge')}
 <p><strong>Requirements:</strong> Claude Code and Node.js 18 or newer. Subscription (OAuth) logins and API keys both work. The <code>tmap</code> indexer needs a release binary for your platform, or Rust to build one.</p>
 <p>Plugins load only when Claude Code starts. Start a new session after installing. <code>/clear</code> does not reload plugins.</p>
+<h2>What you’ll see</h2>
+<p>Nothing to learn: it works on its own, in the terminal and in Claude Desktop.</p>
+<ul>
+  <li>Every new session starts with <code>TokenForge: active · lean balanced · replies full · dashboard …</code>. The first three sessions add a short walkthrough. This line is shown to you only and costs no tokens (<code>TFORGE_BANNER=0</code> hides it).</li>
+  <li>After <code>/clear</code>: <code>TokenForge: checkpoint saved (… ago)</code>, and whether a handoff was reloaded.</li>
+  <li>No permission prompts for TokenForge’s own read-only tools (<code>tread</code>, <code>tview</code>, <code>tkit ctx</code>/<code>check</code>/<code>test</code>, <code>tforge recall</code>). Edits, network and remote tools still ask. <code>TFORGE_AUTO_ALLOW=0</code> turns this off.</li>
+</ul>
 
 <h2>What happens on first start</h2>
 <ul>
