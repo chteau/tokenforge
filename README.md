@@ -378,7 +378,7 @@ Workers run with `--permission-mode acceptEdits` and only `Read`, `Write` and `E
 
 ## Benchmark
 
-`bench/` holds a reproducible A/B benchmark: clean Claude Code against Claude Code with tokenforge only, on the same model, tasks, repo commits and toolchains. It has 10 realistic tasks (Rust, Go, TypeScript; features, debugging, PR review, architecture tracing, refactoring), each with hidden tests or a hidden answer key and a validated reference solution. Every run is sandboxed: an empty `HOME` and config dir, no MCP, and a preflight contamination audit. Token counts come from the API usage in every transcript, tokenforge's own overhead and nested calls included.
+`bench/` holds a reproducible A/B benchmark: clean Claude Code against Claude Code with tokenforge only, on the same model, tasks, repo commits and toolchains. It has 10 tasks in existing codebases (Rust, Go, TypeScript; features, debugging, PR review, architecture tracing, refactoring) and 25 from-scratch projects in 24 languages, each with hidden tests or a hidden answer key and a validated reference solution. Every run is sandboxed: an empty `HOME` and config dir, no MCP, and a preflight contamination audit. Token counts come from the API usage in every transcript, tokenforge's own overhead and nested calls included.
 
 ```
 cd bench
@@ -388,6 +388,15 @@ python3 runner/bench.py run --all
 ```
 
 Results go to `bench/reports/benchmark-report.md`. See [bench/README.md](bench/README.md) for the method, metrics and scoring.
+
+**Experiments that did not ship** (TokenForge-only variants, one run per task, kept apart from the main results):
+
+| Variant | Tasks | Total tokens vs default | Quality | Verdict |
+|---|---|---|---|---|
+| `TFORGE_PLAN=brief` (policy line: plan briefly) | C, Kotlin, Java, Swift | −13% (−22%, −28%, +13%, +15%) | one drop (Kotlin 100 → 96) | mixed; opt-in only |
+| `CLAUDE_CODE_EFFORT_LEVEL=medium` | C, Kotlin, Java, Swift, PHP, Go feature | −5% (−36%, −12%, +5%, +23%, −9%, +17%) | unchanged | within run-to-run noise; not shipped |
+
+Where output tokens go, across all default TokenForge runs: about 51% thinking, 46% code and commands Claude writes, 2% visible replies. Replies are already short, and the code is the work itself, so planning is the only large lever left, and neither variant moved it reliably.
 
 ## Development
 

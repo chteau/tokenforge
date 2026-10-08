@@ -3206,6 +3206,163 @@
         "completed",
         "completed"
       ]
+    },
+    "2026-10-08T13-25-17-4a5f": {
+      "session": "2026-10-08T13-25-17-4a5f",
+      "seed": 254479,
+      "benchmark_version": "1.0.0",
+      "model": "claude-opus-5-5",
+      "claude_code_version": "2.1.293",
+      "token_forge_version": "0.7.0",
+      "max_tokens": 6000000,
+      "warn_tokens": 3000000,
+      "max_budget_usd": 8.0,
+      "jobs": 1,
+      "canonical_commits": {
+        "c-cli": "d7eefa5dd64b3dc88bfa7e82926754456e04d33f"
+      },
+      "run_order": [
+        "c-cli-token-forge-r1"
+      ],
+      "started": "2026-10-08T13:25:17.276929+00:00",
+      "finished": "2026-10-08T13:30:24.385997+00:00",
+      "statuses": [
+        "completed"
+      ]
+    },
+    "2026-10-08T13-27-32-35b7": {
+      "session": "2026-10-08T13-27-32-35b7",
+      "seed": 489246,
+      "benchmark_version": "1.0.0",
+      "model": "claude-opus-5-5",
+      "claude_code_version": "2.1.293",
+      "token_forge_version": "0.7.0",
+      "max_tokens": 6000000,
+      "warn_tokens": 3000000,
+      "max_budget_usd": 8.0,
+      "jobs": 1,
+      "canonical_commits": {
+        "kotlin-cli": "d7b784fbef370a6f619e9101d5a968c87e633dee"
+      },
+      "run_order": [
+        "kotlin-cli-token-forge-r1"
+      ],
+      "started": "2026-10-08T13:27:32.515990+00:00",
+      "finished": "2026-10-08T13:32:42.335776+00:00",
+      "statuses": [
+        "completed"
+      ]
+    },
+    "2026-10-08T13-37-21-e086": {
+      "session": "2026-10-08T13-37-21-e086",
+      "seed": 590113,
+      "benchmark_version": "1.0.0",
+      "model": "claude-opus-5-5",
+      "claude_code_version": "2.1.293",
+      "token_forge_version": "0.7.0",
+      "max_tokens": 6000000,
+      "warn_tokens": 3000000,
+      "max_budget_usd": 8.0,
+      "jobs": 1,
+      "canonical_commits": {
+        "java-http": "3afa630720a62ddec28205f9f2b46bc0720c9a80"
+      },
+      "run_order": [
+        "java-http-token-forge-r1"
+      ],
+      "started": "2026-10-08T13:37:21.116841+00:00"
+    },
+    "2026-10-08T13-39-59-37b4": {
+      "session": "2026-10-08T13-39-59-37b4",
+      "seed": 811816,
+      "benchmark_version": "1.0.0",
+      "model": "claude-opus-5-5",
+      "claude_code_version": "2.1.293",
+      "token_forge_version": "0.7.0",
+      "max_tokens": 6000000,
+      "warn_tokens": 3000000,
+      "max_budget_usd": 8.0,
+      "jobs": 1,
+      "canonical_commits": {
+        "swift-cli": "49c53aa0657549bda8ebe86134f97509d344268d"
+      },
+      "run_order": [
+        "swift-cli-token-forge-r1"
+      ],
+      "started": "2026-10-08T13:39:59.567001+00:00",
+      "finished": "2026-10-08T13:43:36.674396+00:00",
+      "statuses": [
+        "completed"
+      ]
+    },
+    "2026-10-08T13-39-59-fd7d": {
+      "session": "2026-10-08T13-39-59-fd7d",
+      "seed": 409438,
+      "benchmark_version": "1.0.0",
+      "model": "claude-opus-5-5",
+      "claude_code_version": "2.1.293",
+      "token_forge_version": "0.7.0",
+      "max_tokens": 6000000,
+      "warn_tokens": 3000000,
+      "max_budget_usd": 8.0,
+      "jobs": 1,
+      "canonical_commits": {
+        "java-http": "3afa630720a62ddec28205f9f2b46bc0720c9a80"
+      },
+      "run_order": [
+        "java-http-token-forge-r1"
+      ],
+      "started": "2026-10-08T13:39:59.566480+00:00",
+      "finished": "2026-10-08T13:46:08.856706+00:00",
+      "statuses": [
+        "completed"
+      ]
+    },
+    "2026-10-08T13-46-08-b8ed": {
+      "session": "2026-10-08T13-46-08-b8ed",
+      "seed": 82882,
+      "benchmark_version": "1.0.0",
+      "model": "claude-opus-5-5",
+      "claude_code_version": "2.1.293",
+      "token_forge_version": "0.7.0",
+      "max_tokens": 6000000,
+      "warn_tokens": 3000000,
+      "max_budget_usd": 8.0,
+      "jobs": 1,
+      "canonical_commits": {
+        "go-feature": "155d9acbd98c060badf50a32ed3841e6db7edd48"
+      },
+      "run_order": [
+        "go-feature-token-forge-r1"
+      ],
+      "started": "2026-10-08T13:46:09.158901+00:00",
+      "finished": "2026-10-08T13:50:26.498294+00:00",
+      "statuses": [
+        "completed"
+      ]
+    },
+    "2026-10-08T13-46-08-d601": {
+      "session": "2026-10-08T13-46-08-d601",
+      "seed": 62312,
+      "benchmark_version": "1.0.0",
+      "model": "claude-opus-5-5",
+      "claude_code_version": "2.1.293",
+      "token_forge_version": "0.7.0",
+      "max_tokens": 6000000,
+      "warn_tokens": 3000000,
+      "max_budget_usd": 8.0,
+      "jobs": 1,
+      "canonical_commits": {
+        "php-api": "2694b515735a8e48f1e9acf06f4da2c775529851"
+      },
+      "run_order": [
+        "php-api-token-forge-r1"
+      ],
+      "started": "2026-10-08T13:46:08.938897+00:00",
+      "finished": "2026-10-08T13:51:10.643960+00:00",
+      "statuses": [
+        "completed"
+      ]
     }
   },
   "token_forge_build": {
@@ -3325,7 +3482,13 @@
     "2026-10-08T12-23-21-b402/c-cli-token-forge+plan-brief-r1",
     "2026-10-08T12-23-21-c6e2/kotlin-cli-token-forge+plan-brief-r1",
     "2026-10-08T12-28-30-4300/swift-cli-token-forge+plan-brief-r1",
-    "2026-10-08T12-28-30-5ec4/java-http-token-forge+plan-brief-r1"
+    "2026-10-08T12-28-30-5ec4/java-http-token-forge+plan-brief-r1",
+    "2026-10-08T13-25-17-4a5f/c-cli-token-forge+effort-medium-r1",
+    "2026-10-08T13-27-32-35b7/kotlin-cli-token-forge+effort-medium-r1",
+    "2026-10-08T13-39-59-37b4/swift-cli-token-forge+effort-medium-r1",
+    "2026-10-08T13-39-59-fd7d/java-http-token-forge+effort-medium-r1",
+    "2026-10-08T13-46-08-b8ed/go-feature-token-forge+effort-medium-r1",
+    "2026-10-08T13-46-08-d601/php-api-token-forge+effort-medium-r1"
   ],
   "excluded_runs_other_claude_code": [],
   "excluded_tasks": {
