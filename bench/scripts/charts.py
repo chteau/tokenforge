@@ -32,6 +32,8 @@ GREENFIELD = ["rust-tui", "vite-landing", "go-mock-api", "python-cli", "ts-lib",
               "java-http", "php-api", "swift-cli", "dart-cli", "bash-tool", "c-cli", "kotlin-cli"]
 EXISTING = ["cross-module-debug", "rust-cli", "pr-review", "architecture", "rust-debug", "banking-transfers", "go-api", "go-feature", "banking-web", "refactor"]
 BUILD = json.loads((BENCH / "environments" / "token-forge" / "manifest.json").read_text()).get("plugin_sha256")
+# builds the config declares equivalent for the default comparison (same model context) count as the build under test
+BUILDS = {BUILD, *json.loads((BENCH / "benchmark.config.json").read_text())["token_forge"].get("equivalent_builds", {})}
 # Measured fixed context per request: first-request context of a one-word prompt in a git repo, settings written
 # by `tforge lean <level>` (Claude Code 2.1.293, Opus 5.5).
 FLOOR = [("off (Claude Code)", 16929), ("lean on", 11933), ("balanced (default)", 9738), ("lean max", 5755), ("lean ultra", 4401)]
@@ -262,7 +264,7 @@ def final_chart(rs, tasks, title, subtitle):
         if r["agent"] == "native":
             nat.setdefault(r["task"], []).append(r["total_tokens"])
         elif (r["agent"] == "token-forge" and not r.get("variant") and r["lean"] == "balanced"
-              and r.get("token_forge_plugin_sha256") == BUILD):
+              and r.get("token_forge_plugin_sha256") in BUILDS):
             tf.setdefault(r["task"], []).append(r["total_tokens"])
     tasks = sorted((t for t in tasks if t in nat and t in tf), key=lambda t: st.median(nat[t]))
     if not tasks:

@@ -37,6 +37,11 @@ export function kitPolicy() {
     ...(process.env.TFORGE_LAZY !== '0'
       ? ['Scope: do every stated requirement, nothing extra (no unasked features, docs, refactors, deps or abstractions); reuse existing helpers/patterns. Write concise, readable code: no boilerplate, dead code or comments that restate it. Bug: fix the shared function all callers use, once. Infer, don\'t ask. Once relevant checks pass, stop and answer.']
       : []),
+    // Experimental (bench variant "plan-brief"): in write-heavy tasks a 20k+ token upfront plan was re-sent with every
+    // later call, ~40% of the total. Opt-in until measured: TFORGE_PLAN=brief.
+    ...(process.env.TFORGE_PLAN === 'brief'
+      ? ['Planning: think briefly (key decisions only), then write; let the files carry the detail. Re-plan only when a check fails.']
+      : []),
   ].join('\n');
 }
 

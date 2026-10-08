@@ -272,7 +272,7 @@ def preflight(cfg, env, sb, repo: Path, claude_args: list[str], penv: dict, hist
         findings += _settings_findings(managed)
     # 5. process environment
     for k in penv:
-        if (k.startswith(("TFORGE_", "TMAP_", "TS_")) and not (env == "token-forge" and k in ("TFORGE_RECALL", "TFORGE_LAZY"))) or (k.startswith("CLAUDE_") and k not in ("CLAUDE_CONFIG_DIR", "CLAUDE_CODE_OAUTH_TOKEN")):
+        if (k.startswith(("TFORGE_", "TMAP_", "TS_")) and not (env == "token-forge" and k in ("TFORGE_RECALL", "TFORGE_LAZY", "TFORGE_PLAN"))) or (k.startswith("CLAUDE_") and k not in ("CLAUDE_CONFIG_DIR", "CLAUDE_CODE_OAUTH_TOKEN")):
             findings.append(f"env var {k} set")
     for p in penv["PATH"].split(":"):
         if any(n in p.lower() for n in PROHIBITED_NAMES):

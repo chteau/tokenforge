@@ -432,3 +432,14 @@ test('session start: no dashboard auto-start in headless sessions (claude -p, SD
   }
   assert.ok(!fs.existsSync(path.join(dir, 'tokenforge', 'ui.json')) && !fs.existsSync(path.join(dir, '.cache', 'tokenforge', 'ui.json')));
 });
+
+test('no URL.pathname used as a file path (breaks on Windows: /C:/...)', () => {
+  const root = path.join(HERE, '..');
+  for (const dir of ['lib', 'hooks', 'bin']) {
+    for (const f of fs.readdirSync(path.join(root, dir))) {
+      const p = path.join(root, dir, f);
+      if (!fs.statSync(p).isFile()) continue;
+      assert.doesNotMatch(fs.readFileSync(p, 'utf8'), /import\.meta\.url\)\.pathname/, `${dir}/${f}`);
+    }
+  }
+});

@@ -15,6 +15,25 @@ jobs:
       - run: node --test test/*.test.mjs
       - name: CLI smoke test
         run: node bin/tforge --version && node bin/tforge --help
+  windows-smoke:
+    # Node tests run on Linux/macOS; on Windows, at least load every module and start the dashboard.
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Import every lib module
+        shell: bash
+        run: for f in lib/*.mjs; do node -e "import('./$f').catch(e => { console.error('$f', e); process.exit(1) })" || exit 1; done
+      - name: CLI and dashboard
+        shell: bash
+        run: |
+          node bin/tforge --version
+          node bin/tforge ui --detach
+          for i in $(seq 20); do node bin/tforge ui --status | grep -q "running at http://127.0.0.1" && break; sleep 1; done
+          node bin/tforge ui --status | grep "running at http://127.0.0.1"
+          node bin/tforge ui --stop
   tmap:
     strategy:
       matrix:
