@@ -198,7 +198,7 @@ ${pre('tread Ledger.add src/cli.rs:40-80 "src/store.rs:/fn save/"')}
 <ul>
   <li>Interactive <code>ssh HOST</code>.</li>
   <li>Reading a saved tool output of 8k+ (<code>tool-results/*.txt</code>) whole. It points to <code>grep -n</code> / <code>sed -n</code>.</li>
-  <li>Reads inside <code>node_modules</code>, <code>~/.cargo/registry</code>, Go <code>pkg/mod</code>, <code>~/.m2</code>, <code>~/.nuget</code>, wally and pub caches. Use <code>tkit deps api</code>.</li>
+  <li>Whole-file dumps (<code>cat</code>, <code>less</code>, whole-file Read) inside <code>node_modules</code>, <code>~/.cargo/registry</code>, Go <code>pkg/mod</code>, <code>~/.m2</code>, <code>~/.nuget</code>, wally and pub caches. Use <code>tkit deps api</code>. Focused <code>grep</code>/<code>sed -n</code>/<code>head</code> slices there go through.</li>
 </ul>
 <p>Anything else runs unchanged.</p>
 <h3>Escape hatches</h3>
