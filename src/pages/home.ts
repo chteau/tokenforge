@@ -41,19 +41,19 @@ export function home(view: HTMLElement): void {
 
   <section class="psec" id="levers">
     <p class="plabel">What it changes</p>
-    <h2>Five ways it saves, all on by default.</h2>
+    <h2>Five changes, active from the first session.</h2>
     <ol class="ladder">
       <li><span><b>Smaller floor.</b> <span class="d">Lean levels hide tools and built-in skills a coding session rarely needs: ${fmtK(off, true)} → ${fmtK(bal, true)} per request by default.</span></span></li>
       <li><span><b>Fewer round trips.</b> <span class="d">One-call reads with <code>tread</code>, batched edits. Median ${Math.round(a.medianToolCallReduction)}% fewer tool calls.</span></span></li>
       <li><span><b>Smaller tool results.</b> <span class="d">Broad dumps fold, long lines are cut, build and test output is compacted to failures.</span></span></li>
       <li><span><b>Nothing asked twice.</b> <span class="d">Past sessions are searched with <code>tforge recall</code>; a repeated question is answered at zero tokens.</span></span></li>
-      <li><span><b>Less code.</b> <span class="d">Every stated requirement, nothing extra. Lazy, not negligent.</span></span></li>
+      <li><span><b>Only what was asked.</b> <span class="d">Every stated requirement is met; unrequested extras are left out.</span></span></li>
     </ol>
   </section>
 
   <section class="psec" id="numbers">
     <p class="plabel">Benchmark</p>
-    <h2>Fewer tokens. Same quality.</h2>
+    <h2>Measured on 19 real tasks, not estimated.</h2>
     <div class="pstats">
       <div class="hi"><div class="n">${Math.round(a.medianSavings)}%</div><div class="l">fewer tokens (median)</div></div>
       <div><div class="n">${a.tasksCheaper}/${a.tasks}</div><div class="l">tasks cheaper</div></div>
@@ -75,7 +75,7 @@ export function home(view: HTMLElement): void {
 
   <section class="psec" id="install">
     <p class="plabel">Install</p>
-    <h2>Two lines in Claude Code.</h2>
+    <h2>Add the marketplace, install, restart.</h2>
     <pre class="term" data-copy><code>/plugin marketplace add chteau/tokenforge
 /plugin install tokenforge@tokenforge</code></pre>
     <div class="pothers">
@@ -89,7 +89,7 @@ export function home(view: HTMLElement): void {
 
   <section class="psec" id="commands">
     <p class="plabel">Commands</p>
-    <h2>Drive it from chat.</h2>
+    <h2>Everything it adds, in one table.</h2>
     <div class="card ptable"><table>
       <tr><td><code>/tokenforge:lean on|balanced|max|ultra|off</code></td><td>set the lean level</td></tr>
       <tr><td><code>/tokenforge:terse full|lite|off</code></td><td>reply style</td></tr>
@@ -104,7 +104,7 @@ export function home(view: HTMLElement): void {
 
   <section class="psec" id="levels">
     <p class="plabel">Lean levels</p>
-    <h2>Pick how lean.</h2>
+    <h2>Choose what each request carries.</h2>
     <div class="plevels">${LEVELS.map((l) => `<div class="card plvl${l.k === 'balanced' ? ' def' : ''}">${l.k === 'balanced' ? '<span class="badge">default</span>' : ''}<h3>${l.k}</h3><span class="tok">${fmtK(data.lean.find((x) => x.level === l.k)?.tokens ?? 0, true)} / request</span><p>${l.p}</p></div>`).join('')}</div>
     <article class="card" style="margin-top:18px">
       <p class="sub">Fixed context per request, before any work happens. Measured on Claude Code ${data.claudeCodeVersion}.</p>
@@ -116,7 +116,7 @@ export function home(view: HTMLElement): void {
 
   <section class="pend">
     <img src="${base}logo.svg" alt="" width="56" height="56">
-    <p class="q">the cheapest token is the one never sent.</p>
+    <p class="q">Spend tokens on the work, not on re-reading it.</p>
     <div class="btns"><a class="btn primary" href="#install" data-jump>Install</a><a class="btn" href="#/docs/install">Read the docs</a></div>
   </section>`;
 
