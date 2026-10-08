@@ -14,6 +14,7 @@ const HELP: &str = "Run tests; print a summary line plus ONLY the failures (loca
   FILTER   test name filter (rust: substring, go: -run regex, js: -t, dotnet: --filter, py: -k, dart: --name)
   -p PKG   rust: -p crate | go: package pattern (default ./...) | dotnet: project path | js/py/dart: test file/path
   -n N     show at most N failures (default 10)        --raw  print the runner's full output instead
+  --failed rerun only what failed last time (rust, py)
 
 Runners: rust cargo test | go go test -json | ts vitest/jest (json) or bun test / node --test
   java/kotlin maven surefire or gradle test (JUnit XML) | cpp ctest / meson test / make check
@@ -48,6 +49,7 @@ pub fn main(args: Vec<String>) -> i32 {
             "-n" => ctx.nmax = val(&mut it, "-n").parse().unwrap_or_else(|_| die(T, "-n needs a number", 2)),
             "-C" => chdir = Some(val(&mut it, "-C")),
             "--raw" => ctx.opt.raw = true,
+            "--failed" => ctx.failed = true,
             o if o.starts_with('-') => die(T, &format!("unknown option {o}"), 2),
             _ => ctx.flt = Some(x),
         }
@@ -60,6 +62,14 @@ pub fn main(args: Vec<String>) -> i32 {
     let (root, stacks) = find_root(Path::new("."), want.as_deref());
     let Some(root) = root else { die(T, "no project manifest found here or above", 2) };
     ctx.root = root;
+    if ctx.failed {
+        if stacks.iter().any(|s| *s != "rust" && *s != "py") {
+            die(T, "--failed supports rust and py projects", 2);
+        }
+        if stacks.contains(&"py") {
+            ctx.extra.push("--lf".into());
+        }
+    }
     let tmp = std::env::temp_dir().join(format!(
         "kit-test-{}-{}",
         std::process::id(),
@@ -148,6 +158,16 @@ pub fn rust_report(out: &str, err: &str, rc: i32, secs: f64, nmax: usize) -> Vec
     o
 }
 
+/// Where the failing test names of the last rust run are kept (per project root).
+fn failed_file(root: &Path) -> PathBuf {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    root.hash(&mut h);
+    let dir = crate::kit::util::cache_home().join("tokenforge").join("failed");
+    let _ = std::fs::create_dir_all(&dir);
+    dir.join(format!("{:x}.txt", h.finish()))
+}
+
 fn rust(ctx: &Ctx) -> i32 {
     let cargo = need("cargo", "cargo not found");
     let sel: Vec<String> = match &ctx.pkg {
@@ -170,8 +190,20 @@ fn rust(ctx: &Ctx) -> i32 {
     let mut cmd = vec![cargo, "test".into(), "--no-fail-fast".into()];
     cmd.extend(sel);
     cmd.extend(ctx.flt.clone());
+    let store = failed_file(&ctx.root);
+    if ctx.failed {
+        let names = std::fs::read_to_string(&store).unwrap_or_default();
+        if names.trim().is_empty() {
+            println!("rust: no failures recorded from the last run");
+            return 0;
+        }
+        cmd.push("--".into());
+        cmd.extend(names.lines().map(String::from));
+    }
     cmd.extend(ctx.extra.iter().cloned());
     let o = run(&cmd, &ctx.root, 900);
+    let failed: Vec<&str> = re!(r"(?m)^---- (.+?) stdout ----$").captures_iter(&o.stdout).map(|c| c.get(1).unwrap().as_str()).collect();
+    let _ = std::fs::write(&store, failed.join("\n"));
     if raw_or(ctx, &format!("{}\n{}", o.stdout, o.stderr)) {
         return o.code;
     }

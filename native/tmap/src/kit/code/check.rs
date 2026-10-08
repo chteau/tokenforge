@@ -9,7 +9,7 @@ use std::time::Instant;
 
 const HELP: &str = "Build / typecheck / lint the current project; one normalized line per diagnostic.
 
-  tmap kit check [-l STACK] [--fast] [--lint] [--changed] [-e] [-a] [-C DIR]
+  tmap kit check [-l STACK] [-p PKG] [--fast] [--lint] [--changed] [-e] [-a] [-C DIR]
 
   -l STACK   only this stack: rust go ts cs luau dart py java cpp php ruby swift elixir zig scala latex
              (default: all found at the nearest manifest)
@@ -54,6 +54,7 @@ pub fn main(args: Vec<String>) -> i32 {
             "--lint" => ctx.opt.lint = true,
             "--changed" => ctx.opt.changed = true,
             "-e" => ctx.opt.errors_only = true,
+            "-p" => ctx.pkg = Some(it.next().unwrap_or_else(|| die(T, "-p needs a value", 2))),
             _ => die(T, &format!("unknown arg {x}"), 2),
         }
     }
@@ -182,7 +183,8 @@ fn rust(ctx: &Ctx, d: &mut Diags, used: &mut Vec<String>) {
     let clippy = !ctx.opt.fast && run(&[&cargo, "clippy", "--version"], &ctx.root, 30).code == 0;
     let sub = if clippy { "clippy" } else { "check" };
     used.push(format!("cargo {sub}"));
-    let o = run(&[&cargo, sub, "--workspace", "--all-targets", "--message-format=json"], &ctx.root, 900);
+    let scope = ctx.pkg.as_deref().map_or(vec!["--workspace"], |p| vec!["-p", p]);
+    let o = run(&[&[&cargo, sub], &scope[..], &["--all-targets", "--message-format=json"]].concat(), &ctx.root, 900);
     parse_cargo(d, &o.stdout, &ctx.root, false, true);
     if o.code != 0 && d.count("E") == 0 {
         d.add("", 0, 0, "E", "cargo", &tail(&o.stderr, 6), None);

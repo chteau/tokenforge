@@ -18,7 +18,9 @@ pub mod http;
 pub mod img;
 pub mod jx;
 pub mod pdf;
+pub mod batch;
 pub mod port;
+pub mod run;
 pub mod ssh;
 pub mod tab;
 pub mod tally;
@@ -46,6 +48,8 @@ pub const TOOLS: &[(&str, Tool, &str)] = &[
     ("img", img::main, "image info | fit | crop | grid | diff"),
     ("http", http::main, "HTTP request with a compact response"),
     ("port", port::main, "who listens on a port, --kill"),
+    ("batch", batch::main, "several independent commands in one call, each output compacted and labelled"),
+    ("run", run::main, "any command with compact output: no colours/progress, repeats collapsed, capped, full log saved"),
     ("ssh", ssh::main, "ssh without prompts, capped output, reused connection"),
     ("web", web::main, "web page outline | -s terms | -n section | --ask question"),
 ];

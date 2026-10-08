@@ -8,6 +8,7 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { detect } from '../hooks/prompt-router.mjs';
 import { existingBinary } from '../lib/tmapbin.mjs';
+import { rewrite, readReason, denyReason, routeCommand } from '../hooks/kit-router.mjs';
 
 // Hooks under test must never touch the developer's real Claude Code settings (session start applies the
 // first-run lean default there).
@@ -128,7 +129,7 @@ test('kit router: ssh/scp become tkit ssh in bypass sessions, interactive ssh an
 });
 
 test('kit router: uncovered commands, escape hatches and switches pass through', () => {
-  for (const c of ['ls -la', 'cargo build --release', 'npm test -- --watch', 'cargo test > out.txt', 'echo cargo test', 'git status', 'ssh -T git@github.com'])
+  for (const c of ['ls -la', 'cargo run', 'npm test -- --watch', 'cargo test > out.txt', 'echo cargo test', 'ssh -T git@github.com'])
     assert.equal(bash(c), null, c);
   assert.equal(bash('TFORGE_RAW=1 cargo test'), null);
   assert.equal(bash('TS_RAW=1 cargo test'), null);
@@ -256,10 +257,10 @@ test('session start: short efficiency policy, also for subagents, with switches'
   const policy = ctx.slice(ctx.indexOf('tokenforge: tool results'));
   assert.match(policy, /tread NAME/);
   assert.match(policy, /tkit test \[FILTER\]/);
-  assert.ok(policy.length < 960, `policy is ${policy.length} chars`);
+  assert.ok(policy.length < 1070, `policy is ${policy.length} chars`);
   assert.match(policy, /every stated requirement, nothing extra/);
   assert.doesNotMatch(ss({}, { TFORGE_LAZY: '0' }).additionalContext, /nothing extra/);
-  assert.ok(ctx.length < 1260, `whole session-start context is ${ctx.length} chars`);
+  assert.ok(ctx.length < 1400, `whole session-start context is ${ctx.length} chars`);
   assert.doesNotMatch(ss({}, { TFORGE_KIT_POLICY: '0' }).additionalContext, /tool results are re-read/);
   assert.doesNotMatch(ss({}, { TFORGE_KIT_HOOKS: '0' }).additionalContext, /tool results are re-read/);
   assert.match(ss({}, { TFORGE_TERSE: '0' }).additionalContext, /^tokenforge: tool results/, 'terse off keeps the policy');
@@ -497,7 +498,7 @@ test('session start after /clear: compact checkpoint (bounded) is reloaded when 
   assert.doesNotMatch(cp, /add monthly budgets/, 'only the last two requests');
   assert.match(cp, /src\/f9\.rs/);
   assert.doesNotMatch(cp, /src\/f10\.rs/, 'at most 10 files');
-  assert.ok(cp.length <= 900, `checkpoint is ${cp.length} chars`);
+  assert.ok(cp.length <= 1200, `checkpoint is ${cp.length} chars`);
   assert.match(out.systemMessage, /checkpoint saved[\s\S]*Reloaded: Claude continues/);
   assert.doesNotMatch(go({ TFORGE_CLEAR_RELOAD: '0' }).hookSpecificOutput?.additionalContext || '', /tokenforge checkpoint/);
   fs.writeFileSync(path.join(dir, '.forge', 'HANDOFF.md'), '# handoff\nnext: tests');
@@ -560,4 +561,81 @@ test('context budget: the handoff is written automatically from this session\'s 
   fs.writeFileSync(path.join(dir, '.forge', 'HANDOFF.md'), '# my own handoff\nnext: q2');
   assert.equal(autoHandoff(dir, sidv, 260000), false, "the user's handoff is kept");
   assert.match(fs.readFileSync(path.join(dir, '.forge', 'HANDOFF.md'), 'utf8'), /my own handoff/);
+});
+
+test('kit router: a definition grep in any Bash segment points to tread; cargo check -p becomes tkit check -p', () => {
+  const sid = `def-${Date.now()}`;
+  const cmd = 'cd ~/.cargo/registry/src/x && grep -rn "pub struct ExternalPaths" -A6 src | head -12; ls';
+  const run1 = () => run('kit-router.mjs', { tool_name: 'Bash', session_id: sid, cwd: os.tmpdir(), tool_input: { command: cmd } });
+  assert.match(JSON.stringify(run1()), /tread ExternalPaths/);
+  assert.equal(run1(), null);
+  assert.match(rewrite(['cargo', 'check', '-p', 'rbx_import']), /tkit check -l rust -p rbx_import --fast/);
+  assert.equal(rewrite(['npm', 'install']), 'tkit run npm install');
+  assert.equal(rewrite(['git', 'status']), 'git status -sb');
+  assert.equal(rewrite(['find', '.', '-name', '*.rs']), "tkit run -n 150 find . -name '*.rs'");
+  assert.equal(rewrite(['find', '.', '-delete']), null);
+  assert.equal(rewrite(['git', 'diff', '--staged']), 'tkit run -n 300 git --no-pager diff -U1 --staged');
+  assert.equal(rewrite(['git', 'diff', '-p']), null);
+  assert.equal(rewrite(['curl', '-s', '-X', 'POST', 'http://localhost:3000/a', '-d', '{"a":1}']), `tkit http POST http://localhost:3000/a '{"a":1}'`);
+  assert.equal(rewrite(['curl', '-o', 'f', 'http://x.io']), null);
+  assert.ok(denyReason('npm init') && !denyReason('npm init -y') && denyReason('sudo apt-get install foo') && !denyReason('apt-get install -y foo'));
+  assert.ok(routeCommand('ls src | grep x', {}) === null && routeCommand('find . -name a | wc -l', {}) === null);
+  assert.equal(rewrite(['git', 'log']), 'git --no-pager log --oneline -n 20');
+  assert.equal(rewrite(['git', 'log', '-p']), null);
+  assert.ok(readReason('/p/package-lock.json', false) && !readReason('/p/package-lock.json', true) && !readReason('/p/src/a.js', false));
+  assert.equal(rewrite(['docker', 'logs', '--tail', '50', 'web']), "tkit run --fuzzy docker logs --tail 50 web");
+  assert.equal(rewrite(['docker', 'logs', '-f', 'web']), null);
+  assert.equal(rewrite(['kubectl', 'logs', '-f', 'pod']), null);
+  assert.equal(rewrite(['cargo', 'build', '--release']), 'tkit run cargo build --release');
+});
+
+test('kit router: cat > file <<EOF is refused once with the tkit edit hint', () => {
+  const sid = `hd-${Date.now()}`;
+  const cmd = "cat > shell/a.rs <<'EOF'\nfn a() {}\nEOF";
+  const run1 = () => run('kit-router.mjs', { tool_name: 'Bash', session_id: sid, cwd: os.tmpdir(), tool_input: { command: cmd } });
+  assert.match(JSON.stringify(run1()), /tkit edit/);
+  assert.equal(run1(), null);
+});
+
+test('kit router: a heredoc script that is run in the same call is allowed', () => {
+  const cmd = "cat > /tmp/a.py <<'E'\nprint(1)\nE\npython3 -I /tmp/a.py";
+  assert.equal(bash(cmd), null);
+  assert.match(JSON.stringify(bash("cat > a.rs <<'E'\nfn a(){}\nE\ncat > b.rs <<'E'\nfn b(){}\nE")), /tkit edit/);
+});
+
+test('checkpoint: request graph links each request to its edits, reads, commands and outcome', async () => {
+  const { render, fold } = await import('../hooks/checkpoint.mjs');
+  const f = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'tfg-')), 't.jsonl');
+  const ev = (o) => JSON.stringify(o);
+  fs.writeFileSync(f, [
+    ev({ type: 'user', timestamp: '2026-10-08T10:00:00Z', message: { content: 'fix the parser bug' } }),
+    ev({ type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Read', input: { file_path: '/p/a.rs' } }, { type: 'tool_use', name: 'Edit', input: { file_path: '/p/b.rs' } }, { type: 'tool_use', name: 'Bash', input: { command: 'cargo test' } }, { type: 'text', text: 'Fixed in b.rs.' }] } }),
+  ].join('\n') + '\n');
+  const out = render(fold(f, {}).chunk, 'sid12345', '/p');
+  assert.match(out, /- R1 "fix the parser bug" \| edit: b\.rs \| read: a\.rs \| ran: cargo test \| said: Fixed in b\.rs\./);
+});
+
+test('checkpoints and handoffs live at the git root, not in the subfolder Claude was started in', async () => {
+  const { projectRoot } = await import('../lib/util.mjs');
+  const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'tf-root-'));
+  fs.mkdirSync(path.join(repo, '.git'));
+  fs.mkdirSync(path.join(repo, 'crates', 'a', 'src'), { recursive: true });
+  assert.equal(projectRoot(path.join(repo, 'crates', 'a', 'src')), repo);
+  const plain = fs.mkdtempSync(path.join(os.tmpdir(), 'tf-plain-'));
+  assert.equal(projectRoot(plain), plain);
+});
+
+test('diagnose: counts skill and MCP calls from transcripts, lists long skills', async () => {
+  const fs = await import('node:fs'), os = await import('node:os'), path = await import('node:path');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tf-diag-'));
+  fs.mkdirSync(path.join(dir, 'skills', 'wordy'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'skills', 'wordy', 'SKILL.md'), `---\nname: wordy\ndescription: ${'long '.repeat(200)}\n---\nbody`);
+  fs.writeFileSync(path.join(dir, '.claude.json'), JSON.stringify({ mcpServers: { used: {}, idle: {} } }));
+  const t = path.join(dir, 's.jsonl');
+  fs.writeFileSync(t, '{"name":"Skill","input":{"skill":"wordy"}}\n{"name":"mcp__used__q","input":{}}\n');
+  process.env.CLAUDE_CONFIG_DIR = dir;
+  const { diagnose } = await import('../lib/diagnose.mjs?' + Date.now());
+  const d = diagnose({ files: { [t]: { mtime: Date.now() } } });
+  assert.deepEqual(d.skills.map((s) => [s.name, s.uses, s.tokens > d.longTokens]), [['wordy', 1, true]]);
+  assert.deepEqual(d.mcps.map((m) => [m.name, m.uses]), [['idle', 0], ['used', 1]]);
 });

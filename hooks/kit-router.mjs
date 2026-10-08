@@ -71,10 +71,55 @@ export function rewrite(t) {
     if (args.length === 2 && remote[0] && !remote[1]) return kit('ssh', 'get', ...args);
     return null;
   }
+  // Unbounded history/status become one line per item; anything with options or paths is left as is.
+  if (exe === 'git' && sub === 'status' && t.length === 2) return 'git status -sb';
+  if (exe === 'git' && sub === 'log' && t.length === 2) return 'git --no-pager log --oneline -n 20';
+  // Noisy but unparsed commands: same arguments, output squeezed by `tkit run` (no colours/progress, repeats collapsed,
+  // capped, full log saved). Never followed/interactive forms (-f, --follow, -i, -w/--watch), which would hang or stream.
+  const live = t.some((a) => ['-f', '--follow', '-i', '-it', '-ti', '-w', '--watch', '--interactive'].includes(a) || /^-[a-z]*f[a-z]*$/.test(a) && exe !== 'docker');
+  if (!live) {
+    const noisy =
+      (['npm', 'pnpm', 'yarn', 'bun'].includes(exe) && ['install', 'i', 'ci', 'add'].includes(sub)) ||
+      (['pip', 'pip3'].includes(exe) && sub === 'install') ||
+      (/^python[0-9.]*$/.test(exe) && sub === '-m' && t[2] === 'pip' && t[3] === 'install') ||
+      (exe === 'cargo' && sub === 'build') ||
+      (exe === 'docker' && ['logs', 'build', 'pull'].includes(sub)) ||
+      (exe === 'kubectl' && sub === 'logs') ||
+      (exe === 'journalctl' && !t.includes('-n'));
+    const logs = (['docker', 'kubectl'].includes(exe) && sub === 'logs') || exe === 'journalctl';
+    if (noisy) return kit('run', ...(logs ? ['--fuzzy'] : []), ...t);
+    // unbounded listings and searches: capped, full list saved to a file
+    const bounded = t.some((a) => ['-c', '-l', '-L', '-q', '-m', '--count', '--files-with-matches', '--max-count', '-print0', '-maxdepth', '-quit'].includes(a));
+    const listing =
+      (exe === 'ls' && t.some((a) => /^-[a-zA-Z]*R/.test(a) || a === '--recursive')) ||
+      exe === 'tree' ||
+      (exe === 'find' && !t.some((a) => /^-(exec|execdir|delete|ok|fprint|print0|maxdepth|quit)/.test(a))) ||
+      false; // grep and rg stay with the code-redirect hook
+    if (listing && !bounded) return kit('run', '-n', '150', ...t);
+    // big diffs: 1 line of context instead of 3, capped
+    if (exe === 'git' && (sub === 'diff' || sub === 'show') && rest.every((a) => !a.startsWith('-') || a === '--staged' || a === '--cached'))
+      return kit('run', '-n', '300', 'git', '--no-pager', sub, '-U1', ...rest);
+  }
+  if (exe === 'curl') {
+    // plain `curl [-s|-S|-L] [-X METHOD] [-H 'K: V']... [-d BODY] URL` only
+    let method = '', body = '', url = '';
+    const hdr = [];
+    for (let i = 1; i < t.length; i++) {
+      const a = t[i];
+      if (['-s', '-S', '-sS', '-Ss', '-L', '-sL', '-sSL', '--silent', '--location', '--fail', '-f'].includes(a)) continue;
+      if (a === '-X' && t[i + 1]) method = t[++i];
+      else if (a === '-H' && t[i + 1]) hdr.push('-H', t[++i]);
+      else if ((a === '-d' || a === '--data') && t[i + 1] && !t[i + 1].startsWith('@')) body = t[++i];
+      else if (!a.startsWith('-') && !url) url = a;
+      else return null;
+    }
+    if (!url || !/^(https?:\/\/|localhost|:\d)/.test(url)) return null;
+    return kit('http', method || (body ? 'POST' : ''), url, body, ...hdr);
+  }
   if (exe === 'cargo' && (sub === 'check' || sub === 'clippy')) {
     const r = opts(rest, ['-p', '--package'], ['--workspace', '--all-targets', '--all', '--tests', '--lib', '--bins']);
-    if (!r || r[0].length || r[1]['-p'] || r[1]['--package']) return null;
-    return kit('check', '-l', 'rust', sub === 'check' ? '--fast' : '');
+    if (!r || r[0].length) return null;
+    return kit('check', '-l', 'rust', ...P([r[1]['-p'] || r[1]['--package']]), sub === 'check' ? '--fast' : '');
   }
   if (exe === 'cargo' && sub === 'test') {
     if (rest.includes('--')) return null;
@@ -239,6 +284,12 @@ export function denyReason(cmd) {
       'tokenforge: `ssh HOST` with no command opens an interactive shell, which hangs here. Run commands instead: ' +
       "`tkit ssh HOST 'CMD'` (capped output, no prompts, reused connection). Also: `tkit ssh hosts | check HOST | tail HOST FILE | svc HOST UNIT | get | put`."
     );
+  // Commands that stop to ask a question hang until the timeout: one wasted turn. Hint the non-interactive form.
+  const ask =
+    (/(^|[;&|]\s*)npm\s+init\s*($|[;&|])/.test(cmd) && 'npm init -y') ||
+    (/(^|[;&|]\s*)(sudo\s+)?apt(-get)?\s+(install|upgrade|dist-upgrade|remove|purge)\b(?![^;&|]*(\s-y\b|\s--yes\b|\s-qq\b))/.test(cmd) && 'apt-get -y …') ||
+    (/(^|[;&|]\s*)pip3?\s+uninstall\s/.test(cmd) && !/\s-y\b/.test(cmd) && 'pip uninstall -y …');
+  if (ask) return `tokenforge: this command may stop and wait for an answer, which hangs the call. Use the non-interactive form: \`${ask}\`.`;
   const reg = registryPkg(cmd);
   // Only whole-file dumps are refused. Focused reads (grep, rg, sed -n, head, tail, awk) are already small, and refusing
   // one costs a round trip that re-reads the whole context, more than the slice itself, and blocks the batch around it.
@@ -251,9 +302,14 @@ export function denyReason(cmd) {
   return null;
 }
 
-// Whole-file Read inside a dependency registry.
+// Lockfiles, minified bundles, source maps and build output: huge, no signal. Whole-file Reads are refused once.
+const BULK = /(^|[\\/])(package-lock\.json|yarn\.lock|pnpm-lock\.yaml|bun\.lockb?|Cargo\.lock|poetry\.lock|Pipfile\.lock|composer\.lock|Gemfile\.lock|go\.sum)$|\.(min\.(js|css)|map)$|[\\/](dist|build|target|\.next|__pycache__)[\\/]/;
+
+// Whole-file Read inside a dependency registry, or of a bulk generated file.
 export function readReason(file, sliced) {
   if (sliced) return null;
+  if (BULK.test(String(file || '')))
+    return `tokenforge: ${file} is a lockfile/minified/generated file: reading it whole is mostly noise. Grep it for the entry you need, or Read with offset/limit. Repeat this Read to load it whole.`;
   const reg = registryPkg(file);
   return reg
     ? `tokenforge: ${file} is dependency source. Use \`tkit deps api ${reg[0]} [SYMBOL]\` from the project dir (declaration, docs, members). ` +
@@ -404,6 +460,17 @@ export function routeCommand(cmd, { cwd, permissionMode } = {}) {
           continue;
         }
         kitcmd = rewrite(core);
+        // filters after a rewritten generic/git command would be dropped: leave piped commands alone
+        if (kitcmd && pipes.length > 1 && /^(tkit run|git )/.test(kitcmd)) kitcmd = null;
+        // `tkit run` wraps any command: only read-only ones may skip the permission prompt
+        if (kitcmd && /^tkit run/.test(kitcmd) && !readOnly(core)) onlyKit = false;
+        // opt-in: cap the output of any other plain command (TFORGE_CAP_ALL=1)
+        if (!kitcmd && process.env.TFORGE_CAP_ALL === '1' && pipes.length === 1 && !env.length && !redirFile &&
+            !['cd', 'export', 'source', 'tkit', 'tread', 'tview', 'tforge', 'tmap', 'vim', 'nano', 'less', 'top', 'htop', 'ssh', 'scp', 'sleep', 'echo', 'printf'].includes(exeName(core[0] || '')) &&
+            !core.some((x) => ['-f', '--follow', '-i', '-w', '--watch'].includes(x))) {
+          kitcmd = kit('run', '-n', '200', ...core);
+          if (!readOnly(core)) onlyKit = false;
+        }
       }
     }
     if (!kitcmd) {
@@ -425,6 +492,10 @@ export function routeCommand(cmd, { cwd, permissionMode } = {}) {
   return { command: out.join(''), notes, allow: true };
 }
 
+// `cat > f <<'EOF' ... EOF` blocks and nothing else; a script written and run in one call stays one call.
+const HEREDOC_WRITE = /(^|[;&\n]\s*)cat\s+>\s*\S+\s*<<-?\s*(['"]?)(\w+)\2[^\n]*\n[\s\S]*?\n\s*\3[ \t]*(?=\n|$)/g;
+export const onlyHeredocWrites = (cmd) => HEREDOC_WRITE.test(cmd) && !cmd.replace(HEREDOC_WRITE, '$1').replace(/[\s;&]+/g, '');
+
 async function onBash(input) {
   const ti = input.tool_input || {};
   const cmd = String(ti.command || '');
@@ -432,6 +503,10 @@ async function onBash(input) {
   const why = denyReason(cmd);
   if (why) {
     if (!seenBefore(input.session_id, `kitdeny\0${cmd}`, 'kit')) deny('PreToolUse', why + '\nRepeating the identical command runs it as is.');
+    return;
+  }
+  if (onlyHeredocWrites(cmd) && !seenBefore(input.session_id, `heredoc\0${cmd}`, 'kit')) {
+    deny('PreToolUse', 'tokenforge: write files with `tkit edit <<\'EOF\'` blocks `@@ path new` + `<<<`/`===`/`>>>` (many files, edits and new files in one atomic call) or the Write tool, not `cat > file <<EOF`. Repeating the identical command runs it as is.');
     return;
   }
   const r = routeCommand(cmd, { cwd: input.cwd, permissionMode: input.permission_mode });
@@ -445,10 +520,9 @@ async function onBash(input) {
     process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'allow' } }));
     return;
   }
-  if (process.env.TFORGE_REDIRECT === '1') {
-    const { onBashGrep } = await import('./code-redirect.mjs');
-    onBashGrep(input);
-  }
+  const { onBashGrep, onDefGrep } = await import('./code-redirect.mjs');
+  onDefGrep(input);
+  if (process.env.TFORGE_REDIRECT === '1') onBashGrep(input);
 }
 
 // Claude Code saves oversized Bash output under .../tool-results/ and shows a preview; reading the
@@ -482,12 +556,24 @@ function onRead(input) {
   if (why && !seenBefore(input.session_id, `kitread\0${ti.file_path}`, 'kit')) deny('PreToolUse', why);
 }
 
+// PowerShell (Windows): only plain one-line commands with nothing PowerShell-specific in them are routed
+// (cargo test, npm install, ssh ...). Quoting, variables, pipelines and script blocks are left alone.
+async function onPowerShell(input) {
+  const cmd = String((input.tool_input || {}).command || '');
+  if (!/^[\w .\/\\:=@%+,-]+$/.test(cmd) || RAW.test(cmd)) return;
+  const r = routeCommand(cmd, { cwd: input.cwd, permissionMode: input.permission_mode });
+  if (!r || seenBefore(input.session_id, `kitrw\0${cmd}`, 'kit')) return;
+  const out = { hookEventName: 'PreToolUse', permissionDecision: 'allow', updatedInput: { ...input.tool_input, command: r.command } };
+  process.stdout.write(JSON.stringify({ hookSpecificOutput: out }));
+}
+
 async function main() {
   if (kitHookOff('TFORGE_KIT_ROUTE')) return;
   const input = readInput();
   if (!input) return;
   try {
     if (input.tool_name === 'Bash') await onBash(input);
+    else if (input.tool_name === 'PowerShell') await onPowerShell(input);
     else if (input.tool_name === 'Read') onRead(input);
   } catch {
     // never block a tool call on the router's own errors

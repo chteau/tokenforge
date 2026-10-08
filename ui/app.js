@@ -437,10 +437,12 @@ async function settingsView() {
       <p class="sub">Under Balanced, Claude Code's built-in skills are hidden from Claude (about 115 tokens each, per request) but stay available as slash commands you type. Tick the ones Claude should still pick up by itself. Your own and plugin skills are never hidden.</p>
       <div class="skills">${h.builtinSkills.map((s) => `<label><input type="checkbox" data-skill="${esc(s)}" ${h.lean.skillsKeep.includes(s) ? 'checked' : ''}> ${esc(s)}</label>`).join('')}</div>
     </div>` : ''}
+    <div class="card" style="margin-top:18px" id="ctxdiag"><h2>Skills and MCP servers</h2><p class="sub">Checking…</p></div>
     <div class="card" style="margin-top:18px"><h2>Terse replies</h2>
       <p class="sub">Shorter prose between tool calls and in final answers. Code and anything written to files keep their normal style.</p>
       <div class="levels small">${[['full', 'Status lines and 1–3 line answers.'], ['lite', 'Short full sentences.'], ['off', 'Claude\'s normal style.']].map(([id, what]) => `<button class="level ${id === h.terse ? 'active' : ''}" data-terse="${id}"><span class="lv-name">${id}</span><span class="lv-what">${what}</span></button>`).join('')}</div>
     </div>`;
+  contextCard(view.querySelector('#ctxdiag'));
   const post = async (body) => {
     await fetch('/api/settings', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
     settingsView();
@@ -450,6 +452,26 @@ async function settingsView() {
   view.querySelectorAll('[data-skill]').forEach((c) =>
     c.addEventListener('change', () => post({ skillsKeep: [...view.querySelectorAll('[data-skill]:checked')].map((x) => x.dataset.skill) })),
   );
+}
+
+// Skills and MCP servers are listed in every request: show the wordy and the unused ones.
+async function contextCard(slot) {
+  try {
+    const [d, cmds] = await Promise.all([api('/api/context'), api('/api/commands').catch(() => [])]);
+    const long = d.skills.filter((s) => s.tokens > d.longTokens);
+    const idle = d.skills.filter((s) => !s.uses);
+    const mcpIdle = d.mcps.filter((m) => !m.uses);
+    const row = (a, b, c) => `<tr><td>${esc(a)}</td><td class="num">${b}</td><td class="num">${c}</td></tr>`;
+    const table = (head, rows) => (rows.length ? `<div class="scroll"><table><thead><tr><th>${head[0]}</th><th class="num">${head[1]}</th><th class="num">${head[2]}</th></tr></thead><tbody>${rows.join('')}</tbody></table></div>` : '<p class="sub">None.</p>');
+    slot.innerHTML = `<h2>Skills and MCP servers</h2>
+      <p class="sub">Each skill's name and description, and each MCP server's tools, are re-sent on every request. Based on the last ${d.days} days (${d.sessions} sessions). Shorten the description in its SKILL.md, or remove what nothing calls.</p>
+      <h3>Long skill descriptions (over ${d.longTokens} tokens)</h3>${table(['Skill', 'Tokens', 'Calls'], long.map((s) => row(s.name, s.tokens, s.uses)))}
+      <h3>Skills never called (${idle.length} of ${d.skills.length})</h3>${table(['Skill', 'Tokens', 'Calls'], idle.map((s) => row(s.name, s.tokens, 0)))}
+      <h3>Shell commands by result cost (60 newest sessions)</h3>${table(['Command', 'Est. tokens', 'Calls'], cmds.map((c) => row(c.cmd, comma(c.estTokens), c.calls)))}
+      <h3>MCP servers never called (${mcpIdle.length} of ${d.mcps.length})</h3>${table(['Server', 'Scope', 'Calls'], mcpIdle.map((m) => row(m.name, esc(m.scope), 0)))}`;
+  } catch {
+    slot.innerHTML = '<h2>Skills and MCP servers</h2><p class="sub">Could not read them.</p>';
+  }
 }
 
 async function projectsView() {

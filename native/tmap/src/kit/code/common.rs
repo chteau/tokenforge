@@ -53,6 +53,8 @@ pub struct Ctx {
     pub flt: Option<String>,
     /// test: runner args after `--`.
     pub extra: Vec<String>,
+    /// test: rerun only the failures of the last run (rust, py).
+    pub failed: bool,
     /// test: max failures shown.
     pub nmax: usize,
     /// deps/check: output line cap.

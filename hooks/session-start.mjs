@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { projectRoot } from '../lib/util.mjs';
 import { TERSE_RULES, readConfig, terseLevel, writeConfig } from '../lib/config.mjs';
 import { uiState } from '../lib/ui-control.mjs';
 import { SNAP_DIR, listSnapshots, parseSnapshot } from './checkpoint.mjs';
@@ -31,7 +32,7 @@ const MAP_HINT =
 export function kitPolicy() {
   if (kitHookOff('TFORGE_KIT_POLICY')) return null;
   return [
-    'tokenforge: tool results are re-read on every later call: keep them small, calls few. Read code in ONE call, not grep then sed: `tread NAME Type.method path:40-80 "path:/regex/"` prints definitions by name, line ranges, or the definition around each match, across files. Batch reads; edit each file in one call; create new files several per call (one Bash call with several heredocs).',
+    'tokenforge: tool results are re-read on every later call: keep them small, calls few. Read code in ONE call, not grep then sed: `tread NAME Type.method path:40-80 "path:/regex/"` prints definitions by name, line ranges, or the definition around each match, across files. Batch reads; edit each file in one call; create new files several per call (`tkit edit` `@@ path new`, not `cat >`). Independent shell commands: ONE `tkit batch "a" "b"`. No text between tool calls ("Now X."): just call the tool; text only in the final answer.',
     'Build/test output is compacted (tkit test [FILTER], tkit check). Changed code: run relevant checks once at the end. Read-only work: no checks. Don\'t re-run checks to double-check.',
     // "Lazy, not negligent" (adapted from ponytail without its challenge-the-requirement mode, which skips
     // requirements under hidden tests): full scope, nothing extra, concise but readable code. In bench/ runs Token
@@ -93,10 +94,10 @@ function handoff(cwd, source, sessionId) {
 }
 
 // After /clear with no fresh handoff: the latest checkpoint, cut to its essentials (last requests, files changed, start
-// of the last reply), at most ~900 characters. The full snapshots used to be re-read on every call (TFORGE_RECALL=inject);
+// of the last reply), at most ~1200 characters. The full snapshots used to be re-read on every call (TFORGE_RECALL=inject);
 // this bounded summary costs about 250 tokens per call of the cleared session. Off: TFORGE_CLEAR_RELOAD=0.
 const CLEAR_MAX_H = 12;
-const CLEAR_CHARS = 900;
+const CLEAR_CHARS = 1200;
 export function compactCheckpoint(cwd) {
   if (process.env.TFORGE_CLEAR_RELOAD === '0') return null;
   const snaps = listSnapshots(cwd);
@@ -111,9 +112,11 @@ export function compactCheckpoint(cwd) {
   const clip = (t, n) => (t.length > n ? t.slice(0, n - 1) + '…' : t);
   const reqs = section('Requests').split('\n').filter((l) => l.startsWith('- ')).slice(-2).map((l) => clip(l, 220));
   const files = section('Files changed').split('\n').filter((l) => l.startsWith('- ')).slice(0, 10);
-  const reply = clip(section('Last reply').replace(/\s+/g, ' '), 300);
+  const nodes = section('Graph').split('\n').filter((l) => l.startsWith('- R')).slice(-3);
+  const reply = nodes.length ? '' : clip(section('Last reply').replace(/\s+/g, ' '), 300);
   const out = [`tokenforge checkpoint (before /clear, ${s.when}). Continue from the last request; read files only when the next step needs them.`];
-  if (reqs.length) out.push('Last requests:', ...reqs);
+  if (nodes.length) out.push('Last requests (request -> files edited/read, commands, outcome):', ...nodes.map((l, i) => clip(l, i === nodes.length - 1 ? 520 : 300)));
+  else if (reqs.length) out.push('Last requests:', ...reqs);
   if (files.length) out.push('Files changed:', ...files);
   if (reply) out.push(`Last reply: ${reply}`);
   return out.length > 1 ? clip(out.join('\n'), CLEAR_CHARS) : null;
@@ -249,7 +252,7 @@ function main() {
   if (kit) parts.push(kit);
   let reloaded = false;
   if (input.source !== 'compact' && input.source !== 'resume') {
-    const cwd = input.cwd || process.cwd();
+    const cwd = projectRoot(input.cwd || process.cwd());
     const h = handoff(cwd, input.source, input.session_id);
     if (h) parts.push(h);
     if (input.source === 'clear' && !(h && h.includes('tokenforge handoff')) && process.env.TFORGE_RECALL !== 'inject') {
@@ -258,7 +261,7 @@ function main() {
     }
   }
   if (input.source === 'clear' && !unattended()) {
-    const c = clearNotice(input.cwd || process.cwd(), reloaded);
+    const c = clearNotice(projectRoot(input.cwd || process.cwd()), reloaded);
     if (c) notices.push(c);
   }
   const notice = notices.join('\n') || null;

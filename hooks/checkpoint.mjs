@@ -7,6 +7,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
+import { projectRoot } from '../lib/util.mjs';
+
 const CHUNK_PROMPTS = Number(process.env.TFORGE_SNAPSHOT_PROMPTS) || 6;
 const KEEP = Number(process.env.TFORGE_SNAPSHOT_KEEP) || 50;
 const PROMPT_CHARS = 500;
@@ -36,7 +38,10 @@ function userText(msg) {
   return c.filter((b) => b.type === 'text').map((b) => b.text).join('\n');
 }
 
-const newChunk = (n, ts) => ({ n, start: ts || null, end: ts || null, prompts: [], files: [], reply: '', ctx: 0 });
+const newChunk = (n, ts) => ({ n, start: ts || null, end: ts || null, prompts: [], files: [], reply: '', ctx: 0, turns: [] });
+const TURN_LIST = 8;
+const TURN_SAY = 300;
+const add = (list, x) => (x && !list.includes(x) && list.length < TURN_LIST ? list.push(x) : null);
 
 // Fold the transcript lines added since `state.offset` into state. Closed chunks go to state.closed
 // (the caller writes them once, then clears the list). Returns the new state.
@@ -78,12 +83,23 @@ export function fold(file, state) {
         if (!t.trim() || t.trimStart().startsWith('<')) continue;
         if (s.chunk.prompts.length >= CHUNK_PROMPTS) close(ts);
         s.chunk.prompts.push(clip(t, PROMPT_CHARS));
+        (s.chunk.turns ||= []).push({ p: clip(t.replace(/\s+/g, ' '), 140), edits: [], reads: [], ran: [], said: '' });
         s.chunk.start ||= ts;
         s.chunk.end = ts || s.chunk.end;
       } else if (e.type === 'assistant' && Array.isArray(e.message?.content)) {
         const text = e.message.content.filter((b) => b.type === 'text').map((b) => b.text).join('\n');
-        if (text.trim()) s.chunk.reply = clip(text, REPLY_CHARS);
+        const turn = s.chunk.turns?.at(-1);
+        if (text.trim()) {
+          s.chunk.reply = clip(text, REPLY_CHARS);
+          if (turn) turn.said = clip(text.replace(/\s+/g, ' '), TURN_SAY);
+        }
         for (const b of e.message.content) {
+          if (turn && b.type === 'tool_use') {
+            const f = b.input?.file_path || b.input?.notebook_path;
+            if (EDIT_TOOLS.has(b.name)) add(turn.edits, f);
+            else if (b.name === 'Read') add(turn.reads, f);
+            else if (b.name === 'Bash' && !/^\s*(ls|cd|pwd|echo)\b/.test(b.input?.command || '')) add(turn.ran, clip(String(b.input?.command || '').replace(/\s+/g, ' '), 70));
+          }
           const f = b.type === 'tool_use' && EDIT_TOOLS.has(b.name) && (b.input?.file_path || b.input?.notebook_path);
           if (f) s.chunk.files = [...s.chunk.files.filter((x) => x !== f), f].slice(-MAX_FILES);
         }
@@ -115,6 +131,11 @@ export function render(c, sid, cwd) {
     'Written by tokenforge from the transcript. Raw facts; .forge/HANDOFF.md holds decisions and next steps when present.',
   ];
   if (c.prompts.length) out.push('', '## Requests (oldest first)', ...c.prompts.map((p) => `- ${p.replace(/\n+/g, ' ')}`));
+  if (c.turns?.length) {
+    // one node per request, linked to the files it edited and read, the commands it ran and what was said
+    const list = (k, a) => (a.length ? ` | ${k}: ${a.map(rel).join(', ')}` : '');
+    out.push('', '## Graph (request -> edits | reads | ran | said)', ...c.turns.map((t, i) => `- R${i + 1} "${t.p}"${list('edit', t.edits)}${list('read', t.reads)}${list('ran', t.ran)}${t.said ? ` | said: ${t.said}` : ''}`));
+  }
   if (c.files.length) out.push('', '## Files changed', ...c.files.map((f) => `- ${rel(f)}`));
   if (c.reply) out.push('', '## Last reply', c.reply);
   return out.join('\n') + '\n';
@@ -156,6 +177,7 @@ function main() {
   if (process.env.TFORGE_CHECKPOINT === '0') return;
   const input = readStdin();
   if (!input.transcript_path || !input.cwd) return;
+  input.cwd = projectRoot(input.cwd);
   const sid = String(input.session_id || 'unknown').replace(/[^a-zA-Z0-9_-]/g, '');
   const dir = path.join(os.tmpdir(), `tokenforge-${process.getuid?.() ?? 'u'}`);
   const stateFile = path.join(dir, `${sid}.snap.json`);

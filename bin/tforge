@@ -5,6 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { EXAMPLE_PLAN, loadPlan, planPath, topoOrder } from '../lib/plan.mjs';
 import { buildSystemPrompt, buildTaskPrompt, runPlan } from '../lib/runner.mjs';
+import { commandCosts } from '../lib/insights.mjs';
 import { formatLedger, formatSessions, listTranscripts, meterLedger, meterSessions } from '../lib/meter.mjs';
 import { FORGE_DIR, fmtUsd, readJson } from '../lib/util.mjs';
 import { TERSE_LEVELS, configFile, terseLevel, writeConfig } from '../lib/config.mjs';
@@ -34,6 +35,7 @@ Usage: tforge <command> [options]
   meter [files...]     token usage of Claude Code sessions
       --last N           newest N sessions for this project (default 5)
       --all              all projects
+      --commands         rank Bash commands by what their results cost (pick what to route next)
       --json             machine-readable output
 
   terse [full|lite|off|status]  reply style injected at session start (saved in ~/.config/tokenforge)
@@ -67,6 +69,7 @@ function parseArgs(argv) {
     else if (a === '--no-integrate') o.noIntegrate = true;
     else if (a === '--last') o.last = Number(val());
     else if (a === '--all') o.all = true;
+    else if (a === '--commands') o.commands = true;
     else if (a === '--json') o.json = true;
     else if (a === '--detach') o.detach = true;
     else if (a === '--timeout') o.timeout = Number(val());
@@ -161,6 +164,11 @@ async function main() {
     case 'meter': {
       const files = o._.length ? o._.map((f) => path.resolve(f)) : listTranscripts({ cwd: root, all: o.all }).slice(0, o.last || 5);
       if (!files.length) throw new Error('no transcripts found (pass files, or use --all)');
+      if (o.commands) {
+        const rows = commandCosts(files);
+        if (o.json) return console.log(JSON.stringify(rows, null, 2));
+        return console.log(['cmd'.padEnd(24) + 'calls  est.tokens  avg result', ...rows.map((r) => r.cmd.padEnd(24) + String(r.calls).padStart(5) + String(r.estTokens).padStart(12) + String(r.avgResultTokens).padStart(12))].join('\n'));
+      }
       const rows = meterSessions(files);
       const ledger = meterLedger(root);
       if (o.json) return console.log(JSON.stringify({ sessions: rows, ledger }, null, 2));
