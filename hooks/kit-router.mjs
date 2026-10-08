@@ -232,7 +232,9 @@ export function denyReason(cmd) {
       "`tkit ssh HOST 'CMD'` (capped output, no prompts, reused connection). Also: `tkit ssh hosts | check HOST | tail HOST FILE | svc HOST UNIT | get | put`."
     );
   const reg = registryPkg(cmd);
-  if (reg && /(^|[;&|]\s*|\s)(cat|sed|head|tail|less|more|grep|rg|awk|bat|type)\s/.test(cmd))
+  // Only whole-file dumps are refused. Focused reads (grep, rg, sed -n, head, tail, awk) are already small, and refusing
+  // one costs a round trip that re-reads the whole context, more than the slice itself, and blocks the batch around it.
+  if (reg && /(^|[;&|]\s*|\s)(cat|less|more|bat|type)\s/.test(cmd))
     return (
       `tokenforge: dependency source. Use tkit from the project dir instead of reading the registry:\n` +
       `tkit deps api ${reg[0]} [SYMBOL]   (public API, or one item's declaration + docs + methods)\n` +

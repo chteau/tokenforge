@@ -107,7 +107,9 @@ test('kit router: ssh/scp become tkit ssh in bypass sessions, interactive ssh an
   assert.equal(bash(`python3 -c "p='a.py';s=open(p).read().replace('x','y');open(p,'w').write(s)"`), null);
   assert.equal(bash("python3 - <<'EOF'\nimport json\nd = json.load(open('a.json'))\njson.dump(d, open('a.json', 'w'))\nEOF"), null);
   assert.match(bash('cat node_modules/react/index.js').permissionDecisionReason, /tkit deps api react/);
-  assert.match(bash('grep -n Serialize ~/.cargo/registry/src/index.crates.io-6f17d22bba15001f/serde-1.0.200/src/lib.rs').permissionDecisionReason, /tkit deps api serde/);
+  assert.equal(bash('grep -n Serialize ~/.cargo/registry/src/index.crates.io-6f17d22bba15001f/serde-1.0.200/src/lib.rs'), null, 'focused registry reads go through');
+  assert.equal(bash("sed -n '1,40p' src/a.rs; echo ---; grep -n 'pub enum Value' -A 60 ~/.cargo/registry/src/x/duckdb-1.4.5/src/types/value.rs | head -60"), null, 'a batch with a focused registry slice is not refused');
+  assert.match(bash('cat ~/.cargo/registry/src/index.crates.io-6f17d22bba15001f/serde-1.0.200/src/lib.rs').permissionDecisionReason, /tkit deps api serde/);
   assert.equal(bash("rg foo --glob '!node_modules/**' src"), null, 'exclusion globs are not registry reads');
 
   const read = run('kit-router.mjs', { tool_name: 'Read', session_id: sid(), tool_input: { file_path: '/p/node_modules/@types/node/fs.d.ts' } });
