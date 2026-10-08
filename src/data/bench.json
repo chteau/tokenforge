@@ -5,30 +5,32 @@
   "claude-opus-5-5"
  ],
  "apiModels": {
-  "claude-opus-5-5": 75
+  "claude-opus-5-5": 83
  },
  "runsWithOtherModels": 0,
  "contaminatedRuns": 0,
  "claudeCodeVersion": "2.1.293",
- "tokenforgeVersion": "0.7.0",
+ "tokenforgeVersion": "0.8.0",
  "defaultLean": "balanced",
  "aggregate": {
-  "tasks": 34,
-  "runs": 75,
-  "medianSavings": 53.28,
-  "meanSavings": 50.06,
-  "pooledSavings": 51.71,
+  "tasks": 36,
+  "runs": 83,
+  "medianSavings": 51.51,
+  "meanSavings": 49.61,
+  "pooledSavings": 51.52,
   "minSavings": 9.98,
   "maxSavings": 75.41,
-  "medianPriceWeighted": 29.09,
+  "medianPriceWeighted": 26.34,
   "medianToolCallReduction": 49,
-  "tasksCheaper": 34,
+  "tasksCheaper": 36,
   "tasksCostlier": 0,
   "firstRequestOverhead": -6735,
   "scratchMedian": 54.75,
   "existingMedian": 46.51,
   "scratchTasks": 24,
   "existingTasks": 10,
+  "academicTasks": 2,
+  "academicMedian": 41.915,
   "qualityWorse": [
    "perl-cli",
    "banking-transfers"
@@ -828,6 +830,40 @@
    "qualityDiff": 0
   },
   {
+   "id": "pdf-paper-qa",
+   "group": "academic",
+   "label": "Answer questions from a 15-page PDF paper",
+   "short": "PDF Q&A",
+   "title": "Answer precise questions about a two-column PDF research paper",
+   "category": "academic",
+   "language": "pdf",
+   "runs": {
+    "native": 2,
+    "tokenforge": 2
+   },
+   "native": {
+    "total": 274318,
+    "inputEq": 98100.5,
+    "requests": 8,
+    "toolCalls": 7.5,
+    "firstContext": 16468,
+    "quality": 100,
+    "output": 3272.5
+   },
+   "tokenforge": {
+    "total": 138111,
+    "inputEq": 79680.5,
+    "requests": 4,
+    "toolCalls": 3,
+    "firstContext": 9757,
+    "quality": 100,
+    "output": 928
+   },
+   "savings": 49.65,
+   "savingsPriceWeighted": 18.78,
+   "qualityDiff": 0
+  },
+  {
    "id": "cpp-cli",
    "group": "scratch",
    "label": "C++ key-value store (CMake)",
@@ -1064,6 +1100,40 @@
    "savings": 36.97,
    "savingsPriceWeighted": -1.55,
    "qualityDiff": -3
+  },
+  {
+   "id": "paper-proofread",
+   "group": "academic",
+   "label": "Proofread a LaTeX manuscript (19 planted errors)",
+   "short": "Proofreading",
+   "title": "Proofread a LaTeX statistics manuscript and list every error",
+   "category": "academic",
+   "language": "latex",
+   "runs": {
+    "native": 2,
+    "tokenforge": 2
+   },
+   "native": {
+    "total": 238636,
+    "inputEq": 108380,
+    "requests": 6.5,
+    "toolCalls": 8,
+    "firstContext": 16698,
+    "quality": 95.325,
+    "output": 8695.5
+   },
+   "tokenforge": {
+    "total": 157073.5,
+    "inputEq": 94677,
+    "requests": 6.5,
+    "toolCalls": 5.5,
+    "firstContext": 9990,
+    "quality": 97.765,
+    "output": 7799
+   },
+   "savings": 34.18,
+   "savingsPriceWeighted": 12.64,
+   "qualityDiff": 2.4399999999999977
   },
   {
    "id": "banking-transfers",

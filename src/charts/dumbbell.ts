@@ -51,15 +51,15 @@ export function dumbbellChart(box: HTMLElement, group: Task['group']): void {
 }
 
 export function resultsTable(group?: Task['group'], full = false): string {
-  const groups: Task['group'][] = group ? [group] : ['scratch', 'existing'];
+  const groups: Task['group'][] = group ? [group] : ['scratch', 'existing', 'academic'];
   const head = full
     ? '<th>Task</th><th>Language</th><th class="num">Runs (clean / tf)</th><th class="num">Clean Claude Code</th><th class="num">tokenforge</th><th class="num">Saved</th><th class="num">Price-weighted</th><th class="num">Requests</th><th class="num">Quality</th>'
     : '<th>Task</th><th class="num">Clean Claude Code</th><th class="num">tokenforge</th><th class="num">Saved</th><th class="num">Quality</th>';
   const cols = full ? 9 : 5;
   const body = groups.map((gname) => {
     const ts = data.tasks.filter((t) => t.group === gname).sort((a, b) => b.savings - a.savings);
-    const med = gname === 'scratch' ? data.aggregate.scratchMedian : data.aggregate.existingMedian;
-    const title = gname === 'scratch' ? `Built from scratch · median −${Math.round(med)}%` : `In an existing codebase · median −${Math.round(med)}%`;
+    const med = gname === 'scratch' ? data.aggregate.scratchMedian : gname === 'academic' ? data.aggregate.academicMedian : data.aggregate.existingMedian;
+    const title = `${gname === 'scratch' ? 'Built from scratch' : gname === 'academic' ? 'Academic work' : 'In an existing codebase'} · median −${Math.round(med)}%`;
     const rows = ts.map((t) => {
       const q = `${t.native.quality} → ${t.tokenforge.quality}`;
       const qcell = t.qualityDiff < 0 ? `<span class="qdown" title="lower quality score">${q} ▼</span>` : q;

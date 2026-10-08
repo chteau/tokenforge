@@ -28,6 +28,7 @@ const SCRATCH = {
   'ocaml-cli': 'OCaml assembler + VM (dune)', 'lua-cli': 'Lua template engine', 'r-cli': 'R survey statistics',
   'fsharp-cli': 'F# expense splitter (.NET)', 'perl-cli': 'Perl config linter + merger',
 };
+const ACADEMIC = { 'paper-proofread': 'Proofread a LaTeX manuscript (19 planted errors)', 'pdf-paper-qa': 'Answer questions from a 15-page PDF paper' };
 const EXISTING = {
   'cross-module-debug': 'Cross-module debugging (TS)', 'go-feature': 'Go scheduled notifications', 'banking-web': 'TS filters + CSV export',
   'rust-cli': 'Rust CLI feature', 'go-api': 'Go REST endpoint', 'rust-debug': 'Rust debugging', 'pr-review': 'PR review (Go)',
@@ -40,6 +41,7 @@ const SHORT = {
   'go-api': 'Go endpoint', 'rust-debug': 'Rust debug', 'pr-review': 'PR review', 'banking-transfers': 'Sched. transfers',
   'refactor': 'Rust refactor', 'architecture': 'Architecture',
   'java-http': 'Java shortener', 'php-api': 'PHP API', 'swift-cli': 'Swift cron', 'dart-cli': 'Dart habits', 'bash-tool': 'Bash backups',
+  'paper-proofread': 'Proofreading', 'pdf-paper-qa': 'PDF Q&A',
   'c-cli': 'C CSV tool', 'kotlin-cli': 'Kotlin Markdown', 'ruby-cli': 'Ruby logs',
   'zig-cli': 'Zig JSON', 'elixir-app': 'Elixir queue', 'haskell-cli': 'Haskell sheet', 'ocaml-cli': 'OCaml VM',
   'lua-cli': 'Lua templates', 'r-cli': 'R survey', 'fsharp-cli': 'F# splitter', 'perl-cli': 'Perl config',
@@ -54,12 +56,12 @@ const median = (xs) => {
 
 const tasks = [];
 for (const t of report.per_task) {
-  const group = SCRATCH[t.task] ? 'scratch' : EXISTING[t.task] ? 'existing' : null;
+  const group = SCRATCH[t.task] ? 'scratch' : EXISTING[t.task] ? 'existing' : ACADEMIC[t.task] ? 'academic' : null;
   if (!group || !t['token-forge'] || !t.native) continue; // memory-followup has no paired default run
   const meta = readJson(path.join(bench, 'tasks', t.task, 'task.json'));
   const n = t.native, f = t['token-forge'];
   tasks.push({
-    id: t.task, group, label: SCRATCH[t.task] || EXISTING[t.task], short: SHORT[t.task], title: meta.title,
+    id: t.task, group, label: SCRATCH[t.task] || EXISTING[t.task] || ACADEMIC[t.task], short: SHORT[t.task], title: meta.title,
     category: t.category, language: LANG[meta.language] || meta.language,
     runs: { native: t.runs.native, tokenforge: t.runs['token-forge'] },
     native: { total: n.total_tokens, inputEq: n.input_equivalent_tokens, requests: n.api_requests, toolCalls: n.tool_calls, firstContext: n.first_request_context_tokens, quality: n.quality_score, output: n.output_tokens },
@@ -149,7 +151,7 @@ const out = {
     tasksCheaper: a.sign_test.tasks_tf_cheaper, tasksCostlier: a.sign_test.tasks_tf_costlier,
     firstRequestOverhead: a.first_request_overhead_tokens.median,
     scratchMedian: groupMedian('scratch'), existingMedian: groupMedian('existing'),
-    scratchTasks: tasks.filter((t) => t.group === 'scratch').length, existingTasks: tasks.filter((t) => t.group === 'existing').length,
+    scratchTasks: tasks.filter((t) => t.group === 'scratch').length, existingTasks: tasks.filter((t) => t.group === 'existing').length, academicTasks: tasks.filter((t) => t.group === 'academic').length, academicMedian: groupMedian('academic'),
     qualityWorse: tasks.filter((t) => t.qualityDiff < 0).map((t) => t.id),
   },
   lean, curve, tasks,

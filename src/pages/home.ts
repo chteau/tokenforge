@@ -91,6 +91,8 @@ export function home(view: HTMLElement): void {
       <div class="chart-box" id="db-scratch"></div>
       <h3 style="margin-top:26px">In an existing codebase · median −${Math.round(a.existingMedian)}%</h3>
       <div class="chart-box" id="db-existing"></div>
+      <h3 style="margin-top:26px">Academic work · median −${Math.round(a.academicMedian)}%</h3>
+      <div class="chart-box" id="db-academic"></div>
       <details class="data"><summary>Data table: all ${a.tasks} tasks</summary>${resultsTable()}</details>
     </article>
     <p class="pcap">${a.tasks} tasks, ${a.scratchTasks} from-scratch projects in ${scratchLangs} languages. ${MODEL_NAME} on both sides, checked in every API response. Medians of 1–3 runs per side.${worse.length ? ` Quality was lower on ${worse.length === 1 ? 'one task' : `${worse.length} tasks`} (${worse.map((t) => t.label).join(', ')}): every hidden test passes, the structural checks score lower.` : ''} <a href="#/benchmark">Method and caveats →</a></p>
@@ -153,6 +155,7 @@ export function home(view: HTMLElement): void {
   leanChart(view.querySelector('#lean-chart') as HTMLElement);
   dumbbellChart(view.querySelector('#db-scratch') as HTMLElement, 'scratch');
   dumbbellChart(view.querySelector('#db-existing') as HTMLElement, 'existing');
+  dumbbellChart(view.querySelector('#db-academic') as HTMLElement, 'academic');
 }
 
 const LEVELS = [

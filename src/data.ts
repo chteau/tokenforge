@@ -3,7 +3,7 @@ import raw from './data/bench.json';
 
 export interface Side { total: number; inputEq: number; requests: number; toolCalls: number; firstContext: number; quality: number; output: number }
 export interface Task {
-  id: string; group: 'scratch' | 'existing'; label: string; short: string; title: string; category: string; language: string;
+  id: string; group: 'scratch' | 'existing' | 'academic'; label: string; short: string; title: string; category: string; language: string;
   runs: { native: number; tokenforge: number }; native: Side; tokenforge: Side;
   savings: number; savingsPriceWeighted: number; qualityDiff: number;
 }
@@ -14,7 +14,7 @@ export interface BenchData {
   aggregate: {
     tasks: number; runs: number; medianSavings: number; meanSavings: number; pooledSavings: number; minSavings: number; maxSavings: number;
     medianPriceWeighted: number; medianToolCallReduction: number; tasksCheaper: number; tasksCostlier: number; firstRequestOverhead: number;
-    scratchMedian: number; existingMedian: number; scratchTasks: number; existingTasks: number; qualityWorse: string[];
+    scratchMedian: number; existingMedian: number; scratchTasks: number; existingTasks: number; academicTasks: number; academicMedian: number; qualityWorse: string[];
   };
   lean: { level: string; tokens: number }[];
   curve: { task: string; label: string; title: string; series: { native: Series; tokenforge: Series } };
