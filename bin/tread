@@ -1,6 +1,10 @@
 #!/usr/bin/env node
 // Read several pieces of code in one call (see lib/read.mjs): tread NAME Type.method path:40-80 path:/regex/ path
+import fs from 'node:fs';
+import path from 'node:path';
+
 import { read } from '../lib/read.mjs';
+import { ledgerPath } from '../lib/savings.mjs';
 
 const args = process.argv.slice(2);
 if (!args.length || args[0] === '-h' || args[0] === '--help') {
@@ -8,4 +12,20 @@ if (!args.length || args[0] === '-h' || args[0] === '--help') {
   process.exit(args.length ? 0 : 1);
 }
 process.stdout.on('error', (e) => (e.code === 'EPIPE' ? process.exit(0) : (() => { throw e; })()));
-process.stdout.write(read(args, process.cwd()));
+const text = read(args, process.cwd());
+process.stdout.write(text);
+
+// Savings: what reading each named file whole (cat) would have cost, versus what was printed.
+try {
+  const sizes = new Map();
+  for (const a of args) {
+    const f = path.resolve(a.replace(/:(\d+(-\d+)?|\/.*\/)$/, ''));
+    if (!sizes.has(f) && fs.statSync(f, { throwIfNoEntry: false })?.isFile()) sizes.set(f, fs.statSync(f).size);
+  }
+  const raw = Math.ceil([...sizes.values()].reduce((x, y) => x + y, 0) / 4);
+  const out = Math.ceil(Buffer.byteLength(text) / 4);
+  if (raw > out) {
+    fs.mkdirSync(path.dirname(ledgerPath()), { recursive: true });
+    fs.appendFileSync(ledgerPath(), JSON.stringify({ t: Math.floor(Date.now() / 1000), tool: 'tread', cwd: process.cwd(), raw, out }) + '\n');
+  }
+} catch {}
