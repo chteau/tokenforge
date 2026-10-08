@@ -304,6 +304,42 @@ export function readOnly(core) {
   return false;
 }
 
+// TokenForge's own read-only tools (and tkit check/test, which the router already auto-approves when it rewrites a
+// raw build/test command). Without this, every `tread`/`tkit ctx` call asks for permission, so the model falls back
+// to cat/sed, which Claude Code already allows. Writes, network and remote tools are not included. Off: TFORGE_AUTO_ALLOW=0.
+const KIT_SAFE = new Set(['ctx', 'diff', 'debug', 'analog', 'proj', 'deps', 'tally', 'tab', 'check', 'test']);
+const JX_SAFE = new Set(['shape', 'get', 'keys', 'find']);
+export function ownTool(t) {
+  const exe = exeName(t[0] || '');
+  if (exe === 'tread' || exe === 'tview') return true;
+  if (exe === 'tkit') return KIT_SAFE.has(t[1]) || (t[1] === 'jx' && JX_SAFE.has(t[2]));
+  if (exe === 'tforge') {
+    return ['recall', 'meter', 'status', '--version', '--help'].includes(t[1]) ||
+      (t[1] === 'lean' && (t.length === 2 || t[2] === 'status')) || (t[1] === 'ui' && t[2] === '--status');
+  }
+  return false;
+}
+
+// Every segment is one of our tools or plainly read-only, and at least one is ours: safe to approve.
+export function ownToolsOnly(cmd) {
+  if (process.env.TFORGE_AUTO_ALLOW === '0' || cmd.includes('<<') || /\$\(|`/.test(cmd)) return false;
+  const segs = splitSegments(cmd);
+  if (!segs) return false;
+  let own = false;
+  for (const [text] of segs) {
+    if (!text.trim() || /^\s*cd\s+\S+\s*$/.test(text)) continue;
+    for (const p of splitPipes(text)) {
+      const t = tokenize(p);
+      if (!t || !t.length || ENV.test(t[0])) return false;
+      const core = t.filter((x) => !NULLREDIR.has(x));
+      if (core.some((x) => /^[&(){}]$|[<>]/.test(x))) return false;
+      if (ownTool(core)) own = true;
+      else if (!readOnly(core)) return false;
+    }
+  }
+  return own;
+}
+
 export function routeCommand(cmd, { cwd, permissionMode } = {}) {
   if (cmd.includes('<<')) return null; // heredoc bodies must never be touched
   const segs = splitSegments(cmd);
@@ -389,6 +425,10 @@ async function onBash(input) {
     if (seenBefore(input.session_id, `kitrw\0${cmd}`, 'kit')) return;
     const out = { hookEventName: 'PreToolUse', permissionDecision: 'allow', updatedInput: { ...ti, command: r.command } };
     process.stdout.write(JSON.stringify({ hookSpecificOutput: out }));
+    return;
+  }
+  if (ownToolsOnly(cmd)) {
+    process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'allow' } }));
     return;
   }
   if (process.env.TFORGE_REDIRECT === '1') {

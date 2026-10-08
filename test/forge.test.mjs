@@ -346,7 +346,7 @@ test('context budget warns once per band and holds one prompt; handoff-load inje
   fs.mkdirSync(path.join(dir, '.forge'));
   fs.writeFileSync(path.join(dir, '.forge', 'HANDOFF.md'), '# Handoff: thing\n## Next\n1. do it\n');
   const ss = path.join(HERE, '..', 'hooks', 'session-start.mjs');
-  const env = { ...process.env, XDG_CONFIG_HOME: dir, TFORGE_UI: '0' };
+  const env = { ...process.env, XDG_CONFIG_HOME: dir, TFORGE_UI: '0', TFORGE_BANNER: '0' };
   const h = spawnSync('node', [ss], { input: JSON.stringify({ cwd: dir, source: 'clear' }), encoding: 'utf8', env });
   const ctx = JSON.parse(h.stdout).hookSpecificOutput.additionalContext;
   assert.match(ctx, /1\. do it/);

@@ -332,7 +332,7 @@ test('tview: language-agnostic folding (Luau) and long-line cutting', async () =
 
 test('session start: the lean default is applied once, never over an explicit choice, and only tells the user', () => {
   const dir = tmpdir('tforge-ld-');
-  const env = { CLAUDE_CONFIG_DIR: path.join(dir, 'cc'), XDG_CONFIG_HOME: path.join(dir, 'xdg'), TFORGE_UI: '0', TFORGE_LEAN_DEFAULT: '' };
+  const env = { CLAUDE_CONFIG_DIR: path.join(dir, 'cc'), XDG_CONFIG_HOME: path.join(dir, 'xdg'), TFORGE_UI: '0', TFORGE_LEAN_DEFAULT: '', TFORGE_BANNER: '0' };
   fs.mkdirSync(env.CLAUDE_CONFIG_DIR);
   const start = () => JSON.parse(spawnSync('node', [HOOK('session-start.mjs')], { input: JSON.stringify({ source: 'startup', cwd: dir }), encoding: 'utf8', env: { ...BASE_ENV, ...env } }).stdout);
   const first = start();
@@ -444,4 +444,37 @@ test('no URL.pathname used as a file path (breaks on Windows: /C:/...)', () => {
       assert.doesNotMatch(fs.readFileSync(p, 'utf8'), /import\.meta\.url\)\.pathname/, `${dir}/${f}`);
     }
   }
+});
+
+test('kit router: our own read-only tools are approved without a prompt; writes, network and mixes are not', () => {
+  const allow = (command) => bash(command)?.permissionDecision;
+  for (const c of ['tread Ledger.add src/cli.rs:40-80', 'tkit ctx Ledger --refs | head -40', 'tforge recall budget alerts',
+    'cd src && tread parse; grep -n foo a.rs', 'tview src/big.rs', 'tkit test store', 'tkit jx get a.json .x', 'tforge lean'])
+    assert.equal(allow(c), 'allow', c);
+  for (const c of ['tkit edit < edits.txt', 'tkit ssh web1 uptime', 'tkit http https://x', 'tforge lean max', 'tkit jx set a.json .x 1',
+    'tread x > out.txt', 'tread x; rm -rf build', 'grep -n foo a.rs', 'tread $(cat list)', 'FOO=1 tread x'])
+    assert.notEqual(allow(c), 'allow', c);
+  assert.notEqual(run('kit-router.mjs', { tool_name: 'Bash', session_id: sid(), cwd: os.tmpdir(), tool_input: { command: 'tread x' } }, { TFORGE_AUTO_ALLOW: '0' })?.permissionDecision, 'allow');
+});
+
+test('session start: "TokenForge: active" banner with a walkthrough the first 3 times; checkpoint notice after /clear', () => {
+  const dir = tmpdir('tforge-banner-');
+  const env = { ...BASE_ENV, HOME: dir, XDG_CONFIG_HOME: dir, XDG_CACHE_HOME: dir, CLAUDE_CONFIG_DIR: path.join(dir, 'cc'),
+    TFORGE_UI: '0', TFORGE_LEAN_DEFAULT: 'off', CLAUDE_CODE_ENTRYPOINT: 'cli', CLAUDE_CODE_SESSION_ATTENDED: '1', CI: '' };
+  const msg = (source) => {
+    const r = spawnSync('node', [HOOK('session-start.mjs')], { input: JSON.stringify({ cwd: dir, source }), encoding: 'utf8', env });
+    assert.equal(r.status, 0, r.stderr);
+    return JSON.parse(r.stdout || '{}').systemMessage || '';
+  };
+  for (let i = 0; i < 3; i++) assert.match(msg('startup'), /^TokenForge: active · lean off · replies full[\s\S]*handoff/);
+  const fourth = msg('startup');
+  assert.match(fourth, /^TokenForge: active/);
+  assert.doesNotMatch(fourth, /handoff/, 'walkthrough only for the first sessions');
+  assert.match(msg('clear'), /no checkpoint in this folder yet/);
+  fs.mkdirSync(path.join(dir, '.forge', 'snapshots'), { recursive: true });
+  fs.writeFileSync(path.join(dir, '.forge', 'snapshots', '20261008-1200-abc-001.md'), 'x');
+  assert.match(msg('clear'), /^TokenForge: checkpoint saved \(just now/);
+  fs.writeFileSync(path.join(dir, '.forge', 'HANDOFF.md'), '# handoff');
+  assert.match(msg('clear'), /checkpoint saved[\s\S]*Handoff reloaded/);
+  assert.equal(spawnSync('node', [HOOK('session-start.mjs')], { input: JSON.stringify({ cwd: dir, source: 'startup' }), encoding: 'utf8', env: { ...env, TFORGE_BANNER: '0' } }).stdout.includes('TokenForge: active'), false);
 });

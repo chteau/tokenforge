@@ -140,6 +140,12 @@ To uninstall, run `/plugin uninstall tokenforge@tokenforge`. Nothing is left beh
 
 ## Use
 
+Nothing to learn: once installed it works on its own, in the terminal and in Claude Desktop.
+
+- **Every new session** starts with `TokenForge: active · lean balanced · replies full · dashboard http://127.0.0.1:7878/`, plus a three-line walkthrough for the first three sessions. It is shown to you only, never sent to Claude (`TFORGE_BANNER=0` hides it).
+- **After `/clear`** it says what survived: `TokenForge: checkpoint saved (2 min ago, .forge/snapshots/)`, and whether a handoff was reloaded.
+- **No permission prompts for its own tools.** TokenForge's read-only tools (`tread`, `tview`, `tkit ctx/diff/debug/deps/check/test`, `tforge recall`) are approved automatically, alone or chained with read-only commands like `grep` and `sed -n`. Edits, network and remote tools (`tkit edit/patch/http/web/ssh`) still ask. Without this, every lookup by name asked for permission, so Claude fell back to `cat` and `sed`. `TFORGE_AUTO_ALLOW=0` turns it off.
+
 ```
 /tokenforge:forge build a browser image editor with layers, three filters, undo/redo and PNG export
 ```
@@ -351,6 +357,8 @@ Workers run with `--permission-mode acceptEdits` and only `Read`, `Write` and `E
 | `TFORGE_DISTILL_MCP_BYTES` | `6000` | MCP results at least this large are distilled |
 | `TFORGE_DISTILL_MODEL` / `TFORGE_DISTILL_TIMEOUT` | `haiku` / `120` (`60` in the MCP hook) | Model and seconds for `tkit distill` |
 | `TMAP_BIN` | | Use this tmap binary |
+| `TFORGE_AUTO_ALLOW` | | `0` makes TokenForge's own read-only tools ask for permission like any other command |
+| `TFORGE_BANNER` | | `0` hides the "TokenForge: active" line at startup and the checkpoint line after `/clear` |
 | `TFORGE_UI` | | `0` stops the dashboard from starting with your first session (it never auto-starts in headless `claude -p`, SDK or CI sessions) |
 | `TFORGE_UI_PORT` | `7878` | Dashboard port (the next free one is used if taken) |
 | `TFORGE_NO_DOWNLOAD` | | `1` never downloads tmap; build with cargo instead |

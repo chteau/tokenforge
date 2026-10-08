@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.7.1
+
+Works on its own, in the terminal and in Claude Desktop:
+
+- "TokenForge: active" at the start of every session (lean level, reply style, dashboard address), with a three-line walkthrough for the first three sessions. Shown to the user only, zero tokens. `TFORGE_BANNER=0` hides it.
+- After `/clear`: "TokenForge: checkpoint saved (… ago)", and whether the handoff was reloaded.
+- TokenForge's own read-only tools (`tread`, `tview`, `tkit ctx/diff/debug/deps/check/test`, `tforge recall`) are approved without a permission prompt, also when chained with read-only commands. Edits, network and remote tools still ask. Before, every lookup by name asked, so Claude fell back to `cat`/`sed`. `TFORGE_AUTO_ALLOW=0` turns it off.
+- Dependency source: only whole-file dumps are refused; a focused `grep`/`sed -n`/`head` (often inside a batch) goes through instead of failing the batch.
+- Windows: the dashboard failed to start (plugin folder resolved with `URL.pathname`). CI now smoke-tests Windows.
+- The dashboard no longer auto-starts in headless sessions (`claude -p`, SDK, CI).
+- Experimental, off by default: `TFORGE_PLAN=brief` (shorter upfront planning). Measured mixed: −22% and −28% on two write-heavy tasks, +13% and +15% on two others, one small quality drop.
+
 ## 0.7.0
 
 Token use, measured with `bench/` (clean Claude Code vs tokenforge only, Opus 5.5). 0.6.0 used more tokens than plain Claude Code on 5 of 6 tasks. Traces showed why: tool results are 80–95% of context growth, every result is re-read on every later call, and the 0.6.0 hooks added extra round trips.

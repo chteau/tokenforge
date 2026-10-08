@@ -6,11 +6,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { TERSE_RULES, terseLevel } from '../lib/config.mjs';
+import { TERSE_RULES, readConfig, terseLevel, writeConfig } from '../lib/config.mjs';
 import { uiState } from '../lib/ui-control.mjs';
 import { SNAP_DIR, listSnapshots, parseSnapshot } from './checkpoint.mjs';
 import { isMain, kitHookOff } from '../lib/hookutil.mjs';
-import { applyDefaultOnce } from '../lib/lean.mjs';
+import { applyDefaultOnce, leanStatus } from '../lib/lean.mjs';
 import { memoryHint } from '../lib/memory.mjs';
 
 const MAX_AGE_H = Number(process.env.TFORGE_HANDOFF_MAX_AGE_H) || 72;
@@ -119,6 +119,57 @@ function leanDefault() {
     : null;
 }
 
+// Shown to the user at startup (systemMessage: zero tokens). The walkthrough appears for the first few sessions only.
+const INTRO_SESSIONS = 3;
+function banner() {
+  if (process.env.TFORGE_BANNER === '0') return null;
+  let level = 'off';
+  try {
+    level = leanStatus().level;
+  } catch {}
+  const port = Number(process.env.TFORGE_UI_PORT) || 7878;
+  const line = `TokenForge: active · lean ${level} · replies ${terseLevel()} · dashboard http://127.0.0.1:${port}/`;
+  let shown = 0;
+  try {
+    shown = Number(readConfig().introShown) || 0;
+    if (shown < INTRO_SESSIONS) writeConfig({ introShown: shown + 1 });
+  } catch {}
+  if (shown >= INTRO_SESSIONS) return line;
+  return [
+    line,
+    'Nothing to learn: work as usual, TokenForge trims what every call re-sends. To get the most out of it:',
+    '  • One task per session. Long job? /tokenforge:handoff, then /clear: the next session picks up from the notes.',
+    '  • Ask about earlier work ("what did we change in billing last week?"): Claude searches past sessions itself.',
+    '  • /tokenforge:dashboard shows where tokens went and your limits; its Settings page changes the lean level.',
+    `  (This walkthrough shows ${INTRO_SESSIONS - shown - 1 > 0 ? `${INTRO_SESSIONS - shown - 1} more time${INTRO_SESSIONS - shown - 1 > 1 ? 's' : ''}` : 'for the last time'}. TFORGE_BANNER=0 hides the banner.)`,
+  ].join('\n');
+}
+
+// After /clear: say plainly what survived, so "did I just lose my work?" never needs asking.
+function clearNotice(cwd) {
+  if (process.env.TFORGE_BANNER === '0') return null;
+  const ago = (ms) => {
+    const m = Math.max(0, Math.round((Date.now() - ms) / 60000));
+    return m < 1 ? 'just now' : m < 60 ? `${m} min ago` : `${Math.round(m / 60)} h ago`;
+  };
+  const hf = path.join(cwd, '.forge', 'HANDOFF.md');
+  const snaps = listSnapshots(cwd);
+  let snapMs = 0;
+  try {
+    if (snaps.length) snapMs = fs.statSync(path.join(cwd, '.forge', SNAP_DIR, snaps[snaps.length - 1])).mtimeMs;
+  } catch {}
+  let hMs = 0;
+  try {
+    hMs = fs.statSync(hf).mtimeMs;
+  } catch {}
+  const fresh = (ms) => ms && Date.now() - ms < MAX_AGE_H * 3600e3;
+  const parts = [];
+  if (fresh(snapMs)) parts.push(`TokenForge: checkpoint saved (${ago(snapMs)}, .forge/${SNAP_DIR}/).`);
+  if (fresh(hMs)) parts.push(`Handoff reloaded (.forge/HANDOFF.md, ${ago(hMs)}): Claude continues from it.`);
+  else if (fresh(snapMs)) parts.push('Say what to continue ("continue the billing fix"): Claude looks it up in past sessions.');
+  return parts.length ? parts.join(' ') : 'TokenForge: no checkpoint in this folder yet. Fresh start.';
+}
+
 function main() {
   let input = {};
   try {
@@ -132,10 +183,16 @@ function main() {
   }
   const notices = [];
   if (input.source === 'startup') {
+    const b = unattended() ? null : banner();
+    if (b) notices.push(b);
     const d = ensureDashboard();
-    if (d) notices.push(d);
+    if (d && !b) notices.push(d);
     const lean = leanDefault();
     if (lean) notices.push(lean);
+  }
+  if (input.source === 'clear' && !unattended()) {
+    const c = clearNotice(input.cwd || process.cwd());
+    if (c) notices.push(c);
   }
   const notice = notices.join('\n') || null;
   const parts = [];
