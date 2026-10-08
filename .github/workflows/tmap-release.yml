@@ -11,7 +11,7 @@ jobs:
         include:
           - { os: ubuntu-latest, asset: tmap-linux-x64 }
           - { os: ubuntu-24.04-arm, asset: tmap-linux-arm64 }
-          - { os: macos-13, asset: tmap-macos-x64 }
+          - { os: macos-15-intel, asset: tmap-macos-x64 }
           - { os: macos-latest, asset: tmap-macos-arm64 }
           - { os: windows-latest, asset: tmap-windows-x64.exe }
     runs-on: ${{ matrix.os }}
