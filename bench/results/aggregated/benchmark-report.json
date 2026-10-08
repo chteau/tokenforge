@@ -1,201 +1,833 @@
 {
   "aggregate": {
-    "tasks_paired": 0,
-    "runs_executed": 1,
+    "tasks_paired": 19,
+    "runs_executed": 45,
     "runs_not_executed": 0,
-    "token_savings_percent": null,
-    "input_savings_percent": null,
-    "output_savings_percent": null,
-    "uncached_input_savings_percent": null,
-    "input_equivalent_savings_percent": null,
-    "cost_savings_percent": null,
-    "quality_diff": null,
-    "tool_call_reduction_percent": null,
-    "files_read_reduction_percent": null,
-    "first_request_overhead_tokens": null,
-    "pooled_token_savings_percent": null,
+    "token_savings_percent": {
+      "n": 19,
+      "mean": 52.03,
+      "median": 52.42,
+      "min": 10.16,
+      "max": 75.41,
+      "stdev": 18.29,
+      "p10": 29.9,
+      "p25": 44.03,
+      "p75": 65.46,
+      "p90": 72.87
+    },
+    "input_savings_percent": {
+      "n": 19,
+      "mean": 53.04,
+      "median": 54.05,
+      "min": 10.18,
+      "max": 77.07,
+      "stdev": 18.8,
+      "p10": 30.18,
+      "p25": 44.86,
+      "p75": 66.81,
+      "p90": 75.06
+    },
+    "output_savings_percent": {
+      "n": 19,
+      "mean": 28.46,
+      "median": 29.52,
+      "min": 3.45,
+      "max": 46.39,
+      "stdev": 11.61,
+      "p10": 12.02,
+      "p25": 23.44,
+      "p75": 36.87,
+      "p90": 42.59
+    },
+    "uncached_input_savings_percent": {
+      "n": 19,
+      "mean": 27.2,
+      "median": 26.9,
+      "min": 9.89,
+      "max": 42.73,
+      "stdev": 9.5,
+      "p10": 16.15,
+      "p25": 19.85,
+      "p75": 35.12,
+      "p90": 38.97
+    },
+    "input_equivalent_savings_percent": {
+      "n": 19,
+      "mean": 34.49,
+      "median": 32.58,
+      "min": 11.96,
+      "max": 51.84,
+      "stdev": 11.8,
+      "p10": 20.95,
+      "p25": 26.02,
+      "p75": 45.4,
+      "p90": 48.77
+    },
+    "cost_savings_percent": {
+      "n": 19,
+      "mean": 30.91,
+      "median": 29.73,
+      "min": 13.0,
+      "max": 48.32,
+      "stdev": 10.77,
+      "p10": 16.48,
+      "p25": 24.3,
+      "p75": 40.85,
+      "p90": 44.07
+    },
+    "quality_diff": {
+      "n": 19,
+      "mean": 0.6,
+      "median": 0.0,
+      "min": -6.0,
+      "max": 11.5,
+      "stdev": 3.15,
+      "p10": 0.0,
+      "p25": 0.0,
+      "p75": 0.0,
+      "p90": 2.67
+    },
+    "tool_call_reduction_percent": {
+      "n": 19,
+      "mean": 38.88,
+      "median": 40.0,
+      "min": -10.0,
+      "max": 69.05,
+      "stdev": 22.77,
+      "p10": 13.25,
+      "p25": 23.44,
+      "p75": 58.12,
+      "p90": 68.49
+    },
+    "files_read_reduction_percent": {
+      "n": 19,
+      "mean": 11.61,
+      "median": 15.15,
+      "min": -155.56,
+      "max": 66.67,
+      "stdev": 47.66,
+      "p10": -15.0,
+      "p25": 0.0,
+      "p75": 34.45,
+      "p90": 53.33
+    },
+    "first_request_overhead_tokens": {
+      "n": 19,
+      "mean": -6733.34,
+      "median": -6735,
+      "min": -6741,
+      "max": -6726,
+      "stdev": 4.66,
+      "p10": -6738.0,
+      "p25": -6737.25,
+      "p75": -6729.0,
+      "p90": -6726.0
+    },
+    "pooled_token_savings_percent": 53.3,
     "sign_test": {
-      "tasks_tf_cheaper": 0,
+      "tasks_tf_cheaper": 19,
       "tasks_tf_costlier": 0,
-      "p_value_two_sided": null
+      "p_value_two_sided": 0.0
     }
   },
   "per_agent": {
     "native": {
-      "total_tokens": null,
-      "input_tokens": null,
-      "output_tokens": null,
-      "cached_input_tokens": null,
-      "uncached_input_tokens": null,
-      "input_equivalent_tokens": null,
-      "total_cost_usd_reported": null,
-      "tool_calls": null,
-      "duration_seconds": null,
-      "quality_score": null,
-      "completion_rate": null,
-      "runs": 0
+      "total_tokens": {
+        "n": 24,
+        "mean": 680342,
+        "median": 423838.5,
+        "min": 180606,
+        "max": 2428089,
+        "stdev": 602538.84,
+        "p10": 215597.9,
+        "p25": 278954.75,
+        "p75": 727236.25,
+        "p90": 1527627.4
+      },
+      "input_tokens": {
+        "n": 24,
+        "mean": 661501.25,
+        "median": 407163.0,
+        "min": 175659,
+        "max": 2392370,
+        "stdev": 593706.27,
+        "p10": 206664.4,
+        "p25": 262094.25,
+        "p75": 706099.75,
+        "p90": 1504561.6
+      },
+      "output_tokens": {
+        "n": 24,
+        "mean": 18840.75,
+        "median": 17798.0,
+        "min": 3080,
+        "max": 51942,
+        "stdev": 12677.05,
+        "p10": 4953.6,
+        "p25": 8616.25,
+        "p75": 23548.25,
+        "p90": 34696.3
+      },
+      "cached_input_tokens": {
+        "n": 24,
+        "mean": 612026.08,
+        "median": 366174.0,
+        "min": 146754,
+        "max": 2287992,
+        "stdev": 568595.27,
+        "p10": 184301.6,
+        "p25": 237442.25,
+        "p75": 644455.75,
+        "p90": 1418867.6
+      },
+      "uncached_input_tokens": {
+        "n": 24,
+        "mean": 49475.17,
+        "median": 38576.0,
+        "min": 20090,
+        "max": 109554,
+        "stdev": 27262.33,
+        "p10": 21020.7,
+        "p25": 30910.5,
+        "p75": 65924.5,
+        "p90": 96106.0
+      },
+      "input_equivalent_tokens": {
+        "n": 24,
+        "mean": 217243.71,
+        "median": 187764.5,
+        "min": 63936,
+        "max": 537852,
+        "stdev": 140098.36,
+        "p10": 70088.8,
+        "p25": 121036.75,
+        "p75": 247176.25,
+        "p90": 427328.7
+      },
+      "total_cost_usd_reported": {
+        "n": 24,
+        "mean": 0.89,
+        "median": 0.79,
+        "min": 0.2816716,
+        "max": 2.113899,
+        "stdev": 0.53,
+        "p10": 0.31,
+        "p25": 0.55,
+        "p75": 1.04,
+        "p90": 1.71
+      },
+      "tool_calls": {
+        "n": 24,
+        "mean": 13.67,
+        "median": 11.5,
+        "min": 5,
+        "max": 32,
+        "stdev": 7.14,
+        "p10": 7.0,
+        "p25": 8.0,
+        "p75": 19.0,
+        "p90": 24.1
+      },
+      "duration_seconds": {
+        "n": 24,
+        "mean": 176.75,
+        "median": 152.55,
+        "min": 35.0,
+        "max": 465.2,
+        "stdev": 119.38,
+        "p10": 56.5,
+        "p25": 72.6,
+        "p75": 232.6,
+        "p90": 330.63
+      },
+      "quality_score": {
+        "n": 24,
+        "mean": 98.8,
+        "median": 100.0,
+        "min": 87.0,
+        "max": 100.0,
+        "stdev": 3.31,
+        "p10": 96.92,
+        "p25": 100.0,
+        "p75": 100.0,
+        "p90": 100.0
+      },
+      "completion_rate": 0.917,
+      "runs": 24
     },
     "token-forge": {
       "total_tokens": {
-        "n": 1,
-        "mean": 92003,
-        "median": 92003,
-        "min": 92003,
-        "max": 92003,
-        "stdev": null,
-        "p10": 92003,
-        "p25": 92003,
-        "p75": 92003,
-        "p90": 92003
+        "n": 21,
+        "mean": 334514.43,
+        "median": 206693,
+        "min": 62243,
+        "max": 1616842,
+        "stdev": 349216.02,
+        "p10": 92003.0,
+        "p25": 125782.0,
+        "p75": 347755.0,
+        "p90": 636624.0
       },
       "input_tokens": {
-        "n": 1,
-        "mean": 90292,
-        "median": 90292,
-        "min": 90292,
-        "max": 90292,
-        "stdev": null,
-        "p10": 90292,
-        "p25": 90292,
-        "p75": 90292,
-        "p90": 90292
+        "n": 21,
+        "mean": 317909.24,
+        "median": 189139,
+        "min": 55503,
+        "max": 1582356,
+        "stdev": 343578.24,
+        "p10": 90292.0,
+        "p25": 111475.0,
+        "p75": 340494.0,
+        "p90": 622642.0
       },
       "output_tokens": {
-        "n": 1,
-        "mean": 1711,
-        "median": 1711,
+        "n": 21,
+        "mean": 16605.19,
+        "median": 14605,
         "min": 1711,
-        "max": 1711,
-        "stdev": null,
-        "p10": 1711,
-        "p25": 1711,
-        "p75": 1711,
-        "p90": 1711
+        "max": 42337,
+        "stdev": 11676.08,
+        "p10": 3762.0,
+        "p25": 7261.0,
+        "p75": 17554.0,
+        "p90": 34486.0
       },
       "cached_input_tokens": {
-        "n": 1,
-        "mean": 76344,
-        "median": 76344,
-        "min": 76344,
-        "max": 76344,
-        "stdev": null,
-        "p10": 76344,
-        "p25": 76344,
-        "p75": 76344,
-        "p90": 76344
+        "n": 21,
+        "mean": 281133.05,
+        "median": 161598,
+        "min": 42357,
+        "max": 1495129,
+        "stdev": 325426.54,
+        "p10": 76344.0,
+        "p25": 96479.0,
+        "p75": 301511.0,
+        "p90": 571634.0
       },
       "uncached_input_tokens": {
-        "n": 1,
-        "mean": 13948,
-        "median": 13948,
-        "min": 13948,
-        "max": 13948,
-        "stdev": null,
-        "p10": 13948,
-        "p25": 13948,
-        "p75": 13948,
-        "p90": 13948
+        "n": 21,
+        "mean": 36776.19,
+        "median": 27541,
+        "min": 13146,
+        "max": 87227,
+        "stdev": 20859.8,
+        "p10": 14996.0,
+        "p25": 23430.0,
+        "p75": 50527.0,
+        "p90": 63921.0
       },
       "input_equivalent_tokens": {
-        "n": 1,
-        "mean": 33621,
-        "median": 33621,
+        "n": 21,
+        "mean": 157104.95,
+        "median": 126465,
         "min": 33621,
-        "max": 33621,
-        "stdev": null,
-        "p10": 33621,
-        "p25": 33621,
-        "p75": 33621,
-        "p90": 33621
+        "max": 430964,
+        "stdev": 101552.33,
+        "p10": 54366.0,
+        "p25": 109664.0,
+        "p75": 190826.0,
+        "p90": 305368.0
       },
       "total_cost_usd_reported": {
-        "n": 1,
-        "mean": 0.16,
-        "median": 0.16,
+        "n": 21,
+        "mean": 0.68,
+        "median": 0.55,
         "min": 0.1610248,
-        "max": 0.1610248,
-        "stdev": null,
-        "p10": 0.16,
-        "p25": 0.16,
-        "p75": 0.16,
-        "p90": 0.16
+        "max": 1.6863538,
+        "stdev": 0.41,
+        "p10": 0.25,
+        "p25": 0.49,
+        "p75": 0.8,
+        "p90": 1.33
       },
       "tool_calls": {
-        "n": 1,
-        "mean": 5,
-        "median": 5,
-        "min": 5,
-        "max": 5,
-        "stdev": null,
-        "p10": 5,
-        "p25": 5,
-        "p75": 5,
-        "p90": 5
+        "n": 21,
+        "mean": 8.19,
+        "median": 6,
+        "min": 3,
+        "max": 25,
+        "stdev": 5.14,
+        "p10": 4.0,
+        "p25": 5.0,
+        "p75": 10.0,
+        "p90": 13.0
       },
       "duration_seconds": {
-        "n": 1,
-        "mean": 25.0,
-        "median": 25.0,
+        "n": 21,
+        "mean": 156.94,
+        "median": 130.1,
         "min": 25.0,
-        "max": 25.0,
-        "stdev": null,
-        "p10": 25.0,
-        "p25": 25.0,
-        "p75": 25.0,
-        "p90": 25.0
+        "max": 495.1,
+        "stdev": 118.53,
+        "p10": 45.0,
+        "p25": 65.0,
+        "p75": 195.0,
+        "p90": 295.2
       },
       "quality_score": {
-        "n": 1,
-        "mean": 100.0,
+        "n": 21,
+        "mean": 99.71,
         "median": 100.0,
-        "min": 100.0,
+        "min": 94.0,
         "max": 100.0,
-        "stdev": null,
+        "stdev": 1.31,
         "p10": 100.0,
         "p25": 100.0,
         "p75": 100.0,
         "p90": 100.0
       },
       "completion_rate": 1.0,
-      "runs": 1
+      "runs": 21
     }
   },
-  "per_category": {},
+  "per_category": {
+    "architecture": {
+      "tasks": [
+        "architecture"
+      ],
+      "median_token_savings_percent": 10.16,
+      "median_quality_diff": 0.0,
+      "verdict": "better (all tasks cheaper by >5%)"
+    },
+    "debugging": {
+      "tasks": [
+        "cross-module-debug",
+        "rust-debug"
+      ],
+      "median_token_savings_percent": 54.230000000000004,
+      "median_quality_diff": 5.75,
+      "verdict": "better (all tasks cheaper by >5%)"
+    },
+    "feature": {
+      "tasks": [
+        "banking-transfers",
+        "banking-web",
+        "go-api",
+        "go-feature"
+      ],
+      "median_token_savings_percent": 54.57,
+      "median_quality_diff": 0.0,
+      "verdict": "better (all tasks cheaper by >5%)"
+    },
+    "greenfield": {
+      "tasks": [
+        "cpp-cli",
+        "csharp-api",
+        "go-mock-api",
+        "luau-inventory",
+        "node-ssg",
+        "python-cli",
+        "rust-cli",
+        "rust-tui",
+        "ts-lib",
+        "vite-landing"
+      ],
+      "median_token_savings_percent": 61.905,
+      "median_quality_diff": 0.0,
+      "verdict": "better (all tasks cheaper by >5%)"
+    },
+    "refactor": {
+      "tasks": [
+        "refactor"
+      ],
+      "median_token_savings_percent": 15.85,
+      "median_quality_diff": 0.0,
+      "verdict": "better (all tasks cheaper by >5%)"
+    },
+    "review": {
+      "tasks": [
+        "pr-review"
+      ],
+      "median_token_savings_percent": 38.65,
+      "median_quality_diff": 3.3299999999999983,
+      "verdict": "better (all tasks cheaper by >5%)"
+    }
+  },
   "per_task": [
+    {
+      "task": "architecture",
+      "category": "architecture",
+      "runs": {
+        "native": 1,
+        "token-forge": 1
+      },
+      "native": {
+        "total_tokens": 386198,
+        "input_tokens": 379534,
+        "output_tokens": 6664,
+        "cached_input_tokens": 333187,
+        "uncached_input_tokens": 46347,
+        "input_equivalent_tokens": 124567,
+        "total_cost_usd_reported": 0.5706134,
+        "tool_calls": 11,
+        "duration_seconds": 65.0,
+        "quality_score": 100.0,
+        "files_read": 0,
+        "lines_read": 1797,
+        "bytes_read": 67060,
+        "first_request_context_tokens": 16555,
+        "api_requests": 10,
+        "redundant_reads": 0,
+        "tool_result_bytes": 75482,
+        "files_read_incl_bash": 45,
+        "context_precision_approx": 0.044,
+        "subagent_calls": 0,
+        "completion_rate": 1.0,
+        "statuses": [
+          "completed"
+        ],
+        "tests_passed": [
+          null
+        ],
+        "tokens_per_quality_point": 3862.0,
+        "quality_per_million_tokens": 258.93,
+        "nested_session_tokens": 0
+      },
+      "token-forge": {
+        "total_tokens": 346949,
+        "input_tokens": 340890,
+        "output_tokens": 6059,
+        "cached_input_tokens": 301511,
+        "uncached_input_tokens": 39379,
+        "input_equivalent_tokens": 109664,
+        "total_cost_usd_reported": 0.49642620000000004,
+        "tool_calls": 10,
+        "duration_seconds": 60.0,
+        "quality_score": 100.0,
+        "files_read": 0,
+        "lines_read": 1316,
+        "bytes_read": 56212,
+        "first_request_context_tokens": 9817,
+        "api_requests": 11,
+        "redundant_reads": 0,
+        "tool_result_bytes": 63209,
+        "files_read_incl_bash": 29,
+        "context_precision_approx": 0.034,
+        "subagent_calls": 0,
+        "completion_rate": 1.0,
+        "statuses": [
+          "completed"
+        ],
+        "tests_passed": [
+          null
+        ],
+        "tokens_per_quality_point": 3469.5,
+        "quality_per_million_tokens": 288.23,
+        "nested_session_tokens": 0
+      },
+      "diff": {
+        "total_tokens_abs": 39249,
+        "token_savings_percent": 10.16,
+        "input_savings_percent": 10.18,
+        "output_savings_percent": 9.08,
+        "uncached_input_savings_percent": 15.03,
+        "input_equivalent_savings_percent": 11.96,
+        "cost_savings_percent": 13.0,
+        "quality_diff": 0.0,
+        "tool_call_diff_percent": 9.09,
+        "files_read_diff_percent": 35.56,
+        "lines_read_diff_percent": 26.77,
+        "first_request_overhead_tokens": -6738
+      }
+    },
+    {
+      "task": "banking-transfers",
+      "category": "feature",
+      "runs": {
+        "native": 1,
+        "token-forge": 1
+      },
+      "native": {
+        "total_tokens": 2428089,
+        "input_tokens": 2392370,
+        "output_tokens": 35719,
+        "cached_input_tokens": 2287992,
+        "uncached_input_tokens": 104378,
+        "input_equivalent_tokens": 537852,
+        "total_cost_usd_reported": 2.0067703999999993,
+        "tool_calls": 32,
+        "duration_seconds": 320.2,
+        "quality_score": 100.0,
+        "files_read": 1,
+        "lines_read": 3477,
+        "bytes_read": 138285,
+        "first_request_context_tokens": 18332,
+        "api_requests": 29,
+        "redundant_reads": 2,
+        "tool_result_bytes": 144915,
+        "files_read_incl_bash": 44,
+        "context_precision_approx": 0.455,
+        "subagent_calls": 0,
+        "completion_rate": 1.0,
+        "statuses": [
+          "completed"
+        ],
+        "tests_passed": [
+          true
+        ],
+        "tokens_per_quality_point": 24280.9,
+        "quality_per_million_tokens": 41.18,
+        "nested_session_tokens": 0
+      },
+      "token-forge": {
+        "total_tokens": 1616842,
+        "input_tokens": 1582356,
+        "output_tokens": 34486,
+        "cached_input_tokens": 1495129,
+        "uncached_input_tokens": 87227,
+        "input_equivalent_tokens": 430964,
+        "total_cost_usd_reported": 1.6863538,
+        "tool_calls": 25,
+        "duration_seconds": 295.2,
+        "quality_score": 94.0,
+        "files_read": 0,
+        "lines_read": 2637,
+        "bytes_read": 103173,
+        "first_request_context_tokens": 11600,
+        "api_requests": 26,
+        "redundant_reads": 9,
+        "tool_result_bytes": 110672,
+        "files_read_incl_bash": 38,
+        "context_precision_approx": 0.579,
+        "subagent_calls": 0,
+        "completion_rate": 1.0,
+        "statuses": [
+          "completed"
+        ],
+        "tests_passed": [
+          true
+        ],
+        "tokens_per_quality_point": 17200.4,
+        "quality_per_million_tokens": 58.14,
+        "nested_session_tokens": 0
+      },
+      "diff": {
+        "total_tokens_abs": 811247,
+        "token_savings_percent": 33.41,
+        "input_savings_percent": 33.86,
+        "output_savings_percent": 3.45,
+        "uncached_input_savings_percent": 16.43,
+        "input_equivalent_savings_percent": 19.87,
+        "cost_savings_percent": 15.97,
+        "quality_diff": -6.0,
+        "tool_call_diff_percent": 21.88,
+        "files_read_diff_percent": 13.64,
+        "lines_read_diff_percent": 24.16,
+        "first_request_overhead_tokens": -6732
+      }
+    },
+    {
+      "task": "banking-web",
+      "category": "feature",
+      "runs": {
+        "native": 1,
+        "token-forge": 1
+      },
+      "native": {
+        "total_tokens": 1563130,
+        "input_tokens": 1538971,
+        "output_tokens": 24159,
+        "cached_input_tokens": 1461086,
+        "uncached_input_tokens": 77885,
+        "input_equivalent_tokens": 364248,
+        "total_cost_usd_reported": 1.3982852000000001,
+        "tool_calls": 25,
+        "duration_seconds": 215.1,
+        "quality_score": 100.0,
+        "files_read": 0,
+        "lines_read": 2385,
+        "bytes_read": 96574,
+        "first_request_context_tokens": 18088,
+        "api_requests": 24,
+        "redundant_reads": 2,
+        "tool_result_bytes": 108718,
+        "files_read_incl_bash": 33,
+        "context_precision_approx": 0.364,
+        "subagent_calls": 0,
+        "completion_rate": 1.0,
+        "statuses": [
+          "completed"
+        ],
+        "tests_passed": [
+          true
+        ],
+        "tokens_per_quality_point": 15631.3,
+        "quality_per_million_tokens": 63.97,
+        "nested_session_tokens": 0
+      },
+      "token-forge": {
+        "total_tokens": 636624,
+        "input_tokens": 622642,
+        "output_tokens": 13982,
+        "cached_input_tokens": 571634,
+        "uncached_input_tokens": 51008,
+        "input_equivalent_tokens": 190826,
+        "total_cost_usd_reported": 0.8019107999999998,
+        "tool_calls": 15,
+        "duration_seconds": 130.1,
+        "quality_score": 100.0,
+        "files_read": 0,
+        "lines_read": 1605,
+        "bytes_read": 68442,
+        "first_request_context_tokens": 11359,
+        "api_requests": 15,
+        "redundant_reads": 2,
+        "tool_result_bytes": 72235,
+        "files_read_incl_bash": 28,
+        "context_precision_approx": 0.5,
+        "subagent_calls": 0,
+        "completion_rate": 1.0,
+        "statuses": [
+          "completed"
+        ],
+        "tests_passed": [
+          true
+        ],
+        "tokens_per_quality_point": 6366.2,
+        "quality_per_million_tokens": 157.08,
+        "nested_session_tokens": 0
+      },
+      "diff": {
+        "total_tokens_abs": 926506,
+        "token_savings_percent": 59.27,
+        "input_savings_percent": 59.54,
+        "output_savings_percent": 42.13,
+        "uncached_input_savings_percent": 34.51,
+        "input_equivalent_savings_percent": 47.61,
+        "cost_savings_percent": 42.65,
+        "quality_diff": 0.0,
+        "tool_call_diff_percent": 40.0,
+        "files_read_diff_percent": 15.15,
+        "lines_read_diff_percent": 32.7,
+        "first_request_overhead_tokens": -6729
+      }
+    },
+    {
+      "task": "cpp-cli",
+      "category": "greenfield",
+      "runs": {
+        "native": 1,
+        "token-forge": 2
+      },
+      "native": {
+        "total_tokens": 303222,
+        "input_tokens": 279259,
+        "output_tokens": 23963,
+        "cached_input_tokens": 246540,
+        "uncached_input_tokens": 32719,
+        "input_equivalent_tokens": 185363,
+        "total_cost_usd_reported": 0.790248,
+        "tool_calls": 8,
+        "duration_seconds": 335.1,
+        "quality_score": 100.0,
+        "files_read": 0,
+        "lines_read": 11,
+        "bytes_read": 504,
+        "first_request_context_tokens": 18497,
+        "api_requests": 9,
+        "redundant_reads": 0,
+        "tool_result_bytes": 1887,
+        "files_read_incl_bash": 3,
+        "context_precision_approx": 0.0,
+        "subagent_calls": 0,
+        "completion_rate": 1.0,
+        "statuses": [
+          "completed"
+        ],
+        "tests_passed": [
+          true
+        ],
+        "tokens_per_quality_point": 3032.2,
+        "quality_per_million_tokens": 329.79,
+        "nested_session_tokens": 0
+      },
+      "token-forge": {
+        "total_tokens": 156887.0,
+        "input_tokens": 140091.0,
+        "output_tokens": 16796.0,
+        "cached_input_tokens": 116632.0,
+        "uncached_input_tokens": 23459.0,
+        "input_equivalent_tokens": 124963.5,
+        "total_cost_usd_reported": 0.5468664,
+        "tool_calls": 5.5,
+        "duration_seconds": 137.5,
+        "quality_score": 100.0,
+        "files_read": 0.0,
+        "lines_read": 0.0,
+        "bytes_read": 6.0,
+        "first_request_context_tokens": 11765.0,
+        "api_requests": 6.5,
+        "redundant_reads": 0.0,
+        "tool_result_bytes": 665.0,
+        "files_read_incl_bash": 1.0,
+        "context_precision_approx": 0.0,
+        "subagent_calls": 0.0,
+        "completion_rate": 1.0,
+        "statuses": [
+          "completed",
+          "completed"
+        ],
+        "tests_passed": [
+          true,
+          true
+        ],
+        "tokens_per_quality_point": 1568.9,
+        "quality_per_million_tokens": 637.4,
+        "nested_session_tokens": 0.0
+      },
+      "diff": {
+        "total_tokens_abs": 146335.0,
+        "token_savings_percent": 48.26,
+        "input_savings_percent": 49.83,
+        "output_savings_percent": 29.91,
+        "uncached_input_savings_percent": 28.3,
+        "input_equivalent_savings_percent": 32.58,
+        "cost_savings_percent": 30.8,
+        "quality_diff": 0.0,
+        "tool_call_diff_percent": 31.25,
+        "files_read_diff_percent": 66.67,
+        "lines_read_diff_percent": 100.0,
+        "first_request_overhead_tokens": -6732.0
+      }
+    },
     {
       "task": "cross-module-debug",
       "category": "debugging",
       "runs": {
-        "native": 0,
+        "native": 1,
         "token-forge": 1
       },
       "native": {
-        "total_tokens": null,
-        "input_tokens": null,
-        "output_tokens": null,
-        "cached_input_tokens": null,
-        "uncached_input_tokens": null,
-        "input_equivalent_tokens": null,
-        "total_cost_usd_reported": null,
-        "tool_calls": null,
-        "duration_seconds": null,
-        "quality_score": null,
-        "files_read": null,
-        "lines_read": null,
-        "bytes_read": null,
-        "first_request_context_tokens": null,
-        "api_requests": null,
-        "redundant_reads": null,
-        "tool_result_bytes": null,
-        "files_read_incl_bash": null,
-        "context_precision_approx": null,
-        "subagent_calls": null,
-        "completion_rate": null,
-        "statuses": [],
-        "tests_passed": [],
-        "tokens_per_quality_point": null,
-        "quality_per_million_tokens": null,
-        "nested_session_tokens": null
+        "total_tokens": 265193,
+        "input_tokens": 262113,
+        "output_tokens": 3080,
+        "cached_input_tokens": 239770,
+        "uncached_input_tokens": 22343,
+        "input_equivalent_tokens": 67301,
+        "total_cost_usd_reported": 0.288218,
+        "tool_calls": 10,
+        "duration_seconds": 35.0,
+        "quality_score": 100.0,
+        "files_read": 0,
+        "lines_read": 746,
+        "bytes_read": 28799,
+        "first_request_context_tokens": 16927,
+        "api_requests": 10,
+        "redundant_reads": 1,
+        "tool_result_bytes": 31010,
+        "files_read_incl_bash": 8,
+        "context_precision_approx": 0.75,
+        "subagent_calls": 0,
+        "completion_rate": 1.0,
+        "statuses": [
+          "completed"
+        ],
+        "tests_passed": [
+          true
+        ],
+        "tokens_per_quality_point": 2651.9,
+        "quality_per_million_tokens": 377.08,
+        "nested_session_tokens": 0
       },
       "token-forge": {
         "total_tokens": 92003,
@@ -228,6 +860,1302 @@
         "tokens_per_quality_point": 920.0,
         "quality_per_million_tokens": 1086.92,
         "nested_session_tokens": 0
+      },
+      "diff": {
+        "total_tokens_abs": 173190,
+        "token_savings_percent": 65.31,
+        "input_savings_percent": 65.55,
+        "output_savings_percent": 44.45,
+        "uncached_input_savings_percent": 37.57,
+        "input_equivalent_savings_percent": 50.04,
+        "cost_savings_percent": 44.13,
+        "quality_diff": 0.0,
+        "tool_call_diff_percent": 50.0,
+        "files_read_diff_percent": 0.0,
+        "lines_read_diff_percent": 44.24,
+        "first_request_overhead_tokens": -6735
+      }
+    },
+    {
+      "task": "csharp-api",
+      "category": "greenfield",
+      "runs": {
+        "native": 1,
+        "token-forge": 2
+      },
+      "native": {
+        "total_tokens": 1221429,
+        "input_tokens": 1169487,
+        "output_tokens": 51942,
+        "cached_input_tokens": 1102001,
+        "uncached_input_tokens": 67486,
+        "input_equivalent_tokens": 454257,
+        "total_cost_usd_reported": 1.7989521999999998,
+        "tool_calls": 21,
+        "duration_seconds": 465.2,
+        "quality_score": 100.0,
+        "files_read": 0,
+        "lines_read": 12,
+        "bytes_read": 400,
+        "first_request_context_tokens": 20391,
+        "api_requests": 22,
+        "redundant_reads": 0,
+        "tool_result_bytes": 10310,
+        "files_read_incl_bash": 4,
+        "context_precision_approx": 0.0,
+        "subagent_calls": 0,
+        "completion_rate": 1.0,
+        "statuses": [
+          "completed"
+        ],
+        "tests_passed": [
+          true
+        ],
+        "tokens_per_quality_point": 12214.3,
+        "quality_per_million_tokens": 81.87,
+        "nested_session_tokens": 0
+      },
+      "token-forge": {
+        "total_tokens": 334977.0,
+        "input_tokens": 293290.5,
+        "output_tokens": 41686.5,
+        "cached_input_tokens": 241172.5,
+        "uncached_input_tokens": 52118.0,
+        "input_equivalent_tokens": 297694.0,
+        "total_cost_usd_reported": 1.2988485,
+        "tool_calls": 6.5,
+        "duration_seconds": 437.6,
+        "quality_score": 100.0,
+        "files_read": 0.0,
+        "lines_read": 15.5,
+        "bytes_read": 699.0,
+        "first_request_context_tokens": 13665.0,
+        "api_requests": 7.5,
+        "redundant_reads": 0.0,
+        "tool_result_bytes": 4580.0,
+        "files_read_incl_bash": 3.5,
+        "context_precision_approx": 0.0,
+        "subagent_calls": 0.0,
+        "completion_rate": 1.0,
+        "statuses": [
+          "completed",
+          "completed"
+        ],
+        "tests_passed": [
+          true,
+          true
+        ],
+        "tokens_per_quality_point": 3349.8,
+        "quality_per_million_tokens": 298.53,
+        "nested_session_tokens": 0.0
+      },
+      "diff": {
+        "total_tokens_abs": 886452.0,
+        "token_savings_percent": 72.57,
+        "input_savings_percent": 74.92,
+        "output_savings_percent": 19.74,
+        "uncached_input_savings_percent": 22.77,
+        "input_equivalent_savings_percent": 34.47,
+        "cost_savings_percent": 27.8,
+        "quality_diff": 0.0,
+        "tool_call_diff_percent": 69.05,
+        "files_read_diff_percent": 12.5,
+        "lines_read_diff_percent": -29.17,
+        "first_request_overhead_tokens": -6726.0
+      }
+    },
+    {
+      "task": "go-api",
+      "category": "feature",
+      "runs": {
+        "native": 3,
+        "token-forge": 1
+      },
+      "native": {
+        "total_tokens": 684322,
+        "input_tokens": 670408,
+        "output_tokens": 17301,
+        "cached_input_tokens": 604719,
+        "uncached_input_tokens": 65689,
+        "input_equivalent_tokens": 219629,
+        "total_cost_usd_reported": 0.9656917999999999,
+        "tool_calls": 12,
+        "duration_seconds": 150.1,
+        "quality_score": 100.0,
+        "files_read": 0,
+        "lines_read": 2580,
+        "bytes_read": 86415,
+        "first_request_context_tokens": 17464,
+        "api_requests": 12,
+        "redundant_reads": 1,
+        "tool_result_bytes": 90170,
+        "files_read_incl_bash": 23,
+        "context_precision_approx": 0.522,
+        "subagent_calls": 0,
+        "completion_rate": 1.0,
+        "statuses": [
+          "completed",
+          "completed",
+          "completed"
+        ],
+        "tests_passed": [
+          true,
+          true,
+          true
+        ],
+        "tokens_per_quality_point": 6843.2,
+        "quality_per_million_tokens": 146.13,
+        "nested_session_tokens": 0
+      },
+      "token-forge": {
+        "total_tokens": 343071,
+        "input_tokens": 330878,
+        "output_tokens": 12193,
+        "cached_input_tokens": 280351,
+        "uncached_input_tokens": 50527,
+        "input_equivalent_tokens": 152154,
+        "total_cost_usd_reported": 0.7040742,
+        "tool_calls": 9,
+        "duration_seconds": 100.0,
+        "quality_score": 100.0,
+        "files_read": 0,
+        "lines_read": 1864,
+        "bytes_read": 65989,
+        "first_request_context_tokens": 10738,
+        "api_requests": 9,
+        "redundant_reads": 5,
+        "tool_result_bytes": 72201,
+        "files_read_incl_bash": 21,
+        "context_precision_approx": 0.571,
+        "subagent_calls": 0,
+        "completion_rate": 1.0,
+        "statuses": [
+          "completed"
+        ],
+        "tests_passed": [
+          true
+        ],
+        "tokens_per_quality_point": 3430.7,
+        "quality_per_million_tokens": 291.48,
+        "nested_session_tokens": 0
+      },
+      "diff": {
+        "total_tokens_abs": 341251,
+        "token_savings_percent": 49.87,
+        "input_savings_percent": 50.65,
+        "output_savings_percent": 29.52,
+        "uncached_input_savings_percent": 23.08,
+        "input_equivalent_savings_percent": 30.72,
+        "cost_savings_percent": 27.09,
+        "quality_diff": 0.0,
+        "tool_call_diff_percent": 25.0,
+        "files_read_diff_percent": 8.7,
+        "lines_read_diff_percent": 27.75,
+        "first_request_overhead_tokens": -6726
+      }
+    },
+    {
+      "task": "go-feature",
+      "category": "feature",
+      "runs": {
+        "native": 1,
+        "token-forge": 1
+      },
+      "native": {
+        "total_tokens": 1936463,
+        "input_tokens": 1892409,
+        "output_tokens": 44054,
+        "cached_input_tokens": 1782855,
+        "uncached_input_tokens": 109554,
+        "input_equivalent_tokens": 535486,
+        "total_cost_usd_reported": 2.113899,
+        "tool_calls": 25,
+        "duration_seconds": 400.3,
+        "quality_score": 100.0,
+        "files_read": 0,
+        "lines_read": 3457,
+        "bytes_read": 113790,
+        "first_request_context_tokens": 18382,
+        "api_requests": 23,
+        "redundant_reads": 1,
+        "tool_result_bytes": 123831,
+        "files_read_incl_bash": 37,
+        "context_precision_approx": 0.378,
+        "subagent_calls": 0,
+        "completion_rate": 1.0,
+        "statuses": [
+          "completed"
+        ],
+        "tests_passed": [
+          true
+        ],
+        "tokens_per_quality_point": 19364.6,
+        "quality_per_million_tokens": 51.64,
+        "nested_session_tokens": 0
+      },
+      "token-forge": {
+        "total_tokens": 732932,
+        "input_tokens": 701592,
+        "output_tokens": 31340,
+        "cached_input_tokens": 625147,
+        "uncached_input_tokens": 76445,
+        "input_equivalent_tokens": 314764,
+        "total_cost_usd_reported": 1.3632774,
+        "tool_calls": 13,
+        "duration_seconds": 260.1,
+        "quality_score": 100.0,
+        "files_read": 0,
+        "lines_read": 2423,
+        "bytes_read": 83567,
+        "first_request_context_tokens": 11647,
+        "api_requests": 14,
+        "redundant_reads": 15,
+        "tool_result_bytes": 85807,
+        "files_read_incl_bash": 28,
+        "context_precision_approx": 0.536,
+        "subagent_calls": 0,
+        "completion_rate": 1.0,
+        "statuses": [
+          "completed"
+        ],
+        "tests_passed": [
+          true
+        ],
+        "tokens_per_quality_point": 7329.3,
+        "quality_per_million_tokens": 136.44,
+        "nested_session_tokens": 0
+      },
+      "diff": {
+        "total_tokens_abs": 1203531,
+        "token_savings_percent": 62.15,
+        "input_savings_percent": 62.93,
+        "output_savings_percent": 28.86,
+        "uncached_input_savings_percent": 30.22,
+        "input_equivalent_savings_percent": 41.22,
+        "cost_savings_percent": 35.51,
+        "quality_diff": 0.0,
+        "tool_call_diff_percent": 48.0,
+        "files_read_diff_percent": 24.32,
+        "lines_read_diff_percent": 29.91,
+        "first_request_overhead_tokens": -6735
+      }
+    },
+    {
+      "task": "go-mock-api",
+      "category": "greenfield",
+      "runs": {
+        "native": 1,
+        "token-forge": 1
+      },
+      "native": {
+        "total_tokens": 556307,
+        "input_tokens": 532897,
+        "output_tokens": 23410,
+        "cached_input_tokens": 495268,
+        "uncached_input_tokens": 37629,
+        "input_equivalent_tokens": 213605,
+        "total_cost_usd_reported": 0.8681576,
+        "tool_calls": 16,
+        "duration_seconds": 310.1,
+        "quality_score": 97.5,
+        "files_read": 0,
+        "lines_read": 121,
+        "bytes_read": 4936,
+        "first_request_context_tokens": 19412,
+        "api_requests": 16,
+        "redundant_reads": 2,
+        "tool_result_bytes": 7351,
+        "files_read_incl_bash": 6,
+        "context_precision_approx": 0.0,
+        "subagent_calls": 0,
+        "completion_rate": 1.0,
+        "statuses": [
+          "completed"
+        ],
+        "tests_passed": [
+          null
+        ],
+        "tokens_per_quality_point": 5705.7,
+        "quality_per_million_tokens": 175.26,
+        "nested_session_tokens": 0
+      },
+      "token-forge": {
+        "total_tokens": 144227,
+        "input_tokens": 129920,
+        "output_tokens": 14307,
+        "cached_input_tokens": 107669,
+        "uncached_input_tokens": 22251,
+        "input_equivalent_tokens": 110113,
+        "total_cost_usd_reported": 0.4856338,
+        "tool_calls": 5,
+        "duration_seconds": 120.0,
+        "quality_score": 100.0,
+        "files_read": 0,
+        "lines_read": 21,
+        "bytes_read": 1111,
+        "first_request_context_tokens": 12683,
+        "api_requests": 6,
+        "redundant_reads": 0,
+        "tool_result_bytes": 1661,
+        "files_read_incl_bash": 4,
+        "context_precision_approx": 0.0,
+        "subagent_calls": 0,
+        "completion_rate": 1.0,
+        "statuses": [
+          "completed"
+        ],
+        "tests_passed": [
+          null
+        ],
+        "tokens_per_quality_point": 1442.3,
+        "quality_per_million_tokens": 693.35,
+        "nested_session_tokens": 0
+      },
+      "diff": {
+        "total_tokens_abs": 412080,
+        "token_savings_percent": 74.07,
+        "input_savings_percent": 75.62,
+        "output_savings_percent": 38.89,
+        "uncached_input_savings_percent": 40.87,
+        "input_equivalent_savings_percent": 48.45,
+        "cost_savings_percent": 44.06,
+        "quality_diff": 2.5,
+        "tool_call_diff_percent": 68.75,
+        "files_read_diff_percent": 33.33,
+        "lines_read_diff_percent": 82.64,
+        "first_request_overhead_tokens": -6729
+      }
+    },
+    {
+      "task": "luau-inventory",
+      "category": "greenfield",
+      "runs": {
+        "native": 1,
+        "token-forge": 1
+      },
+      "native": {
+        "total_tokens": 244867,
+        "input_tokens": 226683,
+        "output_tokens": 18184,
+        "cached_input_tokens": 199017,
+        "uncached_input_tokens": 27666,
+        "input_equivalent_tokens": 145400,
+        "total_cost_usd_reported": 0.6247474000000001,
+        "tool_calls": 7,
+        "duration_seconds": 155.0,
+        "quality_score": 100.0,
+        "files_read": 0,
+        "lines_read": 25,
+        "bytes_read": 671,
+        "first_request_context_tokens": 19772,
+        "api_requests": 8,
+        "redundant_reads": 0,
+        "tool_result_bytes": 994,
+        "files_read_incl_bash": 3,
+        "context_precision_approx": 0.0,
+        "subagent_calls": 0,
+        "completion_rate": 1.0,
+        "statuses": [
+          "completed"
+        ],
+        "tests_passed": [
+          true
+        ],
+        "tokens_per_quality_point": 2448.7,
+        "quality_per_million_tokens": 408.38,
+        "nested_session_tokens": 0
+      },
+      "token-forge": {
+        "total_tokens": 84211,
+        "input_tokens": 72362,
+        "output_tokens": 11849,
+        "cached_input_tokens": 52727,
+        "uncached_input_tokens": 19635,
+        "input_equivalent_tokens": 89059,
+        "total_cost_usd_reported": 0.4045734,
+        "tool_calls": 3,
+        "duration_seconds": 100.0,
+        "quality_score": 100.0,
+        "files_read": 0,
+        "lines_read": 24,
+        "bytes_read": 659,
+        "first_request_context_tokens": 13034,
+        "api_requests": 4,
+        "redundant_reads": 0,
+        "tool_result_bytes": 717,
+        "files_read_incl_bash": 3,
+        "context_precision_approx": 0.0,
+        "subagent_calls": 0,
+        "completion_rate": 1.0,
+        "statuses": [
+          "completed"
+        ],
+        "tests_passed": [
+          true
+        ],
+        "tokens_per_quality_point": 842.1,
+        "quality_per_million_tokens": 1187.49,
+        "nested_session_tokens": 0
+      },
+      "diff": {
+        "total_tokens_abs": 160656,
+        "token_savings_percent": 65.61,
+        "input_savings_percent": 68.08,
+        "output_savings_percent": 34.84,
+        "uncached_input_savings_percent": 29.03,
+        "input_equivalent_savings_percent": 38.75,
+        "cost_savings_percent": 35.24,
+        "quality_diff": 0.0,
+        "tool_call_diff_percent": 57.14,
+        "files_read_diff_percent": 0.0,
+        "lines_read_diff_percent": 4.0,
+        "first_request_overhead_tokens": -6738
+      }
+    },
+    {
+      "task": "memory-followup",
+      "category": "feature",
+      "runs": {
+        "native": 2,
+        "token-forge": 0
+      },
+      "native": {
+        "total_tokens": 412779.5,
+        "input_tokens": 404498.0,
+        "output_tokens": 8281.5,
+        "cached_input_tokens": 365963.0,
+        "uncached_input_tokens": 38535.0,
+        "input_equivalent_tokens": 126167.0,
+        "total_cost_usd_reported": 0.5470185999999999,
+        "tool_calls": 10.5,
+        "duration_seconds": 70.1,
+        "quality_score": 100.0,
+        "files_read": 0.0,
+        "lines_read": 850.5,
+        "bytes_read": 25876.5,
+        "first_request_context_tokens": 17406.5,
+        "api_requests": 10.5,
+        "redundant_reads": 0.0,
+        "tool_result_bytes": 53999.0,
+        "files_read_incl_bash": 10.5,
+        "context_precision_approx": 0.5435,
+        "subagent_calls": 0.0,
+        "completion_rate": 1.0,
+        "statuses": [
+          "completed",
+          "completed"
+        ],
+        "tests_passed": [
+          true,
+          true
+        ],
+        "tokens_per_quality_point": 4127.8,
+        "quality_per_million_tokens": 242.26,
+        "nested_session_tokens": 0.0
+      },
+      "token-forge": {
+        "total_tokens": null,
+        "input_tokens": null,
+        "output_tokens": null,
+        "cached_input_tokens": null,
+        "uncached_input_tokens": null,
+        "input_equivalent_tokens": null,
+        "total_cost_usd_reported": null,
+        "tool_calls": null,
+        "duration_seconds": null,
+        "quality_score": null,
+        "files_read": null,
+        "lines_read": null,
+        "bytes_read": null,
+        "first_request_context_tokens": null,
+        "api_requests": null,
+        "redundant_reads": null,
+        "tool_result_bytes": null,
+        "files_read_incl_bash": null,
+        "context_precision_approx": null,
+        "subagent_calls": null,
+        "completion_rate": null,
+        "statuses": [],
+        "tests_passed": [],
+        "tokens_per_quality_point": null,
+        "quality_per_million_tokens": null,
+        "nested_session_tokens": null
+      }
+    },
+    {
+      "task": "node-ssg",
+      "category": "greenfield",
+      "runs": {
+        "native": 1,
+        "token-forge": 1
+      },
+      "native": {
+        "total_tokens": 434424,
+        "input_tokens": 411648,
+        "output_tokens": 22776,
+        "cached_input_tokens": 373973,
+        "uncached_input_tokens": 37675,
+        "input_equivalent_tokens": 198365,
+        "total_cost_usd_reported": 0.8316186,
+        "tool_calls": 19,
+        "duration_seconds": 190.1,
+        "quality_score": 100.0,
+        "files_read": 0,
+        "lines_read": 24,
+        "bytes_read": 561,
+        "first_request_context_tokens": 20241,
+        "api_requests": 12,
+        "redundant_reads": 0,
+        "tool_result_bytes": 7639,
+        "files_read_incl_bash": 2,
+        "context_precision_approx": 0.0,
+        "subagent_calls": 0,
+        "completion_rate": 1.0,
+        "statuses": [
+          "completed"
+        ],
+        "tests_passed": [
+          true
+        ],
+        "tokens_per_quality_point": 4344.2,
+        "quality_per_million_tokens": 230.19,
+        "nested_session_tokens": 0
+      },
+      "token-forge": {
+        "total_tokens": 206693,
+        "input_tokens": 189139,
+        "output_tokens": 17554,
+        "cached_input_tokens": 161598,
+        "uncached_input_tokens": 27541,
+        "input_equivalent_tokens": 138353,
+        "total_cost_usd_reported": 0.6036716000000002,
+        "tool_calls": 6,
+        "duration_seconds": 195.0,
+        "quality_score": 100.0,
+        "files_read": 0,
+        "lines_read": 6,
+        "bytes_read": 79,
+        "first_request_context_tokens": 13506,
+        "api_requests": 7,
+        "redundant_reads": 0,
+        "tool_result_bytes": 3719,
+        "files_read_incl_bash": 1,
+        "context_precision_approx": 0.0,
+        "subagent_calls": 0,
+        "completion_rate": 1.0,
+        "statuses": [
+          "completed"
+        ],
+        "tests_passed": [
+          true
+        ],
+        "tokens_per_quality_point": 2066.9,
+        "quality_per_million_tokens": 483.81,
+        "nested_session_tokens": 0
+      },
+      "diff": {
+        "total_tokens_abs": 227731,
+        "token_savings_percent": 52.42,
+        "input_savings_percent": 54.05,
+        "output_savings_percent": 22.93,
+        "uncached_input_savings_percent": 26.9,
+        "input_equivalent_savings_percent": 30.25,
+        "cost_savings_percent": 27.41,
+        "quality_diff": 0.0,
+        "tool_call_diff_percent": 68.42,
+        "files_read_diff_percent": 50.0,
+        "lines_read_diff_percent": 75.0,
+        "first_request_overhead_tokens": -6735
+      }
+    },
+    {
+      "task": "pr-review",
+      "category": "review",
+      "runs": {
+        "native": 1,
+        "token-forge": 1
+      },
+      "native": {
+        "total_tokens": 180606,
+        "input_tokens": 175659,
+        "output_tokens": 4947,
+        "cached_input_tokens": 146754,
+        "uncached_input_tokens": 28905,
+        "input_equivalent_tokens": 75539,
+        "total_cost_usd_reported": 0.3594828,
+        "tool_calls": 5,
+        "duration_seconds": 55.0,
+        "quality_score": 96.67,
+        "files_read": 0,
+        "lines_read": 1036,
+        "bytes_read": 35819,
+        "first_request_context_tokens": 16569,
+        "api_requests": 6,
+        "redundant_reads": 0,
+        "tool_result_bytes": 37974,
+        "files_read_incl_bash": 4,
+        "context_precision_approx": 0.5,
+        "subagent_calls": 0,
+        "completion_rate": 1.0,
+        "statuses": [
+          "completed"
+        ],
+        "tests_passed": [
+          null
+        ],
+        "tokens_per_quality_point": 1868.3,
+        "quality_per_million_tokens": 535.25,
+        "nested_session_tokens": 0
+      },
+      "token-forge": {
+        "total_tokens": 110808,
+        "input_tokens": 107046,
+        "output_tokens": 3762,
+        "cached_input_tokens": 81000,
+        "uncached_input_tokens": 26046,
+        "input_equivalent_tokens": 59465,
+        "total_cost_usd_reported": 0.299768,
+        "tool_calls": 4,
+        "duration_seconds": 45.0,
+        "quality_score": 100.0,
+        "files_read": 0,
+        "lines_read": 1100,
+        "bytes_read": 38756,
+        "first_request_context_tokens": 9834,
+        "api_requests": 5,
+        "redundant_reads": 0,
+        "tool_result_bytes": 38757,
+        "files_read_incl_bash": 5,
+        "context_precision_approx": 0.6,
+        "subagent_calls": 0,
+        "completion_rate": 1.0,
+        "statuses": [
+          "completed"
+        ],
+        "tests_passed": [
+          null
+        ],
+        "tokens_per_quality_point": 1108.1,
+        "quality_per_million_tokens": 902.46,
+        "nested_session_tokens": 0
+      },
+      "diff": {
+        "total_tokens_abs": 69798,
+        "token_savings_percent": 38.65,
+        "input_savings_percent": 39.06,
+        "output_savings_percent": 23.95,
+        "uncached_input_savings_percent": 9.89,
+        "input_equivalent_savings_percent": 21.28,
+        "cost_savings_percent": 16.61,
+        "quality_diff": 3.3299999999999983,
+        "tool_call_diff_percent": 20.0,
+        "files_read_diff_percent": -25.0,
+        "lines_read_diff_percent": -6.18,
+        "first_request_overhead_tokens": -6735
+      }
+    },
+    {
+      "task": "python-cli",
+      "category": "greenfield",
+      "runs": {
+        "native": 1,
+        "token-forge": 1
+      },
+      "native": {
+        "total_tokens": 385596,
+        "input_tokens": 362564,
+        "output_tokens": 23032,
+        "cached_input_tokens": 328864,
+        "uncached_input_tokens": 33700,
+        "input_equivalent_tokens": 190166,
+        "total_cost_usd_reported": 0.7959248,
+        "tool_calls": 10,
+        "duration_seconds": 190.1,
+        "quality_score": 100.0,
+        "files_read": 0,
+        "lines_read": 11,
+        "bytes_read": 370,
+        "first_request_context_tokens": 19405,
+        "api_requests": 11,
+        "redundant_reads": 0,
+        "tool_result_bytes": 3862,
+        "files_read_incl_bash": 4,
+        "context_precision_approx": 0.0,
+        "subagent_calls": 0,
+        "completion_rate": 1.0,
+        "statuses": [
+          "completed"
+        ],
+        "tests_passed": [
+          true
+        ],
+        "tokens_per_quality_point": 3856.0,
+        "quality_per_million_tokens": 259.34,
+        "nested_session_tokens": 0
+      },
+      "token-forge": {
+        "total_tokens": 190531,
+        "input_tokens": 170436,
+        "output_tokens": 20095,
+        "cached_input_tokens": 142347,
+        "uncached_input_tokens": 28089,
+        "input_equivalent_tokens": 149817,
+        "total_cost_usd_reported": 0.6550254,
+        "tool_calls": 6,
+        "duration_seconds": 160.0,
+        "quality_score": 100.0,
+        "files_read": 0,
+        "lines_read": 27,
+        "bytes_read": 1047,
+        "first_request_context_tokens": 12679,
+        "api_requests": 7,
+        "redundant_reads": 0,
+        "tool_result_bytes": 1542,
+        "files_read_incl_bash": 3,
+        "context_precision_approx": 0.0,
+        "subagent_calls": 0,
+        "completion_rate": 1.0,
+        "statuses": [
+          "completed"
+        ],
+        "tests_passed": [
+          true
+        ],
+        "tokens_per_quality_point": 1905.3,
+        "quality_per_million_tokens": 524.85,
+        "nested_session_tokens": 0
+      },
+      "diff": {
+        "total_tokens_abs": 195065,
+        "token_savings_percent": 50.59,
+        "input_savings_percent": 52.99,
+        "output_savings_percent": 12.75,
+        "uncached_input_savings_percent": 16.65,
+        "input_equivalent_savings_percent": 21.22,
+        "cost_savings_percent": 17.7,
+        "quality_diff": 0.0,
+        "tool_call_diff_percent": 40.0,
+        "files_read_diff_percent": 25.0,
+        "lines_read_diff_percent": -145.45,
+        "first_request_overhead_tokens": -6726
+      }
+    },
+    {
+      "task": "refactor",
+      "category": "refactor",
+      "runs": {
+        "native": 1,
+        "token-forge": 1
+      },
+      "native": {
+        "total_tokens": 413253,
+        "input_tokens": 402678,
+        "output_tokens": 10575,
+        "cached_input_tokens": 358375,
+        "uncached_input_tokens": 44303,
+        "input_equivalent_tokens": 144086,
+        "total_cost_usd_reported": 0.637519,
+        "tool_calls": 10,
+        "duration_seconds": 95.0,
+        "quality_score": 100.0,
+        "files_read": 0,
+        "lines_read": 1693,
+        "bytes_read": 53702,
+        "first_request_context_tokens": 16694,
+        "api_requests": 10,
+        "redundant_reads": 1,
+        "tool_result_bytes": 62385,
+        "files_read_incl_bash": 18,
+        "context_precision_approx": 0.5,
+        "subagent_calls": 0,
+        "completion_rate": 1.0,
+        "statuses": [
+          "completed"
+        ],
+        "tests_passed": [
+          true
+        ],
+        "tokens_per_quality_point": 4132.5,
+        "quality_per_million_tokens": 241.98,
+        "nested_session_tokens": 0
+      },
+      "token-forge": {
+        "total_tokens": 347755,
+        "input_tokens": 340494,
+        "output_tokens": 7261,
+        "cached_input_tokens": 303690,
+        "uncached_input_tokens": 36804,
+        "input_equivalent_tokens": 112674,
+        "total_cost_usd_reported": 0.500302,
+        "tool_calls": 11,
+        "duration_seconds": 65.0,
+        "quality_score": 100.0,
+        "files_read": 0,
+        "lines_read": 1723,
+        "bytes_read": 52195,
+        "first_request_context_tokens": 9959,
+        "api_requests": 11,
+        "redundant_reads": 9,
+        "tool_result_bytes": 56318,
+        "files_read_incl_bash": 19,
+        "context_precision_approx": 0.474,
+        "subagent_calls": 0,
+        "completion_rate": 1.0,
+        "statuses": [
+          "completed"
+        ],
+        "tests_passed": [
+          true
+        ],
+        "tokens_per_quality_point": 3477.6,
+        "quality_per_million_tokens": 287.56,
+        "nested_session_tokens": 0
+      },
+      "diff": {
+        "total_tokens_abs": 65498,
+        "token_savings_percent": 15.85,
+        "input_savings_percent": 15.44,
+        "output_savings_percent": 31.34,
+        "uncached_input_savings_percent": 16.93,
+        "input_equivalent_savings_percent": 21.8,
+        "cost_savings_percent": 21.52,
+        "quality_diff": 0.0,
+        "tool_call_diff_percent": -10.0,
+        "files_read_diff_percent": -5.56,
+        "lines_read_diff_percent": -1.77,
+        "first_request_overhead_tokens": -6735
+      }
+    },
+    {
+      "task": "rust-cli",
+      "category": "greenfield",
+      "runs": {
+        "native": 1,
+        "token-forge": 1
+      },
+      "native": {
+        "total_tokens": 1444788,
+        "input_tokens": 1424273,
+        "output_tokens": 20515,
+        "cached_input_tokens": 1320358,
+        "uncached_input_tokens": 103915,
+        "input_equivalent_tokens": 364496,
+        "total_cost_usd_reported": 1.5055475999999999,
+        "tool_calls": 19,
+        "duration_seconds": 175.1,
+        "quality_score": 100.0,
+        "files_read": 0,
+        "lines_read": 4005,
+        "bytes_read": 155673,
+        "first_request_context_tokens": 18241,
+        "api_requests": 18,
+        "redundant_reads": 1,
+        "tool_result_bytes": 168677,
+        "files_read_incl_bash": 9,
+        "context_precision_approx": 0.222,
+        "subagent_calls": 0,
+        "completion_rate": 1.0,
+        "statuses": [
+          "completed"
+        ],
+        "tests_passed": [
+          true
+        ],
+        "tokens_per_quality_point": 14447.9,
+        "quality_per_million_tokens": 69.21,
+        "nested_session_tokens": 0
+      },
+      "token-forge": {
+        "total_tokens": 603940,
+        "input_tokens": 589335,
+        "output_tokens": 14605,
+        "cached_input_tokens": 525414,
+        "uncached_input_tokens": 63921,
+        "input_equivalent_tokens": 205461,
+        "total_cost_usd_reported": 0.9084468000000001,
+        "tool_calls": 13,
+        "duration_seconds": 220.1,
+        "quality_score": 100.0,
+        "files_read": 0,
+        "lines_read": 3274,
+        "bytes_read": 96851,
+        "first_request_context_tokens": 11500,
+        "api_requests": 13,
+        "redundant_reads": 10,
+        "tool_result_bytes": 99144,
+        "files_read_incl_bash": 23,
+        "context_precision_approx": 0.652,
+        "subagent_calls": 0,
+        "completion_rate": 1.0,
+        "statuses": [
+          "completed"
+        ],
+        "tests_passed": [
+          true
+        ],
+        "tokens_per_quality_point": 6039.4,
+        "quality_per_million_tokens": 165.58,
+        "nested_session_tokens": 0
+      },
+      "diff": {
+        "total_tokens_abs": 840848,
+        "token_savings_percent": 58.2,
+        "input_savings_percent": 58.62,
+        "output_savings_percent": 28.81,
+        "uncached_input_savings_percent": 38.49,
+        "input_equivalent_savings_percent": 43.63,
+        "cost_savings_percent": 39.66,
+        "quality_diff": 0.0,
+        "tool_call_diff_percent": 31.58,
+        "files_read_diff_percent": -155.56,
+        "lines_read_diff_percent": 18.25,
+        "first_request_overhead_tokens": -6741
+      }
+    },
+    {
+      "task": "rust-debug",
+      "category": "debugging",
+      "runs": {
+        "native": 2,
+        "token-forge": 1
+      },
+      "native": {
+        "total_tokens": 202105.5,
+        "input_tokens": 197546.5,
+        "output_tokens": 4559.0,
+        "cached_input_tokens": 177286.5,
+        "uncached_input_tokens": 20260.0,
+        "input_equivalent_tokens": 65844.5,
+        "total_cost_usd_reported": 0.2886533,
+        "tool_calls": 7.0,
+        "duration_seconds": 52.5,
+        "quality_score": 88.5,
+        "files_read": 0.0,
+        "lines_read": 548.5,
+        "bytes_read": 17580.5,
+        "first_request_context_tokens": 16796.5,
+        "api_requests": 8.0,
+        "redundant_reads": 1.5,
+        "tool_result_bytes": 21567.0,
+        "files_read_incl_bash": 8.5,
+        "context_precision_approx": 0.4095,
+        "subagent_calls": 0.0,
+        "completion_rate": 0.0,
+        "statuses": [
+          "completed",
+          "completed"
+        ],
+        "tests_passed": [
+          false,
+          false
+        ],
+        "tokens_per_quality_point": 2283.7,
+        "quality_per_million_tokens": 437.89,
+        "nested_session_tokens": 0.0
+      },
+      "token-forge": {
+        "total_tokens": 114905,
+        "input_tokens": 111475,
+        "output_tokens": 3430,
+        "cached_input_tokens": 96479,
+        "uncached_input_tokens": 14996,
+        "input_equivalent_tokens": 45539,
+        "total_cost_usd_reported": 0.20780780000000001,
+        "tool_calls": 6,
+        "duration_seconds": 40.0,
+        "quality_score": 100.0,
+        "files_read": 0,
+        "lines_read": 543,
+        "bytes_read": 15752,
+        "first_request_context_tokens": 10060,
+        "api_requests": 7,
+        "redundant_reads": 2,
+        "tool_result_bytes": 16119,
+        "files_read_incl_bash": 7,
+        "context_precision_approx": 0.429,
+        "subagent_calls": 0,
+        "completion_rate": 1.0,
+        "statuses": [
+          "completed"
+        ],
+        "tests_passed": [
+          true
+        ],
+        "tokens_per_quality_point": 1149.0,
+        "quality_per_million_tokens": 870.28,
+        "nested_session_tokens": 0
+      },
+      "diff": {
+        "total_tokens_abs": 87200.5,
+        "token_savings_percent": 43.15,
+        "input_savings_percent": 43.57,
+        "output_savings_percent": 24.76,
+        "uncached_input_savings_percent": 25.98,
+        "input_equivalent_savings_percent": 30.84,
+        "cost_savings_percent": 28.01,
+        "quality_diff": 11.5,
+        "tool_call_diff_percent": 14.29,
+        "files_read_diff_percent": 17.65,
+        "lines_read_diff_percent": 1.0,
+        "first_request_overhead_tokens": -6736.5
+      }
+    },
+    {
+      "task": "rust-tui",
+      "category": "greenfield",
+      "runs": {
+        "native": 1,
+        "token-forge": 1
+      },
+      "native": {
+        "total_tokens": 802204,
+        "input_tokens": 769894,
+        "output_tokens": 32310,
+        "cached_input_tokens": 723211,
+        "uncached_input_tokens": 46683,
+        "input_equivalent_tokens": 292216,
+        "total_cost_usd_reported": 1.1641622,
+        "tool_calls": 22,
+        "duration_seconds": 285.1,
+        "quality_score": 100.0,
+        "files_read": 0,
+        "lines_read": 48,
+        "bytes_read": 2091,
+        "first_request_context_tokens": 19801,
+        "api_requests": 18,
+        "redundant_reads": 1,
+        "tool_result_bytes": 7837,
+        "files_read_incl_bash": 8,
+        "context_precision_approx": 0.0,
+        "subagent_calls": 0,
+        "completion_rate": 1.0,
+        "statuses": [
+          "completed"
+        ],
+        "tests_passed": [
+          true
+        ],
+        "tokens_per_quality_point": 8022.0,
+        "quality_per_million_tokens": 124.66,
+        "nested_session_tokens": 0
+      },
+      "token-forge": {
+        "total_tokens": 251173,
+        "input_tokens": 233853,
+        "output_tokens": 17320,
+        "cached_input_tokens": 207119,
+        "uncached_input_tokens": 26734,
+        "input_equivalent_tokens": 140724,
+        "total_cost_usd_reported": 0.6016157999999999,
+        "tool_calls": 9,
+        "duration_seconds": 150.0,
+        "quality_score": 100.0,
+        "files_read": 0,
+        "lines_read": 42,
+        "bytes_read": 1318,
+        "first_request_context_tokens": 13063,
+        "api_requests": 10,
+        "redundant_reads": 4,
+        "tool_result_bytes": 3590,
+        "files_read_incl_bash": 9,
+        "context_precision_approx": 0.0,
+        "subagent_calls": 0,
+        "completion_rate": 1.0,
+        "statuses": [
+          "completed"
+        ],
+        "tests_passed": [
+          true
+        ],
+        "tokens_per_quality_point": 2511.7,
+        "quality_per_million_tokens": 398.13,
+        "nested_session_tokens": 0
+      },
+      "diff": {
+        "total_tokens_abs": 551031,
+        "token_savings_percent": 68.69,
+        "input_savings_percent": 69.63,
+        "output_savings_percent": 46.39,
+        "uncached_input_savings_percent": 42.73,
+        "input_equivalent_savings_percent": 51.84,
+        "cost_savings_percent": 48.32,
+        "quality_diff": 0.0,
+        "tool_call_diff_percent": 59.09,
+        "files_read_diff_percent": -12.5,
+        "lines_read_diff_percent": 12.5,
+        "first_request_overhead_tokens": -6738
+      }
+    },
+    {
+      "task": "ts-lib",
+      "category": "greenfield",
+      "runs": {
+        "native": 1,
+        "token-forge": 1
+      },
+      "native": {
+        "total_tokens": 283542,
+        "input_tokens": 262038,
+        "output_tokens": 21504,
+        "cached_input_tokens": 230459,
+        "uncached_input_tokens": 31579,
+        "input_equivalent_tokens": 170036,
+        "total_cost_usd_reported": 0.7287397999999999,
+        "tool_calls": 7,
+        "duration_seconds": 175.1,
+        "quality_score": 100.0,
+        "files_read": 0,
+        "lines_read": 18,
+        "bytes_read": 474,
+        "first_request_context_tokens": 20243,
+        "api_requests": 8,
+        "redundant_reads": 0,
+        "tool_result_bytes": 1718,
+        "files_read_incl_bash": 4,
+        "context_precision_approx": 0.0,
+        "subagent_calls": 0,
+        "completion_rate": 1.0,
+        "statuses": [
+          "completed"
+        ],
+        "tests_passed": [
+          true
+        ],
+        "tokens_per_quality_point": 2835.4,
+        "quality_per_million_tokens": 352.68,
+        "nested_session_tokens": 0
+      },
+      "token-forge": {
+        "total_tokens": 156168,
+        "input_tokens": 141118,
+        "output_tokens": 15050,
+        "cached_input_tokens": 117669,
+        "uncached_input_tokens": 23449,
+        "input_equivalent_tokens": 116325,
+        "total_cost_usd_reported": 0.5120778,
+        "tool_calls": 5,
+        "duration_seconds": 120.0,
+        "quality_score": 100.0,
+        "files_read": 0,
+        "lines_read": 12,
+        "bytes_read": 154,
+        "first_request_context_tokens": 13514,
+        "api_requests": 6,
+        "redundant_reads": 0,
+        "tool_result_bytes": 1063,
+        "files_read_incl_bash": 2,
+        "context_precision_approx": 0.0,
+        "subagent_calls": 0,
+        "completion_rate": 1.0,
+        "statuses": [
+          "completed"
+        ],
+        "tests_passed": [
+          true
+        ],
+        "tokens_per_quality_point": 1561.7,
+        "quality_per_million_tokens": 640.34,
+        "nested_session_tokens": 0
+      },
+      "diff": {
+        "total_tokens_abs": 127374,
+        "token_savings_percent": 44.92,
+        "input_savings_percent": 46.15,
+        "output_savings_percent": 30.01,
+        "uncached_input_savings_percent": 25.74,
+        "input_equivalent_savings_percent": 31.59,
+        "cost_savings_percent": 29.73,
+        "quality_diff": 0.0,
+        "tool_call_diff_percent": 28.57,
+        "files_read_diff_percent": 50.0,
+        "lines_read_diff_percent": 33.33,
+        "first_request_overhead_tokens": -6729
+      }
+    },
+    {
+      "task": "vite-landing",
+      "category": "greenfield",
+      "runs": {
+        "native": 1,
+        "token-forge": 1
+      },
+      "native": {
+        "total_tokens": 253105,
+        "input_tokens": 242069,
+        "output_tokens": 11036,
+        "cached_input_tokens": 221615,
+        "uncached_input_tokens": 20454,
+        "input_equivalent_tokens": 102904,
+        "total_cost_usd_reported": 0.428595,
+        "tool_calls": 9,
+        "duration_seconds": 105.0,
+        "quality_score": 100.0,
+        "files_read": 0,
+        "lines_read": 21,
+        "bytes_read": 667,
+        "first_request_context_tokens": 18601,
+        "api_requests": 10,
+        "redundant_reads": 0,
+        "tool_result_bytes": 2508,
+        "files_read_incl_bash": 6,
+        "context_precision_approx": 0.0,
+        "subagent_calls": 0,
+        "completion_rate": 1.0,
+        "statuses": [
+          "completed"
+        ],
+        "tests_passed": [
+          true
+        ],
+        "tokens_per_quality_point": 2531.1,
+        "quality_per_million_tokens": 395.09,
+        "nested_session_tokens": 0
+      },
+      "token-forge": {
+        "total_tokens": 62243,
+        "input_tokens": 55503,
+        "output_tokens": 6740,
+        "cached_input_tokens": 42357,
+        "uncached_input_tokens": 13146,
+        "input_equivalent_tokens": 54366,
+        "total_cost_usd_reported": 0.24840739999999997,
+        "tool_calls": 3,
+        "duration_seconds": 60.0,
+        "quality_score": 100.0,
+        "files_read": 0,
+        "lines_read": 6,
+        "bytes_read": 82,
+        "first_request_context_tokens": 11863,
+        "api_requests": 4,
+        "redundant_reads": 0,
+        "tool_result_bytes": 624,
+        "files_read_incl_bash": 2,
+        "context_precision_approx": 0.0,
+        "subagent_calls": 0,
+        "completion_rate": 1.0,
+        "statuses": [
+          "completed"
+        ],
+        "tests_passed": [
+          true
+        ],
+        "tokens_per_quality_point": 622.4,
+        "quality_per_million_tokens": 1606.61,
+        "nested_session_tokens": 0
+      },
+      "diff": {
+        "total_tokens_abs": 190862,
+        "token_savings_percent": 75.41,
+        "input_savings_percent": 77.07,
+        "output_savings_percent": 38.93,
+        "uncached_input_savings_percent": 35.73,
+        "input_equivalent_savings_percent": 47.17,
+        "cost_savings_percent": 42.04,
+        "quality_diff": 0.0,
+        "tool_call_diff_percent": 66.67,
+        "files_read_diff_percent": 66.67,
+        "lines_read_diff_percent": 71.43,
+        "first_request_overhead_tokens": -6738
       }
     }
   ]

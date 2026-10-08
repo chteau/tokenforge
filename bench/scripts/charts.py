@@ -20,7 +20,14 @@ BENCH = Path(__file__).resolve().parents[1]
 OUT = BENCH.parent / "docs" / "img"
 LABEL = {"cross-module-debug": "Cross-module debug (TS)", "rust-cli": "Rust CLI feature", "pr-review": "PR review (Go)",
          "architecture": "Architecture tracing (TS)", "rust-debug": "Rust debugging", "banking-transfers": "Scheduled transfers (TS)",
-         "go-api": "Go REST endpoint"}
+         "go-api": "Go REST endpoint", "go-feature": "Go scheduled notifications", "banking-web": "TS filters + CSV export",
+         "refactor": "Rust refactor",
+         "rust-tui": "Rust TUI (ratatui)", "vite-landing": "Vite front page", "go-mock-api": "Go mock REST API",
+         "python-cli": "Python CLI", "ts-lib": "TypeScript library", "node-ssg": "Node static site gen",
+         "luau-inventory": "Luau inventory (Roblox)", "cpp-cli": "C++ key-value store", "csharp-api": "C# loans API"}
+GREENFIELD = ["rust-tui", "vite-landing", "go-mock-api", "python-cli", "ts-lib", "node-ssg", "luau-inventory", "cpp-cli", "csharp-api"]
+EXISTING = ["cross-module-debug", "rust-cli", "pr-review", "architecture", "rust-debug", "banking-transfers", "go-api", "go-feature", "banking-web", "refactor"]
+BUILD = json.loads((BENCH / "environments" / "token-forge" / "manifest.json").read_text()).get("plugin_sha256")
 # Measured fixed context per request: first-request context of a one-word prompt in a git repo, settings written
 # by `tforge lean <level>` (Claude Code 2.1.293, Opus 5.5).
 FLOOR = [("off (Claude Code)", 16929), ("lean on", 11933), ("balanced (default)", 9738), ("lean max", 5755), ("lean ultra", 4401)]
@@ -243,16 +250,70 @@ def hero_chart(rs):
     return "\n".join(g)
 
 
+def final_chart(rs, tasks, title, subtitle):
+    """Clean Claude Code (median) vs tokenforge default of the build under test (median), log scale, direct labels."""
+    import math
+    nat, tf = {}, {}
+    for r in rs:
+        if r["agent"] == "native":
+            nat.setdefault(r["task"], []).append(r["total_tokens"])
+        elif (r["agent"] == "token-forge" and not r.get("variant") and r["lean"] == "balanced"
+              and r.get("token_forge_plugin_sha256") == BUILD):
+            tf.setdefault(r["task"], []).append(r["total_tokens"])
+    tasks = sorted((t for t in tasks if t in nat and t in tf), key=lambda t: st.median(nat[t]))
+    if not tasks:
+        return None, {}
+    W, H, left, right, top, bottom = 1240, 760, 96, 110, 150, 170
+    pw, ph = W - left - right, H - top - bottom
+    vals = [v for t in tasks for v in (st.median(nat[t]), st.median(tf[t]))]
+    lo = math.log10(min(vals) * 0.6); hi = math.log10(max(vals) * 1.6)
+    Y = lambda v: top + ph * (1 - (math.log10(v) - lo) / (hi - lo))
+    X = lambda i: left + pw * (i + 0.5) / len(tasks)
+    sav = {t: 100 * (1 - st.median(tf[t]) / st.median(nat[t])) for t in tasks}
+    g = [f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {W} {H}" width="{W}" role="img" aria-label="{title}">', STYLE,
+         '<style>.hd{font-size:30px;font-weight:700;letter-spacing:-.4px} .big{font-size:21px;font-weight:700} .dash{stroke-dasharray:5 5} .ring{fill:none;stroke-width:2}</style>',
+         f'<rect class="bg" width="{W}" height="{H}" rx="10"/>',
+         f'<text class="t1 hd" x="40" y="58">{title}</text>',
+         f'<text class="t2" x="40" y="88" font-size="15">{subtitle} · median −{st.median(sav.values()):.0f}% · {sum(v > 0 for v in sav.values())}/{len(tasks)} tasks cheaper</text>']
+    for v, lab in [(50_000, "50k"), (100_000, "100k"), (200_000, "200k"), (500_000, "500k"), (1_000_000, "1M"), (2_000_000, "2M"), (4_000_000, "4M")]:
+        if lo <= math.log10(v) <= hi:
+            g.append(f'<line class="grid" x1="{left}" y1="{Y(v):.1f}" x2="{left + pw}" y2="{Y(v):.1f}" stroke-width="1"/>'
+                     f'<text class="mu" x="{left - 14}" y="{Y(v) + 5:.1f}" font-size="14" text-anchor="end">{lab}</text>')
+    g.append(f'<text class="mu" x="22" y="{top + ph / 2:.0f}" font-size="13" transform="rotate(-90 22 {top + ph / 2:.0f})" text-anchor="middle">total tokens (log scale)</text>')
+    for k, (cls, name) in enumerate([("s1", "clean Claude Code"), ("s2", "tokenforge (default)")]):
+        y = top + 4 + 26 * k
+        g.append(f'<circle class="{cls}" cx="{left + 22}" cy="{y}" r="6"/><text class="t1" x="{left + 36}" y="{y + 5}" font-size="15">{name}</text>')
+    for i, t in enumerate(tasks):
+        x, n, d = X(i), st.median(nat[t]), st.median(tf[t])
+        yn, yd = Y(n), Y(d)
+        up = d > n
+        row = 46 if i % 2 else 0  # two alternating rows of axis labels: names never collide
+        g.append(f'<line class="l2 dash" x1="{x:.1f}" y1="{yn:.1f}" x2="{x:.1f}" y2="{yd:.1f}" stroke-width="1.6"/>'
+                 f'<line class="grid" x1="{x:.1f}" y1="{top + ph + 4:.1f}" x2="{x:.1f}" y2="{top + ph + 10 + row:.1f}" stroke-width="1"/>'
+                 f'<circle class="s1" cx="{x:.1f}" cy="{yn:.1f}" r="7"><title>{LABEL[t]}: clean Claude Code {fmt_k(n)}</title></circle>'
+                 f'<text class="t1" x="{x:.1f}" y="{top + ph + 26 + row:.1f}" font-size="14" font-weight="600" text-anchor="middle">{LABEL[t]}</text>'
+                 f'<text class="mu" x="{x:.1f}" y="{top + ph + 43 + row:.1f}" font-size="12.5" text-anchor="middle">{fmt_k(n)} → {fmt_k(d)}</text>'
+                 f'<circle class="s2" cx="{x:.1f}" cy="{yd:.1f}" r="7"><title>{LABEL[t]}: tokenforge {fmt_k(d)} ({sav[t]:.0f}% fewer)</title></circle>'
+                 f'<circle class="ring l2" cx="{x:.1f}" cy="{yd:.1f}" r="11"/>'
+                 f'<text class="big o" x="{x + 16:.1f}" y="{yd + (-14 if up else 26):.1f}">{"+" if up else "−"}{abs(sav[t]):.0f}%</text>')
+    g.append(f'<text class="mu" x="40" y="{H - 26}" font-size="13">Medians of 1–3 runs per side, Opus 5.5, quality from hidden tests; single runs vary about ±20%. Raw data: bench/reports/. Regenerate: python3 bench/scripts/charts.py</text>')
+    g.append("</svg>")
+    return "\n".join(g), sav
+
+
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
     rs = runs()
-    svg, tasks, sav = savings_chart(rs, ["balanced", "ultra"])
-    (OUT / "bench-savings.svg").write_text(svg)
-    (OUT / "bench-hero.svg").write_text(hero_chart(rs))
+    for name, tasks, title, sub in [("bench-existing.svg", EXISTING, "Existing codebases: features, bugs, reviews", "total tokens per task, clean Claude Code → tokenforge"),
+                                    ("bench-greenfield.svg", GREENFIELD, "From scratch: 9 projects, 7 languages", "total tokens to build each project, clean Claude Code → tokenforge")]:
+        svg, sav = final_chart(rs, tasks, title, sub)
+        if svg:
+            (OUT / name).write_text(svg)
+            print(name, {k: round(v) for k, v in sav.items()})
     (OUT / "bench-floor.svg").write_text(floor_chart())
     (OUT / "bench-context.svg").write_text(curve_chart(rs, "rust-cli", "balanced"))
-    for t in tasks:
-        print(f"{t:20} balanced {sav[(t, 'balanced')]:5.1f}%  ultra {sav[(t, 'ultra')]:5.1f}%")
+    for old in ("bench-savings.svg", "bench-hero.svg"):
+        (OUT / old).unlink(missing_ok=True)  # earlier charts mixed builds; only final-build charts are drawn now
     print("wrote", ", ".join(p.name for p in sorted(OUT.glob("bench-*.svg"))))
 
 

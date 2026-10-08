@@ -276,7 +276,7 @@ Build Summary: 3/5 steps succeeded; 1 failed; 1/2 tests passed; 1 failed\n";
         let mut d = Diags::new(Path::new("/p"));
         parse_gnu(&mut d, b, Path::new("/p"), false);
         assert_eq!(d.count("E"), 2);
-        assert!(d.items.iter().any(|x| x.file.ends_with(r"C:\p\src\w.zig") && x.line == 1));
+        assert!(d.items.iter().any(|x| x.file.replace('\\', "/").ends_with("C:/p/src/w.zig") && x.line == 1), "{:?}", d.items);
     }
 
     #[test]

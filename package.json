@@ -4,8 +4,14 @@
   "private": true,
   "description": "Claude Code plugin: build big things with far fewer tokens using small, stateless, test-checked workers.",
   "type": "module",
-  "bin": { "tforge": "bin/tforge" },
-  "engines": { "node": ">=18" },
-  "scripts": { "test": "node --test test/" },
+  "bin": {
+    "tforge": "bin/tforge"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  },
   "license": "MIT"
 }

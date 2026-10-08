@@ -81,7 +81,8 @@ test('kit router: cat of long project files goes through tview; reads elsewhere,
   assert.equal(bash('cat -n a.rs', {}, sid(), dir), null);
   assert.equal(bash('cat /etc/hostname', {}, sid(), dir), null);
   assert.equal(bash('cat missing.rs', {}, sid(), dir), null);
-  assert.match(bash('cat *.rs', {}, sid(), dir).updatedInput.command, /tview'? a\.rs b\.rs$/, 'globs are expanded inside the project');
+  if (typeof fs.globSync === 'function')
+    assert.match(bash('cat *.rs', {}, sid(), dir).updatedInput.command, /tview'? a\.rs b\.rs$/, 'globs are expanded inside the project');
   assert.equal(bash('cat *.zz', {}, sid(), dir), null, 'a glob that matches nothing runs unchanged');
   assert.equal(bash('cat a.rs; sed -i s/a/b/ b.rs', {}, sid(), dir), null, 'a write in the line keeps the normal permission flow');
 });

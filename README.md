@@ -33,23 +33,44 @@ A long Claude Code session re-sends its whole context on every turn. A build tha
 
 ## Where it helps, measured
 
-**Against clean Claude Code.** Every benchmark run uses **Claude Opus 5.5** (`claude-opus-5-5`) on Claude Code 2.1.293, for both sides. This is verified from the model field of every API response in the saved transcripts, not just the `--model` flag: 1,372 requests, all answered by Opus 5.5. `bench/` runs the same tasks on the same repos and model in sandboxed sessions, once with clean Claude Code and once with tokenforge only, and scores quality with hidden tests. These numbers use tokenforge 0.7.0 at its default lean level (`balanced`) and at `ultra`:
+**Against clean Claude Code.** Every benchmark run uses **Claude Opus 5.5** (`claude-opus-5-5`) on Claude Code 2.1.293, on both sides. This is verified from the model field of every API response in the saved transcripts, not just the `--model` flag. `bench/` runs the same task on the same repo commit in sandboxed sessions, once with clean Claude Code (no plugins, skills, hooks, MCP or CLAUDE.md) and once with tokenforge 0.7.0 at its defaults, and scores quality with hidden tests.
 
-![Total tokens per task: clean Claude Code vs tokenforge](docs/img/bench-hero.svg)
+**Across all 19 tasks, tokenforge used under half the tokens: median −52%, mean −52%, pooled −53%. It was cheaper on 19 of 19 tasks, with equal or better quality on all but one.** Weighted by price, which is roughly what usage limits count (cache reads cost 0.1×, and most of the savings are cache reads), the median is −33%.
 
-| Task | Clean Claude Code | tokenforge, default | tokenforge, ultra | Quality (clean → default / ultra) |
+![From scratch: total tokens per project](docs/img/bench-greenfield.svg)
+
+| Built from scratch | Clean Claude Code | tokenforge | Saved | Quality |
 |---|---:|---:|---:|---|
-| cross-module debugging (TS) | 265k | 110k (−59%) | 75k (−72%) | 100 → 100 / 100 |
-| Rust debugging | 202k | 121k (−40%) | 120k (−41%) | 88.5 → 90 / 90 |
-| Rust CLI feature | 1.44M | 519k (−64%) | 506k (−65%) | 100 → 100 / 100 |
-| scheduled transfers (TS, multi-layer) | 2.43M | 1.59M (−35%) | 1.56M (−36%) | 100 → 94 / 94 * |
-| PR review (Go) | 181k | 122k (−33%) | 77k (−57%) | 96.7 → 98.1 / 100 |
-| architecture investigation (TS) | 386k | 249k (−36%) | 217k (−44%) | 100 → 100 / 100 |
-| Go REST endpoint | 684k | 383k (−44%) | 461k (−33%) | 100 → 100 / 100 |
+| Vite front page | 253k | 62k | **−75%** | 100 → 100 |
+| Go mock REST API | 556k | 144k | **−74%** | 97.5 → 100 |
+| C# loans API (ASP.NET Core) | 1.22M | 335k | **−73%** | 100 → 100 |
+| Rust TUI (ratatui) | 802k | 251k | **−69%** | 100 → 100 |
+| Luau inventory (Roblox-style) | 245k | 84k | **−66%** | 100 → 100 |
+| Node static site generator | 434k | 207k | **−52%** | 100 → 100 |
+| Python CLI | 386k | 191k | **−51%** | 100 → 100 |
+| C++ key-value store (CMake) | 303k | 157k | **−48%** | 100 → 100 |
+| TypeScript library | 284k | 156k | **−45%** | 100 → 100 |
 
-\* All hidden tests pass; the structural design checks scored 9/15. Earlier tokenforge builds scored the same on this task.
+Median −66%. The agent gets a spec and an empty repo, and hidden black-box tests check the result (CLI, HTTP contract, headless browser, scripted TUI, lune for Luau).
 
-Default: cheaper on all 7 tasks, median −40%, mean −44%, pooled over all tokens −45%. `ultra`: median −44%, mean −50%. Weighted by price, which is roughly what usage limits count (cache reads cost 0.1×, and most of the savings are cache reads), the medians are −24% and −30%. The `ultra` column predates the last policy change (`tread` instead of "grep, then sed"), which lowered the default's numbers; `ultra` was not re-run. Each cell is one run against the median of 1–3 clean runs, and single runs vary by about ±20%, so treat per-task numbers as rough. `bench/reports/` holds the raw data, `bench/scripts/charts.py` redraws these charts from it, and `bench/` reruns everything.
+![Existing codebases: total tokens per task](docs/img/bench-existing.svg)
+
+| In an existing codebase | Clean Claude Code | tokenforge | Saved | Quality |
+|---|---:|---:|---:|---|
+| Cross-module debugging (TS) | 265k | 92k | **−65%** | 100 → 100 |
+| Go scheduled notifications | 1.94M | 733k | **−62%** | 100 → 100 |
+| TS filters + CSV export | 1.56M | 637k | **−59%** | 100 → 100 |
+| Rust CLI feature | 1.44M | 604k | **−58%** | 100 → 100 |
+| Go REST endpoint | 684k | 343k | **−50%** | 100 → 100 |
+| Rust debugging | 202k | 115k | **−43%** | 88.5 → 100 |
+| PR review (Go) | 181k | 111k | **−39%** | 96.67 → 100 |
+| Scheduled transfers (TS, multi-layer) | 2.43M | 1.62M | **−33%** | 100 → 94 |
+| Rust refactor | 413k | 348k | **−16%** | 100 → 100 |
+| Architecture investigation (TS) | 386k | 347k | **−10%** | 100 → 100 |
+
+Median −47%. Scheduled transfers: every hidden test passes, but tokenforge scores 94 on the structural design checks (9/15), as in every tokenforge run of that task.
+
+Each row is the median of 1–3 runs per side, and single runs vary by about ±20%, so read per-task numbers as rough and the overall result as solid. `bench/reports/` has the raw data, and `bench/scripts/charts.py` redraws these charts from it. `bench/` reruns everything.
 
 **Why it works.** Every request re-sends Claude Code's tool and skill definitions, and re-reads everything said so far:
 
@@ -57,9 +78,10 @@ Default: cheaper on all 7 tasks, median −40%, mean −44%, pooled over all tok
 
 ![Context re-read per request in one session](docs/img/bench-context.svg)
 
-- **Fixed context**: 16.9k tokens per request by default, 9.7k at the default lean level, 4.4k at `ultra`. On short tasks this floor is most of the cost.
-- **Tool results are 80–95% of context growth**, and every result is re-read by every later call. A 20k-char multi-file `cat` at call 3 of 25 is paid for 22 times, so broad dumps fold (see below).
-- **Round trips cost a full context re-read each**, so the hooks avoid adding any: inline edit scripts are allowed, rewrites never prompt, and session text is about 640 characters.
+- **Fixed context**: 16.9k tokens per request by default, 9.7k at tokenforge's default lean level. On short tasks this floor is most of the cost.
+- **Fewer round trips**: each call re-reads the whole context. Batching (several files per call, one-call code reads with `tread`) built whole projects in 3–9 calls where clean Claude Code took 7–22.
+- **Smaller tool results**: they are 80–95% of context growth in existing codebases, and every one is re-read by every later call. Broad dumps fold, long lines are cut, build and test output is compacted.
+- **Less code**: "every stated requirement, nothing extra", written concisely but readably.
 
 The older measurements below are about tforge workers, not the hooks.
 

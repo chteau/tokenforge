@@ -499,7 +499,8 @@ mod tests {
 
     #[test]
     fn common_path() {
-        assert_eq!(commonpath(&["/g/foo-1.0/lib/foo.rb", "/g/foo-1.0/README.md"]), s(Path::new("/g/foo-1.0")));
+        // compared as paths: Windows builds it with `\`
+        assert_eq!(Path::new(&commonpath(&["/g/foo-1.0/lib/foo.rb", "/g/foo-1.0/README.md"])), Path::new("/g/foo-1.0"));
     }
 
     #[test]

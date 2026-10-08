@@ -266,6 +266,7 @@ export function catFiles(core, cwd, root) {
   const files = [];
   for (const a of args) {
     if (!/[*?]/.test(a)) files.push(a);
+    else if (typeof fs.globSync !== 'function') return null; // Node < 22: leave globbed cats alone
     else {
       let m = [];
       try {

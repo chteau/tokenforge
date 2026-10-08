@@ -597,7 +597,8 @@ mod tests {
         assert_eq!((d.items[1].sev.as_str(), d.items[1].line), ("W", 3));
         assert!(d.items[2].file.ends_with("C:/work/app/src/main/java/Win.java"), "{}", d.items[2].file);
         assert_eq!((d.items[2].line, d.items[2].col, d.items[2].msg.as_str()), (7, 13, "';' expected"));
-        assert!(d.items[3].file.ends_with(r"C:\work\app\src\main\java\Win2.java"));
+        // Windows may normalise separators; compare with `/` either way.
+        assert!(d.items[3].file.replace('\\', "/").ends_with("C:/work/app/src/main/java/Win2.java"), "{}", d.items[3].file);
         assert_eq!((d.items[3].line, d.items[3].col), (8, 2));
         assert!(d.items[4].file.ends_with("C:/work/app/src/main/kotlin/K.kt"));
     }

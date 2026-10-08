@@ -54,7 +54,8 @@ fn is_testish(f: &str) -> bool {
 /// In-repo `path:line` frames from `text`: existing files, deps skipped, source before tests, at most 3.
 fn frames(text: &str, root: &Path) -> Vec<(String, usize)> {
     // Windows frames: `C:\proj\src\a.ts:3:5`, `src\lib.rs:10:5`, `file:///C:/proj/a.mjs:3:9`.
-    let re = Regex::new(r"(?:\b[A-Za-z]:)?[A-Za-z0-9_@./\\-]+\.(js|mjs|cjs|ts|tsx|jsx|py|rs|go|dart|java|kt|rb|php|cs|cpp|cc|c|h|lua|luau|sh):[0-9]+").unwrap();
+    // `~` for Windows 8.3 short names (`C:\Users\RUNNER~1\AppData\...`), common in temp and CI paths.
+    let re = Regex::new(r"(?:\b[A-Za-z]:)?[A-Za-z0-9_@./\\~-]+\.(js|mjs|cjs|ts|tsx|jsx|py|rs|go|dart|java|kt|rb|php|cs|cpp|cc|c|h|lua|luau|sh):[0-9]+").unwrap();
     let root_s = root.to_string_lossy().replace('\\', "/");
     let prefix = format!("{}/", root_s.trim_end_matches('/'));
     let mut seen = std::collections::HashSet::new();
