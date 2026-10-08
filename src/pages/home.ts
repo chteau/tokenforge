@@ -13,6 +13,7 @@ export function home(view: HTMLElement): void {
   const off = data.lean.find((l) => l.level === 'off')?.tokens ?? 0;
   const bal = data.lean.find((l) => l.level === 'balanced')?.tokens ?? 0;
   const worse = data.tasks.filter((t) => t.qualityDiff < 0);
+  const scratchLangs = new Set(data.tasks.filter((t) => t.group === 'scratch').map((t) => t.language)).size;
 
   view.innerHTML = `
   <header class="phero" aria-labelledby="hero-title">
@@ -75,7 +76,7 @@ export function home(view: HTMLElement): void {
 
   <section class="psec" id="numbers">
     <p class="plabel">Benchmark</p>
-    <h2>Measured on 19 real tasks, not estimated.</h2>
+    <h2>Measured on ${a.tasks} real tasks, not estimated.</h2>
     <div class="pstats">
       <div class="hi"><div class="n">${Math.round(a.medianSavings)}%</div><div class="l">fewer tokens (median)</div></div>
       <div><div class="n">${a.tasksCheaper}/${a.tasks}</div><div class="l">tasks cheaper</div></div>
@@ -92,7 +93,7 @@ export function home(view: HTMLElement): void {
       <div class="chart-box" id="db-existing"></div>
       <details class="data"><summary>Data table: all ${a.tasks} tasks</summary>${resultsTable()}</details>
     </article>
-    <p class="pcap">${a.tasks} tasks, ${a.scratchTasks} from-scratch projects in 8 languages. ${MODEL_NAME} on both sides, checked in every API response. Medians of 1–3 runs per side.${worse.length ? ` Quality was lower on one task (${worse.map((t) => t.label).join(', ')}): every hidden test passes, the design checks score lower.` : ''} <a href="#/benchmark">Method and caveats →</a></p>
+    <p class="pcap">${a.tasks} tasks, ${a.scratchTasks} from-scratch projects in ${scratchLangs} languages. ${MODEL_NAME} on both sides, checked in every API response. Medians of 1–3 runs per side.${worse.length ? ` Quality was lower on one task (${worse.map((t) => t.label).join(', ')}): every hidden test passes, the design checks score lower.` : ''} <a href="#/benchmark">Method and caveats →</a></p>
   </section>
 
   <section class="psec" id="install">

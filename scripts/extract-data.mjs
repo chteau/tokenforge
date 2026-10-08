@@ -21,6 +21,9 @@ const SCRATCH = {
   'vite-landing': 'Vite front page', 'go-mock-api': 'Go mock REST API', 'csharp-api': 'C# loans API (ASP.NET Core)',
   'rust-tui': 'Rust TUI (ratatui)', 'luau-inventory': 'Luau inventory (Roblox-style)', 'node-ssg': 'Node static site generator',
   'python-cli': 'Python CLI', 'cpp-cli': 'C++ key-value store (CMake)', 'ts-lib': 'TypeScript library',
+  'java-http': 'Java URL shortener (JDK HTTP)', 'php-api': 'PHP ticketing API (SQLite)', 'swift-cli': 'Swift cron tool (SwiftPM)',
+  'dart-cli': 'Dart habit tracker', 'bash-tool': 'Bash backup rotation', 'c-cli': 'C CSV query tool (Make)',
+  'kotlin-cli': 'Kotlin Markdown converter',
 };
 const EXISTING = {
   'cross-module-debug': 'Cross-module debugging (TS)', 'go-feature': 'Go scheduled notifications', 'banking-web': 'TS filters + CSV export',
@@ -33,8 +36,10 @@ const SHORT = {
   'cross-module-debug': 'Cross-module debug', 'go-feature': 'Go notifications', 'banking-web': 'TS CSV export', 'rust-cli': 'Rust CLI feature',
   'go-api': 'Go endpoint', 'rust-debug': 'Rust debug', 'pr-review': 'PR review', 'banking-transfers': 'Sched. transfers',
   'refactor': 'Rust refactor', 'architecture': 'Architecture',
+  'java-http': 'Java shortener', 'php-api': 'PHP API', 'swift-cli': 'Swift cron', 'dart-cli': 'Dart habits', 'bash-tool': 'Bash backups',
+  'c-cli': 'C CSV tool', 'kotlin-cli': 'Kotlin Markdown', 'ruby-cli': 'Ruby logs',
 };
-const LANG = { rust: 'Rust', go: 'Go', typescript: 'TypeScript', javascript: 'JavaScript', python: 'Python', cpp: 'C++', csharp: 'C#', luau: 'Luau' };
+const LANG = { rust: 'Rust', go: 'Go', typescript: 'TypeScript', javascript: 'JavaScript', python: 'Python', cpp: 'C++', csharp: 'C#', luau: 'Luau', java: 'Java', php: 'PHP', swift: 'Swift', dart: 'Dart', bash: 'Bash', c: 'C', kotlin: 'Kotlin', ruby: 'Ruby' };
 
 const median = (xs) => {
   const s = [...xs].sort((a, b) => a - b);

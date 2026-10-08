@@ -64,6 +64,7 @@ export function benchmark(view: HTMLElement): void {
         <h2>Caveats, stated plainly</h2>
         <ul>
           <li><strong>Single runs.</strong> Most tasks have one run per side, a few have two or three. Single runs vary by about ±20%. Read per-task numbers as rough and the overall result as solid.</li>
+          <li><strong>One task left out.</strong> A Ruby log analyzer was run once per side and is not in these results: TokenForge used 14% more tokens on it (443k vs 390k), quality 96.25 vs 96.83. The exclusion is listed in <code>bench/benchmark.config.json</code> and the runs are kept.</li>
           <li><strong>Session length.</strong> The benchmark covers sessions of roughly 5–30 calls. Long interactive sessions are not measured yet.</li>
           <li><strong>One quality drop.</strong> On scheduled transfers, every hidden test passes, but TokenForge scores 94 on the structural design checks (9/15), as in every TokenForge run of that task.</li>
           <li><strong>Hooks rewrite some commands.</strong> Raw build and test commands, broad <code>cat</code> dumps and <code>ssh</code> are rewritten to compact tools. See <a href="#/docs/hooks">Hooks</a> for the exact list and escape hatches.</li>

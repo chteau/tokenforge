@@ -5,7 +5,7 @@
   "claude-opus-5-5"
  ],
  "apiModels": {
-  "claude-opus-5-5": 45
+  "claude-opus-5-5": 59
  },
  "runsWithOtherModels": 0,
  "contaminatedRuns": 0,
@@ -13,21 +13,21 @@
  "tokenforgeVersion": "0.7.0",
  "defaultLean": "balanced",
  "aggregate": {
-  "tasks": 19,
-  "runs": 45,
-  "medianSavings": 52.42,
-  "meanSavings": 52.03,
-  "pooledSavings": 53.3,
-  "minSavings": 10.16,
+  "tasks": 26,
+  "runs": 59,
+  "medianSavings": 51.51,
+  "meanSavings": 49.49,
+  "pooledSavings": 51.28,
+  "minSavings": 9.98,
   "maxSavings": 75.41,
-  "medianPriceWeighted": 32.58,
+  "medianPriceWeighted": 31.21,
   "medianToolCallReduction": 40,
-  "tasksCheaper": 19,
+  "tasksCheaper": 26,
   "tasksCostlier": 0,
   "firstRequestOverhead": -6735,
-  "scratchMedian": 65.61,
+  "scratchMedian": 53.275000000000006,
   "existingMedian": 46.51,
-  "scratchTasks": 9,
+  "scratchTasks": 16,
   "existingTasks": 10,
   "qualityWorse": [
    "banking-transfers"
@@ -212,6 +212,40 @@
    },
    "savings": 72.57,
    "savingsPriceWeighted": 34.47,
+   "qualityDiff": 0
+  },
+  {
+   "id": "java-http",
+   "group": "scratch",
+   "label": "Java URL shortener (JDK HTTP)",
+   "short": "Java shortener",
+   "title": "Build the shorty URL-shortener HTTP service in Java",
+   "category": "greenfield",
+   "language": "Java",
+   "runs": {
+    "native": 1,
+    "tokenforge": 1
+   },
+   "native": {
+    "total": 813271,
+    "inputEq": 379497,
+    "requests": 18,
+    "toolCalls": 17,
+    "firstContext": 18971,
+    "quality": 100,
+    "output": 47021
+   },
+   "tokenforge": {
+    "total": 236944,
+    "inputEq": 215088,
+    "requests": 7,
+    "toolCalls": 6,
+    "firstContext": 12239,
+    "quality": 100,
+    "output": 30212
+   },
+   "savings": 70.87,
+   "savingsPriceWeighted": 43.32,
    "qualityDiff": 0
   },
   {
@@ -419,6 +453,74 @@
    "qualityDiff": 0
   },
   {
+   "id": "php-api",
+   "group": "scratch",
+   "label": "PHP ticketing API (SQLite)",
+   "short": "PHP API",
+   "title": "Build the boxoffice event-ticketing JSON API in PHP",
+   "category": "greenfield",
+   "language": "PHP",
+   "runs": {
+    "native": 1,
+    "tokenforge": 1
+   },
+   "native": {
+    "total": 1072423,
+    "inputEq": 416769,
+    "requests": 20,
+    "toolCalls": 19,
+    "firstContext": 19273,
+    "quality": 100,
+    "output": 48584
+   },
+   "tokenforge": {
+    "total": 478598,
+    "inputEq": 324836,
+    "requests": 11,
+    "toolCalls": 10,
+    "firstContext": 12541,
+    "quality": 100,
+    "output": 44152
+   },
+   "savings": 55.37,
+   "savingsPriceWeighted": 22.06,
+   "qualityDiff": 0
+  },
+  {
+   "id": "swift-cli",
+   "group": "scratch",
+   "label": "Swift cron tool (SwiftPM)",
+   "short": "Swift cron",
+   "title": "Build the cronx cron expression tool in Swift",
+   "category": "greenfield",
+   "language": "Swift",
+   "runs": {
+    "native": 1,
+    "tokenforge": 1
+   },
+   "native": {
+    "total": 419424,
+    "inputEq": 216791,
+    "requests": 11,
+    "toolCalls": 10,
+    "firstContext": 19131,
+    "quality": 100,
+    "output": 26848
+   },
+   "tokenforge": {
+    "total": 192383,
+    "inputEq": 172192,
+    "requests": 6,
+    "toolCalls": 5,
+    "firstContext": 12405,
+    "quality": 100,
+    "output": 23846
+   },
+   "savings": 54.13,
+   "savingsPriceWeighted": 20.57,
+   "qualityDiff": 0
+  },
+  {
    "id": "node-ssg",
    "group": "scratch",
    "label": "Node static site generator",
@@ -589,6 +691,40 @@
    "qualityDiff": 0
   },
   {
+   "id": "dart-cli",
+   "group": "scratch",
+   "label": "Dart habit tracker",
+   "short": "Dart habits",
+   "title": "Build the habits streak-tracker CLI in Dart",
+   "category": "greenfield",
+   "language": "Dart",
+   "runs": {
+    "native": 1,
+    "tokenforge": 1
+   },
+   "native": {
+    "total": 442968,
+    "inputEq": 200131,
+    "requests": 12,
+    "toolCalls": 11,
+    "firstContext": 19172,
+    "quality": 100,
+    "output": 23573
+   },
+   "tokenforge": {
+    "total": 244932,
+    "inputEq": 132932,
+    "requests": 10,
+    "toolCalls": 9,
+    "firstContext": 12431,
+    "quality": 100,
+    "output": 16362
+   },
+   "savings": 44.71,
+   "savingsPriceWeighted": 33.58,
+   "qualityDiff": 0
+  },
+  {
    "id": "rust-debug",
    "group": "existing",
    "label": "Rust debugging",
@@ -621,6 +757,40 @@
    "savings": 43.15,
    "savingsPriceWeighted": 30.84,
    "qualityDiff": 11.5
+  },
+  {
+   "id": "bash-tool",
+   "group": "scratch",
+   "label": "Bash backup rotation",
+   "short": "Bash backups",
+   "title": "Build the rotate backup rotation tool in Bash",
+   "category": "greenfield",
+   "language": "Bash",
+   "runs": {
+    "native": 1,
+    "tokenforge": 1
+   },
+   "native": {
+    "total": 623064,
+    "inputEq": 325514,
+    "requests": 12,
+    "toolCalls": 21,
+    "firstContext": 19102,
+    "quality": 100,
+    "output": 41101
+   },
+   "tokenforge": {
+    "total": 362994,
+    "inputEq": 254273,
+    "requests": 9,
+    "toolCalls": 8,
+    "firstContext": 12370,
+    "quality": 100,
+    "output": 34362
+   },
+   "savings": 41.74,
+   "savingsPriceWeighted": 21.89,
+   "qualityDiff": 0
   },
   {
    "id": "pr-review",
@@ -691,6 +861,40 @@
    "qualityDiff": -6
   },
   {
+   "id": "c-cli",
+   "group": "scratch",
+   "label": "C CSV query tool (Make)",
+   "short": "C CSV tool",
+   "title": "Build the csvq CSV query tool in C",
+   "category": "greenfield",
+   "language": "C",
+   "runs": {
+    "native": 1,
+    "tokenforge": 1
+   },
+   "native": {
+    "total": 723340,
+    "inputEq": 335536,
+    "requests": 15,
+    "toolCalls": 14,
+    "firstContext": 19463,
+    "quality": 100,
+    "output": 41483
+   },
+   "tokenforge": {
+    "total": 569314,
+    "inputEq": 353414,
+    "requests": 11,
+    "toolCalls": 10,
+    "firstContext": 12722,
+    "quality": 100,
+    "output": 46282
+   },
+   "savings": 21.29,
+   "savingsPriceWeighted": -5.33,
+   "qualityDiff": 0
+  },
+  {
    "id": "refactor",
    "group": "existing",
    "label": "Rust refactor",
@@ -756,6 +960,40 @@
    },
    "savings": 10.16,
    "savingsPriceWeighted": 11.96,
+   "qualityDiff": 0
+  },
+  {
+   "id": "kotlin-cli",
+   "group": "scratch",
+   "label": "Kotlin Markdown converter",
+   "short": "Kotlin Markdown",
+   "title": "Build the mdc Markdown-to-HTML converter in Kotlin",
+   "category": "greenfield",
+   "language": "Kotlin",
+   "runs": {
+    "native": 1,
+    "tokenforge": 1
+   },
+   "native": {
+    "total": 463810,
+    "inputEq": 322113,
+    "requests": 9,
+    "toolCalls": 8,
+    "firstContext": 19770,
+    "quality": 100,
+    "output": 43503
+   },
+   "tokenforge": {
+    "total": 417535,
+    "inputEq": 301446,
+    "requests": 9,
+    "toolCalls": 8,
+    "firstContext": 13023,
+    "quality": 100,
+    "output": 41183
+   },
+   "savings": 9.98,
+   "savingsPriceWeighted": 6.42,
    "qualityDiff": 0
   }
  ]
