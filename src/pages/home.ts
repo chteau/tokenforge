@@ -1,5 +1,6 @@
 import { contextChart, contextTable } from '../charts/context';
 import { dumbbellChart, resultsTable } from '../charts/dumbbell';
+import { anatomy } from '../charts/anatomy';
 import { leanChart, leanTable } from '../charts/lean';
 import { data, MODEL_NAME } from '../data';
 import { bindCopy, fmtK } from '../util';
@@ -26,9 +27,30 @@ export function home(view: HTMLElement): void {
     <p class="pmeta">Claude Code plugin · v${data.tokenforgeVersion} · MIT</p>
   </header>
 
-  <section class="psec" id="idea">
+  <section class="psec" id="how">
     <p class="plabel">How it works</p>
-    <h2>Every call re-sends everything. Most of the bill is re-reading.</h2>
+    <h2>Claude Code pays for the same tokens over and over.</h2>
+    <div class="how-intro">
+      <article class="card prose">
+        <p>Claude Code doesn’t remember anything between API calls. Each time Claude runs a tool (read a file, run the tests, edit something), the next call sends <b>everything again</b>: the tool definitions and instructions, your messages, and every file and command output so far.</p>
+        <p>So a file read early in a session is paid for on every call after it. In an 18-call session, a file read in the first call is sent again in each of the other 17. Most of a bill is re-reading, not new work.</p>
+        <p>That gives three things to cut: <b>what every call carries</b>, <b>how big each tool output is</b>, and <b>how many calls there are</b>. TokenForge works on all three, without changing how you use Claude Code.</p>
+      </article>
+      <article class="card">
+        <div id="anatomy"></div>
+        <p class="pcap" style="margin-top:12px">A sketch, not one real session: the tools-and-instructions part is measured (${fmtK(off, true)} vs ${fmtK(bal, true)} per call), the output sizes are made up to show the shape. Real sessions are below.</p>
+      </article>
+    </div>
+    <div class="cuts">
+      <article class="card"><h3><i style="background:var(--s4)"></i>Carry less on every call</h3><p>Lean levels hide tools and built-in skills a coding session rarely needs. They’re sent with every call, so trimming them saves on all of them.</p><p class="how">${fmtK(off, true)} → ${fmtK(bal, true)} per call by default</p></article>
+      <article class="card"><h3><i style="background:var(--s2)"></i>Keep tool output small</h3><p>Big file dumps fold to their outline, long lines are cut, and build and test runs report only the summary and failures. Whatever lands in context is re-sent on every later call.</p><p class="how">tview · tkit check / test</p></article>
+      <article class="card"><h3><i style="background:var(--muted)"></i>Make fewer calls</h3><p>Several reads in one call, edits batched together, past sessions searched instead of re-explored, and a question you already asked answered without a model call.</p><p class="how">median ${Math.round(a.medianToolCallReduction)}% fewer tool calls</p></article>
+    </div>
+  </section>
+
+  <section class="psec" id="idea">
+    <p class="plabel">One real session</p>
+    <h2>The same task, measured: two real sessions.</h2>
     <article class="card">
       <p class="sub">${data.curve.label} task (“${data.curve.title}”), one real session each. Each point is the context size of one API request; the shaded area is what the session read.</p>
       <div class="counter" id="ctx-counter" aria-live="off"></div>
@@ -121,6 +143,7 @@ export function home(view: HTMLElement): void {
   </section>`;
 
   bindCopy(view);
+  anatomy(view.querySelector('#anatomy') as HTMLElement);
   view.querySelectorAll<HTMLAnchorElement>('[data-jump]').forEach((el) => el.addEventListener('click', (e) => {
     e.preventDefault(); // hash routing: scroll instead of changing the route
     view.querySelector(el.getAttribute('href') ?? '')?.scrollIntoView({ behavior: 'smooth' });
