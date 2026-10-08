@@ -37,7 +37,7 @@ export function home(view: HTMLElement): void {
   <section class="grid cols-4" style="margin-top:18px" aria-label="Headline results">
     <div class="card kpi"><span class="label">Median total tokens saved</span><span class="value">−${Math.round(a.medianSavings)}%</span><span class="note">across ${a.tasks} tasks vs clean Claude Code</span></div>
     <div class="card kpi"><span class="label">Tasks where it was cheaper</span><span class="value">${a.tasksCheaper}/${a.tasks}</span><span class="note">equal or better quality on all but one</span></div>
-    <div class="card kpi"><span class="label">Built from scratch</span><span class="value">−${Math.round(a.scratchMedian)}%</span><span class="note">median over ${a.scratchTasks} projects in 7 languages</span></div>
+    <div class="card kpi"><span class="label">Built from scratch</span><span class="value">−${Math.round(a.scratchMedian)}%</span><span class="note">median over ${a.scratchTasks} projects in 8 languages</span></div>
     <div class="card kpi"><span class="label">Model, both sides</span><span class="value">Opus 5.5</span><span class="note">checked in every API response</span></div>
   </section>
 

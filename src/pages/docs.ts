@@ -213,7 +213,7 @@ ${pre('TFORGE_RAW=1 cargo test')}
 <p>A few lines, about 210 tokens. Results are re-read on every call, so read code in one call (<code>tread</code>), batch, edit each file in one call, and run checks once and only after code changes. Plus the scope rule: every stated requirement and nothing extra (no unasked features, docs, refactors, dependencies or abstractions), reuse existing code, concise but readable code, fix shared code once, infer instead of asking, stop once the checks pass. <code>TFORGE_LAZY=0</code> drops the scope rule. Subagents get only this policy.</p>
 
 <h2>Terse rule</h2>
-<p><strong>Events:</strong> startup, <code>/clear</code>, after compaction. One reply-style rule of about 200 tokens; nothing per prompt. Answers lead with the result. Code, paths, commands, numbers and negations stay exact. Security warnings and irreversible steps stay in full sentences. Files Claude writes keep their normal style. Switch with <code>/tokenforge:terse full|lite|off</code> or <code>TFORGE_TERSE</code>.</p>
+<p><strong>Events:</strong> startup, <code>/clear</code>, after compaction. One reply-style rule of about 60 tokens; nothing per prompt. Answers lead with the result. Code, paths, commands, numbers and negations stay exact. Security warnings and irreversible steps stay in full sentences. Files Claude writes keep their normal style. Switch with <code>/tokenforge:terse full|lite|off</code> or <code>TFORGE_TERSE</code>.</p>
 
 <h2>Memory hint and handoff reload</h2>
 <p><strong>Events:</strong> startup and <code>/clear</code>. One line pointing to <code>tforge recall</code> (see <a href="#/docs/memory">Memory</a>), and <code>.forge/HANDOFF.md</code> if it is under 72 hours old.</p>
@@ -389,7 +389,7 @@ ${rows.map(([k, d, w]) => `<tr><td><code>${k}</code></td><td>${d ? `<code>${d}</
   <dt>Which platforms?</dt>
   <dd>Linux, macOS and Windows. You need Node.js 18 or newer.</dd>
   <dt>I use another reply-style plugin.</dt>
-  <dd>Disable one of them. Both rules would load. TokenForge’s terse rule is about 200 tokens; switch it with <code>/tokenforge:terse off</code>.</dd>
+  <dd>Disable one of them. Both rules would load. TokenForge’s terse rule is about 60 tokens; switch it with <code>/tokenforge:terse off</code>.</dd>
   <dt>How long were the benchmark sessions?</dt>
   <dd>Roughly 5–30 calls each. Long interactive sessions are not measured yet.</dd>
   <dt>Can I check the numbers?</dt>

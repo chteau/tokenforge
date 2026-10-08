@@ -19,7 +19,7 @@ export function contextChart(box: HTMLElement, counters: HTMLElement): void {
     .join('');
   const setCounters = (upTo: number) => {
     for (const x of series) {
-      const k = Math.min(Math.floor(upTo), x.s.points.length);
+      const k = Math.max(0, Math.min(Math.floor(upTo), x.s.points.length));
       let sum = 0;
       for (let i = 0; i < k; i++) sum += x.s.points[i] ?? 0;
       const b = counters.querySelector(`[data-c="${x.key}"]`);
@@ -130,13 +130,24 @@ export function contextChart(box: HTMLElement, counters: HTMLElement): void {
     const rect = () => box.querySelector('#ctx-clip-r');
     if (reducedMotion()) { setCounters(n); return; }
     const dur = 2600, t0 = performance.now();
+    let done = false;
+    // frames can be throttled (background tabs, headless): land on the final state regardless
+    const finish = () => {
+      if (done) return;
+      done = true;
+      const w = box.querySelector('svg')?.viewBox.baseVal.width ?? 0;
+      rect()?.setAttribute('width', String(w * 2));
+      setCounters(n);
+    };
+    setTimeout(finish, dur + 400);
     const step = (t: number) => {
-      const p = Math.min(1, (t - t0) / dur);
+      if (done) return;
+      const p = Math.max(0, Math.min(1, (t - t0) / dur));
       const w = box.querySelector('svg')?.viewBox.baseVal.width ?? 0;
       rect()?.setAttribute('width', String(geo.left + geo.pw * p + (p >= 1 ? w : 0)));
       setCounters(p * (n - 1) + 1);
       if (p < 1) requestAnimationFrame(step);
-      else setCounters(n);
+      else finish();
     };
     requestAnimationFrame(step);
   };
