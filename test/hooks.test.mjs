@@ -612,7 +612,7 @@ test('checkpoint: request graph links each request to its edits, reads, commands
     ev({ type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Read', input: { file_path: '/p/a.rs' } }, { type: 'tool_use', name: 'Edit', input: { file_path: '/p/b.rs' } }, { type: 'tool_use', name: 'Bash', input: { command: 'cargo test' } }, { type: 'text', text: 'Fixed in b.rs.' }] } }),
   ].join('\n') + '\n');
   const out = render(fold(f, {}).chunk, 'sid12345', '/p');
-  assert.match(out, /- R1 "fix the parser bug" \| edit: b\.rs \| read: a\.rs \| ran: cargo test \| said: Fixed in b\.rs\./);
+  assert.match(out, /- R1 "fix the parser bug"\n  - edited: b\.rs\n  - read: a\.rs\n  - ran: cargo test\n  - said: Fixed in b\.rs\./);
 });
 
 test('checkpoints and handoffs live at the git root, not in the subfolder Claude was started in', async () => {
@@ -653,4 +653,16 @@ test('toolFirst end to end: denied once, repeat runs', () => {
   const run = () => spawnSync('node', [HOOK('kit-router.mjs')], { input: JSON.stringify(input), encoding: 'utf8', env: BASE_ENV }).stdout;
   assert.match(run(), /tread src\/a\.rs/);
   assert.equal(run(), '');
+});
+
+test('checkpoint: shell writes, reads, searches and failures land in the graph', async () => {
+  const { analyzeBash } = await import('../hooks/checkpoint.mjs');
+  const a = analyzeBash("cat > src/new.rs <<'EOF'\nfn x(){}\nEOF");
+  assert.deepEqual(a.edits, ['src/new.rs']);
+  assert.deepEqual(analyzeBash("python3 - <<'EOF'\np='src/a.rs'\ns=open(p).read()\nopen(p,'w').write(s)\nEOF").edits, ['src/a.rs']);
+  assert.deepEqual(analyzeBash("tkit edit <<'EOF'\n@@ a.rs\n<<<\nx\n===\ny\n>>>\nEOF").edits, ['a.rs']);
+  const b = analyzeBash('sed -n 10,40p src/a.rs; grep -rn "featured" crates/ | head; git add -A && git commit -m x');
+  assert.deepEqual(b.reads, ['src/a.rs:10-40']);
+  assert.match(b.searched[0], /featured in crates/);
+  assert.match(b.ran, /git add -A/);
 });

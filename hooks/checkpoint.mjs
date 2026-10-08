@@ -38,10 +38,38 @@ function userText(msg) {
   return c.filter((b) => b.type === 'text').map((b) => b.text).join('\n');
 }
 
-const newChunk = (n, ts) => ({ n, start: ts || null, end: ts || null, prompts: [], files: [], reply: '', ctx: 0, turns: [] });
-const TURN_LIST = 8;
-const TURN_SAY = 300;
+const newChunk = (n, ts) => ({ n, start: ts || null, end: ts || null, prompts: [], files: [], reply: '', ctx: 0, turns: [], ids: {} });
+const TURN_LIST = 25;
+const TURN_SAY = 700;
 const add = (list, x) => (x && !list.includes(x) && list.length < TURN_LIST ? list.push(x) : null);
+const SCRATCH = /^\/tmp\/claude-\d+\//;
+const FILE = /[\w@%+=.\/~-]+\.\w{1,8}\b/;
+
+// What a shell command did, in terms of the graph: files written, files read, searches, and the action itself.
+export function analyzeBash(cmd) {
+  const r = { edits: [], reads: [], searched: [], ran: '' };
+  if (/<<-?\s*['"]?\w+/.test(cmd) || cmd.includes('tkit edit')) {
+    for (const m of cmd.matchAll(/^@@\s+(\S+)/gm)) add(r.edits, m[1]);
+    for (const m of cmd.matchAll(/\bcat\s+>>?\s*(\S+)/g)) add(r.edits, m[1]);
+    for (const m of cmd.matchAll(/\bopen\(\s*(?:p|path|f)?\s*,?\s*['"]w['"]/g)) void m;
+    for (const m of cmd.matchAll(/\b(?:p|path|f|fn)\s*=\s*['"]([^'"]+)['"]/g)) if (/open\(\w+,\s*['"]w/.test(cmd)) add(r.edits, m[1]);
+    for (const m of cmd.matchAll(/\bopen\(\s*['"]([^'"]+)['"]\s*,\s*['"]w/g)) add(r.edits, m[1]);
+  }
+  for (const m of cmd.matchAll(/\bsed\s+(?:-[a-z]*i[a-z]*\S*\s+)(?:'[^']*'|"[^"]*")\s+(\S+)/g)) add(r.edits, m[1]);
+  for (const m of cmd.matchAll(/\btee\s+(?:-a\s+)?(\S+)/g)) add(r.edits, m[1]);
+  for (const m of cmd.matchAll(/\bsed\s+-n\s+['"]?(\d+),(\d+)p['"]?\s+(\S+?)[;&|\s]/g)) add(r.reads, `${m[3]}:${m[1]}-${m[2]}`);
+  for (const m of cmd.matchAll(/(?:^|[;&|]\s*)(?:cat|head|tail)\s+(?:-\w+\s+\d*\s*)*([\w@%+=.\/~-]+\.\w{1,8})\s*(?=[;&|]|$)/gm)) add(r.reads, m[1]);
+  for (const m of cmd.matchAll(/\b(?:tread|tview)\s+([^;&|\n]+)/g)) for (const a of m[1].split(/\s+/)) if (FILE.test(a)) add(r.reads, a.replace(/^["']|["']$/g, ''));
+  for (const m of cmd.matchAll(/(?:^|[;&]\s*)(?:grep|rg)\s+([^|;&\n]+)/g)) {
+    const w = (m[1].match(/'[^']*'|"[^"]*"|\S+/g) || []).filter((x) => !x.startsWith('-'));
+    const [pat, ...where] = w.map((x) => x.replace(/^["']|["']$/g, ''));
+    if (pat) add(r.searched, clip(pat + (where.length ? ' in ' + where.filter((x) => /[\/.]/.test(x) && !x.includes('>')).slice(0, 2).join(' ') : ''), 60).replace(/ in $/, ''));
+  }
+  const ACT = /^(git|gh|cargo|npm|pnpm|yarn|go|make|docker|kubectl|tkit|pytest|curl|ssh)\b/;
+  const acts = cmd.split(/\s*(?:&&|\|\||;|\n)\s*/).map((x) => x.replace(/^(cd\s+\S+\s*&&\s*)+/, '').replace(/^\w+=\S+\s+/, '').trim()).filter((x) => ACT.test(x));
+  r.ran = clip(acts.map((x) => x.replace(/\s+-m\s+\d+/, '').split(/\s+/).slice(0, 4).join(' ')).filter((x, i, l) => l.indexOf(x) === i).join('; '), 90);
+  return r;
+}
 
 // Fold the transcript lines added since `state.offset` into state. Closed chunks go to state.closed
 // (the caller writes them once, then clears the list). Returns the new state.
@@ -79,11 +107,15 @@ export function fold(file, state) {
       }
       if (e.isMeta) continue;
       if (e.type === 'user') {
+        for (const b of Array.isArray(e.message?.content) ? e.message.content : []) {
+          const at = b.type === 'tool_result' && b.is_error && s.chunk.ids?.[b.tool_use_id];
+          if (at && s.chunk.turns[at[0]]) s.chunk.turns[at[0]].ran[at[1]] += ' (failed)';
+        }
         const t = userText(e.message);
         if (!t.trim() || t.trimStart().startsWith('<')) continue;
         if (s.chunk.prompts.length >= CHUNK_PROMPTS) close(ts);
         s.chunk.prompts.push(clip(t, PROMPT_CHARS));
-        (s.chunk.turns ||= []).push({ p: clip(t.replace(/\s+/g, ' '), 140), edits: [], reads: [], ran: [], said: '' });
+        (s.chunk.turns ||= []).push({ p: clip(t.replace(/\s+/g, ' '), 300), edits: [], reads: [], searched: [], ran: [], said: '' });
         s.chunk.start ||= ts;
         s.chunk.end = ts || s.chunk.end;
       } else if (e.type === 'assistant' && Array.isArray(e.message?.content)) {
@@ -97,8 +129,20 @@ export function fold(file, state) {
           if (turn && b.type === 'tool_use') {
             const f = b.input?.file_path || b.input?.notebook_path;
             if (EDIT_TOOLS.has(b.name)) add(turn.edits, f);
-            else if (b.name === 'Read') add(turn.reads, f);
-            else if (b.name === 'Bash' && !/^\s*(ls|cd|pwd|echo)\b/.test(b.input?.command || '')) add(turn.ran, clip(String(b.input?.command || '').replace(/\s+/g, ' '), 70));
+            else if (b.name === 'Read') add(SCRATCH.test(f || '') ? (turn.images = turn.images || []) : turn.reads, f);
+            else if (b.name === 'Bash') {
+              const a = analyzeBash(String(b.input?.command || ''));
+              for (const x of a.edits) {
+                add(turn.edits, x);
+                s.chunk.files = [...s.chunk.files.filter((y) => y !== x), x].slice(-MAX_FILES);
+              }
+              for (const x of a.reads) add(turn.reads, x);
+              for (const x of a.searched) add(turn.searched, x);
+              if (a.ran && turn.ran.length < TURN_LIST && !turn.ran.includes(a.ran)) {
+                turn.ran.push(a.ran);
+                (s.chunk.ids ||= {})[b.id] = [s.chunk.turns.length - 1, turn.ran.length - 1];
+              }
+            }
           }
           const f = b.type === 'tool_use' && EDIT_TOOLS.has(b.name) && (b.input?.file_path || b.input?.notebook_path);
           if (f) s.chunk.files = [...s.chunk.files.filter((x) => x !== f), f].slice(-MAX_FILES);
@@ -133,8 +177,20 @@ export function render(c, sid, cwd) {
   if (c.prompts.length) out.push('', '## Requests (oldest first)', ...c.prompts.map((p) => `- ${p.replace(/\n+/g, ' ')}`));
   if (c.turns?.length) {
     // one node per request, linked to the files it edited and read, the commands it ran and what was said
-    const list = (k, a) => (a.length ? ` | ${k}: ${a.map(rel).join(', ')}` : '');
-    out.push('', '## Graph (request -> edits | reads | ran | said)', ...c.turns.map((t, i) => `- R${i + 1} "${t.p}"${list('edit', t.edits)}${list('read', t.reads)}${list('ran', t.ran)}${t.said ? ` | said: ${t.said}` : ''}`));
+    const line = (k, a) => (a?.length ? [`  - ${k}: ${a.map(rel).join(', ')}`] : []);
+    out.push(
+      '',
+      '## Graph (each request -> what it changed, read, searched, ran and concluded)',
+      ...c.turns.flatMap((t, i) => [
+        `- R${i + 1} "${t.p}"`,
+        ...line('edited', t.edits),
+        ...line('read', t.reads),
+        ...(t.images?.length ? [`  - viewed: ${t.images.length} image(s)`] : []),
+        ...line('searched', t.searched),
+        ...line('ran', t.ran),
+        ...(t.said ? [`  - said: ${t.said}`] : []),
+      ]),
+    );
   }
   if (c.files.length) out.push('', '## Files changed', ...c.files.map((f) => `- ${rel(f)}`));
   if (c.reply) out.push('', '## Last reply', c.reply);
