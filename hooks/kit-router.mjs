@@ -509,6 +509,10 @@ async function onBash(input) {
     deny('PreToolUse', 'tokenforge: write files with `tkit edit <<\'EOF\'` blocks `@@ path new` + `<<<`/`===`/`>>>` (many files, edits and new files in one atomic call) or the Write tool, not `cat > file <<EOF`. Repeating the identical command runs it as is.');
     return;
   }
+  if (/(^|[;&|]\s*)python3?\s+-\s*<<-?\s*['"]?\w+/.test(cmd) && /\.write\(|write_text\(/.test(cmd) && !seenBefore(input.session_id, `pyedit\0${cmd}`, 'kit')) {
+    deny('PreToolUse', 'tokenforge: edit files with `tkit edit <<\'EOF\'` (`@@ path` + `<<<` old `===` new `>>>`, several per call), not a python replace script. Repeating the identical command runs it as is.');
+    return;
+  }
   const r = routeCommand(cmd, { cwd: input.cwd, permissionMode: input.permission_mode });
   if (r) {
     if (seenBefore(input.session_id, `kitrw\0${cmd}`, 'kit')) return;
