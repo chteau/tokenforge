@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="120" height="120" role="img" aria-label="tokenforge logo: TF">
+  <title>tokenforge</title>
+  <rect width="120" height="120" fill="#d16a47"/>
+  <rect x="1.5" y="1.5" width="117" height="117" fill="none" stroke="#000" stroke-opacity=".18" stroke-width="3"/>
+  <g fill="#1a1918">
+    <!-- T -->
+    <rect x="22" y="38" width="38" height="11"/>
+    <rect x="35.5" y="38" width="11" height="44"/>
+    <!-- F -->
+    <rect x="66" y="38" width="11" height="44"/>
+    <rect x="66" y="38" width="32" height="11"/>
+    <rect x="66" y="55" width="26" height="10"/>
+  </g>
+</svg>

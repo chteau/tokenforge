@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>TokenForge</title>
+  <meta name="description" content="TokenForge is a Claude Code plugin that cuts token use. Measured against clean Claude Code on 19 tasks with Claude Opus 5.5: median −52% total tokens, cheaper on 19 of 19.">
+  <link rel="icon" type="image/svg+xml" href="/logo.svg">
+  <meta name="theme-color" content="#141413" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#f4f2ec" media="(prefers-color-scheme: light)">
+  <meta property="og:title" content="TokenForge: TF?! Where the fuck did all my tokens go?">
+  <meta property="og:description" content="A Claude Code plugin. Median −52% total tokens against clean Claude Code, 19/19 tasks cheaper, Opus 5.5 on both sides.">
+</head>
+<body>
+  <a class="skip" href="#view">Skip to content</a>
+  <div class="app">
+    <aside class="side">
+      <a class="brand" href="#/" aria-label="TokenForge home"><img class="mark" src="/logo.svg" alt="" width="26" height="26">TokenForge</a>
+      <div class="brand-rule"></div>
+      <nav class="nav" id="nav" aria-label="Main"></nav>
+      <div class="side-sub" id="side-sub"></div>
+      <div class="side-card"><b>Install</b>Inside Claude Code:<code>/plugin marketplace add chteau/tokenforge</code><code>/plugin install tokenforge@tokenforge</code></div>
+    </aside>
+    <div class="main">
+      <main id="view" tabindex="-1"></main>
+      <footer class="foot">
+        <span>TokenForge 0.7.0 · MIT licensed · <a href="https://github.com/chteau/tokenforge">github.com/chteau/tokenforge</a></span>
+        <span class="muted">Every number on this site comes from the plugin repo's <code>bench/</code> data and README.</span>
+      </footer>
+    </div>
+  </div>
+  <div id="tip" class="tip" role="tooltip" hidden></div>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>

@@ -1,0 +1,762 @@
+{
+ "generated": "2026-10-08",
+ "source": "github.com/chteau/tokenforge bench/reports/benchmark-report.json",
+ "model": [
+  "claude-opus-5-5"
+ ],
+ "apiModels": {
+  "claude-opus-5-5": 45
+ },
+ "runsWithOtherModels": 0,
+ "contaminatedRuns": 0,
+ "claudeCodeVersion": "2.1.293",
+ "tokenforgeVersion": "0.7.0",
+ "defaultLean": "balanced",
+ "aggregate": {
+  "tasks": 19,
+  "runs": 45,
+  "medianSavings": 52.42,
+  "meanSavings": 52.03,
+  "pooledSavings": 53.3,
+  "minSavings": 10.16,
+  "maxSavings": 75.41,
+  "medianPriceWeighted": 32.58,
+  "medianToolCallReduction": 40,
+  "tasksCheaper": 19,
+  "tasksCostlier": 0,
+  "firstRequestOverhead": -6735,
+  "scratchMedian": 65.61,
+  "existingMedian": 46.51,
+  "scratchTasks": 9,
+  "existingTasks": 10,
+  "qualityWorse": [
+   "banking-transfers"
+  ]
+ },
+ "lean": [
+  {
+   "level": "off",
+   "tokens": 16929
+  },
+  {
+   "level": "on",
+   "tokens": 11933
+  },
+  {
+   "level": "balanced",
+   "tokens": 9738
+  },
+  {
+   "level": "max",
+   "tokens": 5755
+  },
+  {
+   "level": "ultra",
+   "tokens": 4401
+  }
+ ],
+ "curve": {
+  "task": "rust-cli",
+  "label": "Rust CLI feature",
+  "title": "Add monthly budgets to the tally ledger CLI",
+  "series": {
+   "native": {
+    "run": "bench/runs/2026-10-07T19-41-25/rust-cli/native-r1",
+    "lean": null,
+    "total": 1444788,
+    "requests": 18,
+    "points": [
+     18241,
+     19443,
+     20679,
+     42273,
+     43555,
+     68506,
+     82788,
+     88070,
+     89688,
+     91283,
+     95288,
+     99555,
+     103381,
+     110077,
+     111280,
+     112151,
+     113774,
+     114241
+    ],
+    "sum": 1424273
+   },
+   "tokenforge": {
+    "run": "bench/runs/2026-10-08T00-48-18-6753/rust-cli/token-forge-r1",
+    "lean": "balanced",
+    "total": 603940,
+    "requests": 13,
+    "points": [
+     11500,
+     14798,
+     25215,
+     29609,
+     35876,
+     47724,
+     52097,
+     54447,
+     56454,
+     59834,
+     64245,
+     68196,
+     69340
+    ],
+    "sum": 589335
+   }
+  }
+ },
+ "tasks": [
+  {
+   "id": "vite-landing",
+   "group": "scratch",
+   "label": "Vite front page",
+   "short": "Vite page",
+   "title": "Build the Orbitly landing page (Vite + TypeScript)",
+   "category": "greenfield",
+   "language": "TypeScript",
+   "runs": {
+    "native": 1,
+    "tokenforge": 1
+   },
+   "native": {
+    "total": 253105,
+    "inputEq": 102904,
+    "requests": 10,
+    "toolCalls": 9,
+    "firstContext": 18601,
+    "quality": 100,
+    "output": 11036
+   },
+   "tokenforge": {
+    "total": 62243,
+    "inputEq": 54366,
+    "requests": 4,
+    "toolCalls": 3,
+    "firstContext": 11863,
+    "quality": 100,
+    "output": 6740
+   },
+   "savings": 75.41,
+   "savingsPriceWeighted": 47.17,
+   "qualityDiff": 0
+  },
+  {
+   "id": "go-mock-api",
+   "group": "scratch",
+   "label": "Go mock REST API",
+   "short": "Go mock API",
+   "title": "Build an in-memory books REST API from scratch",
+   "category": "greenfield",
+   "language": "Go",
+   "runs": {
+    "native": 1,
+    "tokenforge": 1
+   },
+   "native": {
+    "total": 556307,
+    "inputEq": 213605,
+    "requests": 16,
+    "toolCalls": 16,
+    "firstContext": 19412,
+    "quality": 97.5,
+    "output": 23410
+   },
+   "tokenforge": {
+    "total": 144227,
+    "inputEq": 110113,
+    "requests": 6,
+    "toolCalls": 5,
+    "firstContext": 12683,
+    "quality": 100,
+    "output": 14307
+   },
+   "savings": 74.07,
+   "savingsPriceWeighted": 48.45,
+   "qualityDiff": 2.5
+  },
+  {
+   "id": "csharp-api",
+   "group": "scratch",
+   "label": "C# loans API (ASP.NET Core)",
+   "short": "C# API",
+   "title": "Build the Bramble library-loans web API in C# (.NET 8 minimal APIs)",
+   "category": "greenfield",
+   "language": "C#",
+   "runs": {
+    "native": 1,
+    "tokenforge": 2
+   },
+   "native": {
+    "total": 1221429,
+    "inputEq": 454257,
+    "requests": 22,
+    "toolCalls": 21,
+    "firstContext": 20391,
+    "quality": 100,
+    "output": 51942
+   },
+   "tokenforge": {
+    "total": 334977,
+    "inputEq": 297694,
+    "requests": 7.5,
+    "toolCalls": 6.5,
+    "firstContext": 13665,
+    "quality": 100,
+    "output": 41686.5
+   },
+   "savings": 72.57,
+   "savingsPriceWeighted": 34.47,
+   "qualityDiff": 0
+  },
+  {
+   "id": "rust-tui",
+   "group": "scratch",
+   "label": "Rust TUI (ratatui)",
+   "short": "Rust TUI",
+   "title": "Build a terminal kanban board with a headless script mode",
+   "category": "greenfield",
+   "language": "Rust",
+   "runs": {
+    "native": 1,
+    "tokenforge": 1
+   },
+   "native": {
+    "total": 802204,
+    "inputEq": 292216,
+    "requests": 18,
+    "toolCalls": 22,
+    "firstContext": 19801,
+    "quality": 100,
+    "output": 32310
+   },
+   "tokenforge": {
+    "total": 251173,
+    "inputEq": 140724,
+    "requests": 10,
+    "toolCalls": 9,
+    "firstContext": 13063,
+    "quality": 100,
+    "output": 17320
+   },
+   "savings": 68.69,
+   "savingsPriceWeighted": 51.84,
+   "qualityDiff": 0
+  },
+  {
+   "id": "luau-inventory",
+   "group": "scratch",
+   "label": "Luau inventory (Roblox-style)",
+   "short": "Luau inventory",
+   "title": "Build a Roblox-style inventory, stacking and crafting system in Luau",
+   "category": "greenfield",
+   "language": "Luau",
+   "runs": {
+    "native": 1,
+    "tokenforge": 1
+   },
+   "native": {
+    "total": 244867,
+    "inputEq": 145400,
+    "requests": 8,
+    "toolCalls": 7,
+    "firstContext": 19772,
+    "quality": 100,
+    "output": 18184
+   },
+   "tokenforge": {
+    "total": 84211,
+    "inputEq": 89059,
+    "requests": 4,
+    "toolCalls": 3,
+    "firstContext": 13034,
+    "quality": 100,
+    "output": 11849
+   },
+   "savings": 65.61,
+   "savingsPriceWeighted": 38.75,
+   "qualityDiff": 0
+  },
+  {
+   "id": "cross-module-debug",
+   "group": "existing",
+   "label": "Cross-module debugging (TS)",
+   "short": "Cross-module debug",
+   "title": "Overview shows a stale balance after receiving a transfer",
+   "category": "debugging",
+   "language": "TypeScript",
+   "runs": {
+    "native": 1,
+    "tokenforge": 1
+   },
+   "native": {
+    "total": 265193,
+    "inputEq": 67301,
+    "requests": 10,
+    "toolCalls": 10,
+    "firstContext": 16927,
+    "quality": 100,
+    "output": 3080
+   },
+   "tokenforge": {
+    "total": 92003,
+    "inputEq": 33621,
+    "requests": 6,
+    "toolCalls": 5,
+    "firstContext": 10192,
+    "quality": 100,
+    "output": 1711
+   },
+   "savings": 65.31,
+   "savingsPriceWeighted": 50.04,
+   "qualityDiff": 0
+  },
+  {
+   "id": "go-feature",
+   "group": "existing",
+   "label": "Go scheduled notifications",
+   "short": "Go notifications",
+   "title": "Scheduled notifications with quiet hours, idempotency and retries",
+   "category": "feature",
+   "language": "Go",
+   "runs": {
+    "native": 1,
+    "tokenforge": 1
+   },
+   "native": {
+    "total": 1936463,
+    "inputEq": 535486,
+    "requests": 23,
+    "toolCalls": 25,
+    "firstContext": 18382,
+    "quality": 100,
+    "output": 44054
+   },
+   "tokenforge": {
+    "total": 732932,
+    "inputEq": 314764,
+    "requests": 14,
+    "toolCalls": 13,
+    "firstContext": 11647,
+    "quality": 100,
+    "output": 31340
+   },
+   "savings": 62.15,
+   "savingsPriceWeighted": 41.22,
+   "qualityDiff": 0
+  },
+  {
+   "id": "banking-web",
+   "group": "existing",
+   "label": "TS filters + CSV export",
+   "short": "TS CSV export",
+   "title": "Filter and export account activity (API, CSV, web view)",
+   "category": "feature",
+   "language": "TypeScript",
+   "runs": {
+    "native": 1,
+    "tokenforge": 1
+   },
+   "native": {
+    "total": 1563130,
+    "inputEq": 364248,
+    "requests": 24,
+    "toolCalls": 25,
+    "firstContext": 18088,
+    "quality": 100,
+    "output": 24159
+   },
+   "tokenforge": {
+    "total": 636624,
+    "inputEq": 190826,
+    "requests": 15,
+    "toolCalls": 15,
+    "firstContext": 11359,
+    "quality": 100,
+    "output": 13982
+   },
+   "savings": 59.27,
+   "savingsPriceWeighted": 47.61,
+   "qualityDiff": 0
+  },
+  {
+   "id": "rust-cli",
+   "group": "existing",
+   "label": "Rust CLI feature",
+   "short": "Rust CLI feature",
+   "title": "Add monthly budgets to the tally ledger CLI",
+   "category": "greenfield",
+   "language": "Rust",
+   "runs": {
+    "native": 1,
+    "tokenforge": 1
+   },
+   "native": {
+    "total": 1444788,
+    "inputEq": 364496,
+    "requests": 18,
+    "toolCalls": 19,
+    "firstContext": 18241,
+    "quality": 100,
+    "output": 20515
+   },
+   "tokenforge": {
+    "total": 603940,
+    "inputEq": 205461,
+    "requests": 13,
+    "toolCalls": 13,
+    "firstContext": 11500,
+    "quality": 100,
+    "output": 14605
+   },
+   "savings": 58.2,
+   "savingsPriceWeighted": 43.63,
+   "qualityDiff": 0
+  },
+  {
+   "id": "node-ssg",
+   "group": "scratch",
+   "label": "Node static site generator",
+   "short": "Node SSG",
+   "title": "Build a small static site generator CLI in Node.js",
+   "category": "greenfield",
+   "language": "JavaScript",
+   "runs": {
+    "native": 1,
+    "tokenforge": 1
+   },
+   "native": {
+    "total": 434424,
+    "inputEq": 198365,
+    "requests": 12,
+    "toolCalls": 19,
+    "firstContext": 20241,
+    "quality": 100,
+    "output": 22776
+   },
+   "tokenforge": {
+    "total": 206693,
+    "inputEq": 138353,
+    "requests": 7,
+    "toolCalls": 6,
+    "firstContext": 13506,
+    "quality": 100,
+    "output": 17554
+   },
+   "savings": 52.42,
+   "savingsPriceWeighted": 30.25,
+   "qualityDiff": 0
+  },
+  {
+   "id": "python-cli",
+   "group": "scratch",
+   "label": "Python CLI",
+   "short": "Python CLI",
+   "title": "Build the ledgerstat CSV spending-report CLI",
+   "category": "greenfield",
+   "language": "Python",
+   "runs": {
+    "native": 1,
+    "tokenforge": 1
+   },
+   "native": {
+    "total": 385596,
+    "inputEq": 190166,
+    "requests": 11,
+    "toolCalls": 10,
+    "firstContext": 19405,
+    "quality": 100,
+    "output": 23032
+   },
+   "tokenforge": {
+    "total": 190531,
+    "inputEq": 149817,
+    "requests": 7,
+    "toolCalls": 6,
+    "firstContext": 12679,
+    "quality": 100,
+    "output": 20095
+   },
+   "savings": 50.59,
+   "savingsPriceWeighted": 21.22,
+   "qualityDiff": 0
+  },
+  {
+   "id": "go-api",
+   "group": "existing",
+   "label": "Go REST endpoint",
+   "short": "Go endpoint",
+   "title": "Add partial refund endpoint for paid invoices",
+   "category": "feature",
+   "language": "Go",
+   "runs": {
+    "native": 3,
+    "tokenforge": 1
+   },
+   "native": {
+    "total": 684322,
+    "inputEq": 219629,
+    "requests": 12,
+    "toolCalls": 12,
+    "firstContext": 17464,
+    "quality": 100,
+    "output": 17301
+   },
+   "tokenforge": {
+    "total": 343071,
+    "inputEq": 152154,
+    "requests": 9,
+    "toolCalls": 9,
+    "firstContext": 10738,
+    "quality": 100,
+    "output": 12193
+   },
+   "savings": 49.87,
+   "savingsPriceWeighted": 30.72,
+   "qualityDiff": 0
+  },
+  {
+   "id": "cpp-cli",
+   "group": "scratch",
+   "label": "C++ key-value store (CMake)",
+   "short": "C++ KV store",
+   "title": "Build the kvdb write-ahead-log key-value store in C++",
+   "category": "greenfield",
+   "language": "C++",
+   "runs": {
+    "native": 1,
+    "tokenforge": 2
+   },
+   "native": {
+    "total": 303222,
+    "inputEq": 185363,
+    "requests": 9,
+    "toolCalls": 8,
+    "firstContext": 18497,
+    "quality": 100,
+    "output": 23963
+   },
+   "tokenforge": {
+    "total": 156887,
+    "inputEq": 124963.5,
+    "requests": 6.5,
+    "toolCalls": 5.5,
+    "firstContext": 11765,
+    "quality": 100,
+    "output": 16796
+   },
+   "savings": 48.26,
+   "savingsPriceWeighted": 32.58,
+   "qualityDiff": 0
+  },
+  {
+   "id": "ts-lib",
+   "group": "scratch",
+   "label": "TypeScript library",
+   "short": "TS library",
+   "title": "Build a typed schema validation library in TypeScript",
+   "category": "greenfield",
+   "language": "TypeScript",
+   "runs": {
+    "native": 1,
+    "tokenforge": 1
+   },
+   "native": {
+    "total": 283542,
+    "inputEq": 170036,
+    "requests": 8,
+    "toolCalls": 7,
+    "firstContext": 20243,
+    "quality": 100,
+    "output": 21504
+   },
+   "tokenforge": {
+    "total": 156168,
+    "inputEq": 116325,
+    "requests": 6,
+    "toolCalls": 5,
+    "firstContext": 13514,
+    "quality": 100,
+    "output": 15050
+   },
+   "savings": 44.92,
+   "savingsPriceWeighted": 31.59,
+   "qualityDiff": 0
+  },
+  {
+   "id": "rust-debug",
+   "group": "existing",
+   "label": "Rust debugging",
+   "short": "Rust debug",
+   "title": "Category and monthly totals stay stale after some edits",
+   "category": "debugging",
+   "language": "Rust",
+   "runs": {
+    "native": 2,
+    "tokenforge": 1
+   },
+   "native": {
+    "total": 202105.5,
+    "inputEq": 65844.5,
+    "requests": 8,
+    "toolCalls": 7,
+    "firstContext": 16796.5,
+    "quality": 88.5,
+    "output": 4559
+   },
+   "tokenforge": {
+    "total": 114905,
+    "inputEq": 45539,
+    "requests": 7,
+    "toolCalls": 6,
+    "firstContext": 10060,
+    "quality": 100,
+    "output": 3430
+   },
+   "savings": 43.15,
+   "savingsPriceWeighted": 30.84,
+   "qualityDiff": 11.5
+  },
+  {
+   "id": "pr-review",
+   "group": "existing",
+   "label": "PR review (Go)",
+   "short": "PR review",
+   "title": "Review the invoice CSV export pull request",
+   "category": "review",
+   "language": "Go",
+   "runs": {
+    "native": 1,
+    "tokenforge": 1
+   },
+   "native": {
+    "total": 180606,
+    "inputEq": 75539,
+    "requests": 6,
+    "toolCalls": 5,
+    "firstContext": 16569,
+    "quality": 96.67,
+    "output": 4947
+   },
+   "tokenforge": {
+    "total": 110808,
+    "inputEq": 59465,
+    "requests": 5,
+    "toolCalls": 4,
+    "firstContext": 9834,
+    "quality": 100,
+    "output": 3762
+   },
+   "savings": 38.65,
+   "savingsPriceWeighted": 21.28,
+   "qualityDiff": 3.3299999999999983
+  },
+  {
+   "id": "banking-transfers",
+   "group": "existing",
+   "label": "Scheduled transfers (TS, multi-layer)",
+   "short": "Sched. transfers",
+   "title": "Scheduled transfers across web, API, service, executor and persistence",
+   "category": "feature",
+   "language": "TypeScript",
+   "runs": {
+    "native": 1,
+    "tokenforge": 1
+   },
+   "native": {
+    "total": 2428089,
+    "inputEq": 537852,
+    "requests": 29,
+    "toolCalls": 32,
+    "firstContext": 18332,
+    "quality": 100,
+    "output": 35719
+   },
+   "tokenforge": {
+    "total": 1616842,
+    "inputEq": 430964,
+    "requests": 26,
+    "toolCalls": 25,
+    "firstContext": 11600,
+    "quality": 94,
+    "output": 34486
+   },
+   "savings": 33.41,
+   "savingsPriceWeighted": 19.87,
+   "qualityDiff": -6
+  },
+  {
+   "id": "refactor",
+   "group": "existing",
+   "label": "Rust refactor",
+   "short": "Rust refactor",
+   "title": "Consolidate duplicated entry validation in the tally ledger CLI",
+   "category": "refactor",
+   "language": "Rust",
+   "runs": {
+    "native": 1,
+    "tokenforge": 1
+   },
+   "native": {
+    "total": 413253,
+    "inputEq": 144086,
+    "requests": 10,
+    "toolCalls": 10,
+    "firstContext": 16694,
+    "quality": 100,
+    "output": 10575
+   },
+   "tokenforge": {
+    "total": 347755,
+    "inputEq": 112674,
+    "requests": 11,
+    "toolCalls": 11,
+    "firstContext": 9959,
+    "quality": 100,
+    "output": 7261
+   },
+   "savings": 15.85,
+   "savingsPriceWeighted": 21.8,
+   "qualityDiff": 0
+  },
+  {
+   "id": "architecture",
+   "group": "existing",
+   "label": "Architecture investigation (TS)",
+   "short": "Architecture",
+   "title": "Trace where the remote area surcharge on quotes originates",
+   "category": "architecture",
+   "language": "TypeScript",
+   "runs": {
+    "native": 1,
+    "tokenforge": 1
+   },
+   "native": {
+    "total": 386198,
+    "inputEq": 124567,
+    "requests": 10,
+    "toolCalls": 11,
+    "firstContext": 16555,
+    "quality": 100,
+    "output": 6664
+   },
+   "tokenforge": {
+    "total": 346949,
+    "inputEq": 109664,
+    "requests": 11,
+    "toolCalls": 10,
+    "firstContext": 9817,
+    "quality": 100,
+    "output": 6059
+   },
+   "savings": 10.16,
+   "savingsPriceWeighted": 11.96,
+   "qualityDiff": 0
+  }
+ ]
+}
