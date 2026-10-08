@@ -402,13 +402,15 @@ export function docs(view: HTMLElement, slug: string): void {
   const i = Math.max(0, DOCS.findIndex((d) => d.slug === slug));
   const d = DOCS[i] as Doc;
   const prev = DOCS[i - 1], next = DOCS[i + 1];
-  view.innerHTML = `
+  view.innerHTML = `<div class="docs-wrap">
   <nav class="docs-toc" aria-label="Docs pages">${DOCS.map((x) => `<a href="#/docs/${x.slug}"${x.slug === d.slug ? ' class="on" aria-current="page"' : ''}>${x.title}</a>`).join('')}</nav>
+  <div>
   <header class="page-head"><div class="crumb">Docs</div><h1>${d.title}</h1><p>${d.lead}</p></header>
   <article class="card prose">${d.body()}</article>
   <nav class="pager" aria-label="Previous and next">
     ${prev ? `<a href="#/docs/${prev.slug}"><small>Previous</small>${prev.title}</a>` : '<span></span>'}
     ${next ? `<a class="next" href="#/docs/${next.slug}"><small>Next</small>${next.title}</a>` : '<span></span>'}
-  </nav>`;
+  </nav>
+  </div></div>`;
   bindCopy(view);
 }
