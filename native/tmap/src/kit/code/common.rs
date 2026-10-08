@@ -25,8 +25,8 @@ pub fn compile(p: &str) -> Regex {
     Regex::new(p).unwrap_or_else(|e| panic!("bad regex {p}: {e}"))
 }
 
-pub const STACKS: [&str; 15] =
-    ["rust", "go", "ts", "cs", "luau", "dart", "py", "java", "cpp", "php", "ruby", "swift", "elixir", "zig", "scala"];
+pub const STACKS: [&str; 16] =
+    ["rust", "go", "ts", "cs", "luau", "dart", "py", "java", "cpp", "php", "ruby", "swift", "elixir", "zig", "scala", "latex"];
 pub const SKIP_DIRS: &[&str] = &[
     ".git", "node_modules", "target", "bin", "obj", "dist", "build", ".dart_tool", "__pycache__", ".venv", "venv", "Packages",
     "DevPackages", "ServerPackages", "vendor", ".gradle", ".build", "_build", "deps", "zig-out", ".zig-cache",
@@ -402,6 +402,9 @@ pub fn markers(d: &Path) -> Vec<&'static str> {
             out.push(st);
         }
     }
+    if super::langs::latex::is_project(d) {
+        out.push("latex");
+    }
     out
 }
 
@@ -499,6 +502,8 @@ pub struct Diags {
     seen: HashSet<(String, usize, usize, String)>,
     /// Printed as "  note: …" under the stack header.
     pub notes: Vec<String>,
+    /// Appended to the header counts (latex: ", PDF built (12 pages)").
+    pub status: String,
 }
 
 pub fn sev_letter(sev: &str) -> String {
@@ -512,7 +517,7 @@ pub fn sev_letter(sev: &str) -> String {
 
 impl Diags {
     pub fn new(root: &Path) -> Self {
-        Diags { root: root.to_path_buf(), items: Vec::new(), seen: HashSet::new(), notes: Vec::new() }
+        Diags { root: root.to_path_buf(), items: Vec::new(), seen: HashSet::new(), notes: Vec::new(), status: String::new() }
     }
 
     /// Add one diagnostic. `file` absolute or root-relative ("" = none); `sev` "error"/"warning"/"E"/"W"/…
@@ -939,6 +944,7 @@ mod tests {
             ("elixir", &["mix.exs"]),
             ("zig", &["build.zig"]),
             ("scala", &["build.sbt"]),
+            ("latex", &["latexmkrc"]),
         ];
         for (st, files) in cases {
             let sd = d.join(st);
@@ -955,7 +961,7 @@ mod tests {
         std::fs::write(mk.join("Makefile"), "").unwrap();
         assert!(markers(&mk).is_empty());
         let subs = subprojects(&d, 2);
-        assert_eq!(subs.len(), 15);
+        assert_eq!(subs.len(), 16);
         let (root, st) = find_root(&d.join("rust"), None);
         assert_eq!(st, vec!["rust"]);
         assert_eq!(root.unwrap(), abspath(&d.join("rust")));

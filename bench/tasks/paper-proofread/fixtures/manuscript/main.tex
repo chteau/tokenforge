@@ -1,0 +1,85 @@
+\documentclass[11pt]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{siunitx}
+\usepackage[round,authoryear]{natbib}
+\usepackage[colorlinks=true,linkcolor=blue,citecolor=blue]{hyperref}
+
+\newtheorem{proposition}{Proposition}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\Var}{\operatorname{Var}}
+\newcommand{\bx}{\boldsymbol{x}}
+\newcommand{\bbeta}{\boldsymbol{\beta}}
+
+\title{Spline-Augmented Fay--Herriot Estimation of District-Level\\
+Childhood Stunting Prevalence from Sparse Household Surveys}
+
+\author{
+  Ines Varga\thanks{Department of Statistics, University of Lowmoor.
+  Correspondence: \texttt{i.varga@lowmoor.ac.uk}}
+  \and
+  Tomasz Okafor\thanks{Institute for Population Health, Kestrel Bay.}
+  \and
+  Mariam Delacroix\footnotemark[1]
+}
+
+\date{}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+Household surveys are routinely used to monitor childhood stunting, but their
+sample sizes are rarely large enough to support reliable estimates for every
+administrative district. Area-level small area models such as the Fay--Herriot
+model borrow strength across districts through a linear regression on auxiliary
+covariates, yet a misspecified linear mean can introduce substantial bias in
+districts whose covariate values lie far from the bulk of the data. We propose a
+spline-augmented Fay--Herriot (SAFH) estimator in which the regression mean is
+replaced by a penalized spline in a remoteness index, while the remaining
+covariates enter linearly. The smoothing parameter and the area-level variance
+are estimated jointly by restricted maximum likelihood, and a parametric
+bootstrap provides second-order correct mean squared error estimates. In a
+simulation study with twelve scenarios, SAFH reduced the average root mean
+squared error relative to the standard Fay--Herriot estimator in all twelve
+scenarios and maintained nominal coverage of bootstrap intervals. Applied to the
+2021 Northern Provinces Household Nutrition Survey, SAFH reduced the median
+coefficient of variation of district estimates by 18\% compared with the
+standard model and identified eleven districts whose stunting prevalence
+exceeds the national target of 25\%.
+\end{abstract}
+
+\noindent\textbf{Keywords:} small area estimation; penalized splines;
+Fay--Herriot model; parametric bootstrap; child nutrition.
+
+\input{sections/introduction}
+\input{sections/methods}
+\input{sections/simulation}
+\input{sections/application}
+\input{sections/discussion}
+
+\section*{Acknowledgements}
+We thank the field teams of the Northern Provinces Household Nutrition Survey
+and the provincial statistical offices for access to the survey microdata and
+district boundary files. The work was supported by a research grant from the
+Lowmoor Centre for Health Data Science.
+
+\section*{Data availability}
+District-level direct estimates, design-based variances and covariates used in
+Section~\ref{sec:application} are available from the corresponding author on
+reasonable request. Code implementing the SAFH estimator is provided as
+supplementary material.
+
+\bibliographystyle{plainnat}
+\bibliography{refs}
+
+\appendix
+\input{sections/appendix}
+
+\end{document}

@@ -1,0 +1,122 @@
+diff --git a/review.json b/review.json
+new file mode 100644
+index 0000000..6e14acd
+--- /dev/null
++++ b/review.json
+@@ -0,0 +1,116 @@
++[
++  {
++    "file": "main.tex",
++    "line": 53,
++    "category": "numeric",
++    "description": "Abstract says median CV reduced by 18%; Section 4 and Table 3 give 0.26 -> 0.19, i.e. 27%."
++  },
++  {
++    "file": "main.tex",
++    "line": 50,
++    "category": "contradiction",
++    "description": "Abstract claims SAFH beat FH in all twelve scenarios; Section 3 and Table 1 show only ten of twelve (FH better in scenarios 1-2)."
++  },
++  {
++    "file": "sections/simulation.tex",
++    "line": 101,
++    "category": "numeric",
++    "description": "Text gives average coverage 94.1%; Table 1 average row is 95.1%."
++  },
++  {
++    "file": "sections/application.tex",
++    "line": 86,
++    "category": "numeric",
++    "description": "Text says districts with CV>0.3 fell from 61 to 17; Table 3 gives 23 for SAFH."
++  },
++  {
++    "file": "sections/methods.tex",
++    "line": 146,
++    "category": "equation",
++    "description": "Bootstrap predictor (eq. boot-pred) swaps the weights w and 1-w relative to the SAFH predictor it claims to substitute."
++  },
++  {
++    "file": "sections/methods.tex",
++    "line": 37,
++    "category": "logic",
++    "description": "With large psi_i, w_i = sigma_u^2/(sigma_u^2+psi_i) goes to zero, so the predictor relies on the synthetic estimate, not the direct estimate."
++  },
++  {
++    "file": "sections/simulation.tex",
++    "line": 86,
++    "category": "cross-reference",
++    "description": "Bias pattern is shown in Figure fig:bias (sim_bias), but the text references fig:coverage."
++  },
++  {
++    "file": "sections/introduction.tex",
++    "line": 50,
++    "category": "citation",
++    "description": "Citation key marchetti2023robust is not defined in refs.bib."
++  },
++  {
++    "file": "sections/application.tex",
++    "line": 64,
++    "category": "numeric",
++    "description": "Table 3 caption says m = 241 districts; the data have 214 districts."
++  },
++  {
++    "file": "sections/application.tex",
++    "line": 37,
++    "category": "units",
++    "description": "Distance to nearest health facility given as 2.1 to 38.5 m; should be km."
++  },
++  {
++    "file": "sections/discussion.tex",
++    "line": 37,
++    "category": "duplication",
++    "description": "The 'Several limitations should be noted' paragraph is repeated verbatim."
++  },
++  {
++    "file": "sections/discussion.tex",
++    "line": 50,
++    "category": "typo",
++    "description": "'casual interpretation' should be 'causal interpretation'."
++  },
++  {
++    "file": "sections/application.tex",
++    "line": 51,
++    "category": "logic",
++    "description": "p = 0.41 does not justify rejecting the null of a linear effect."
++  },
++  {
++    "file": "sections/simulation.tex",
++    "line": 117,
++    "category": "wording",
++    "description": "Interval width goes from 0.214 to 0.081 as sample size grows: it decreases, not increases."
++  },
++  {
++    "file": "sections/methods.tex",
++    "line": 160,
++    "category": "numeric",
++    "description": "95% intervals use 1.645 (the 90% quantile); should be 1.96."
++  },
++  {
++    "file": "sections/methods.tex",
++    "line": 25,
++    "category": "inconsistency",
++    "description": "Methods says six district-level covariates; the application lists five."
++  },
++  {
++    "file": "sections/introduction.tex",
++    "line": 66,
++    "category": "inconsistency",
++    "description": "Introduction says the NPHNS was conducted in 2019; elsewhere 2021."
++  },
++  {
++    "file": "sections/methods.tex",
++    "line": 120,
++    "category": "typo",
++    "description": "Consistency should be as m -> infinity, not m -> 0."
++  },
++  {
++    "file": "sections/methods.tex",
++    "line": 136,
++    "category": "logic",
++    "description": "The naive plug-in MSE does NOT account for the uncertainty in the variance estimates (missing 'not')."
++  }
++]

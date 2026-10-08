@@ -1,0 +1,16 @@
+diff --git a/ANSWER.md b/ANSWER.md
+new file mode 100644
+index 0000000..59189d3
+--- /dev/null
++++ b/ANSWER.md
+@@ -0,0 +1,10 @@
++1. 6.84 cm (MAE of TideFormer on EstuaryNet at the 24-hour horizon).
++2. A peak learning rate of 3 × 10^-4 (AdamW, linear warmup over 2,000 steps, then cosine decay).
++3. DLinear, with an RMSE of 9.6 cm (PatchTST is next at 9.9 cm).
++4. 0.15 (the objective is L = L_Huber + 0.15 L_phase + 0.02 L_dec).
++5. TideFormer has no input describing river discharge; its largest errors at estuarine stations occur during periods of high river discharge (fluvial floods), when the water level is raised for several days and the tidal range is damped.
++6. Removing the harmonic embedding degrades the model the most: the MAE rises to 8.92 cm (from 6.84 cm for the full model).
++7. 2017 (Lindqvist, Aho and Merilä, Earth System Science Data).
++8. 6 minutes.
++9. 7.9 M parameters (about 7.9 million).
++10. PacificTide at the 6-hour horizon, where the Harmonic baseline (UTide tide prediction) is better (2.41 cm vs 2.52 cm).

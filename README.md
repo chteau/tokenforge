@@ -41,7 +41,7 @@ A long Claude Code session re-sends its whole context on every turn. A build tha
 
 **Against clean Claude Code.** Every benchmark run uses **Claude Opus 5.5** (`claude-opus-5-5`) on Claude Code 2.1.293, on both sides. This is verified from the model field of every API response in the saved transcripts, not just the `--model` flag. `bench/` runs the same task on the same repo commit in sandboxed sessions, once with clean Claude Code (no plugins, skills, hooks, MCP or CLAUDE.md) and once with tokenforge 0.7.0 at its defaults, and scores quality with hidden tests.
 
-**Across all 34 tasks, tokenforge used about half the tokens: median −53%, mean −50%, pooled −52%. It was cheaper on 34 of 34 tasks, with equal or better quality on all but two.** Weighted by price, which is roughly what usage limits count (cache reads cost 0.1×, and most of the savings are cache reads), the median is −29%. Median tool calls: −49%.
+**Across all 36 tasks, tokenforge used about half the tokens: median −52%, mean −50%, pooled −52%. It was cheaper on 36 of 36 tasks, with equal or better quality on all but two.** Weighted by price, which is roughly what usage limits count (cache reads cost 0.1×, and most of the savings are cache reads), the median is −26%. Median tool calls: −49%.
 
 ![From scratch: total tokens per project](docs/img/bench-greenfield.svg)
 
@@ -90,6 +90,13 @@ Median −55% over 24 projects in 23 languages. Perl config merger: every hidden
 | Architecture investigation (TS) | 386k | 347k | **−10%** | 100 → 100 |
 
 Median −47%. Scheduled transfers: every hidden test passes, but tokenforge scores 94 on the structural design checks (9/15), as in every tokenforge run of that task.
+
+| Academic work | Clean Claude Code | tokenforge | Saved | Quality |
+|---|---:|---:|---:|---|
+| Answer questions from a 15-page PDF paper | 274k | 138k | **−50%** | 100 → 100 |
+| Proofread a LaTeX manuscript (19 planted errors) | 239k | 157k | **−34%** | 95.3 → 97.8 |
+
+Two runs per side. Proofreading: 19 errors planted across a 12-page LaTeX manuscript, scored by how many are found (recall) with a small penalty for false alarms. PDF Q&A: 10 questions answered from a 15-page two-column paper, one of them only from a figure. The PDF task hides `pdftotext`, poppler, Ghostscript and Python PDF libraries on both sides, as on a typical Windows machine; with them installed, both sides simply convert the PDF and the comparison says little.
 
 Each row is the median of 1–3 runs per side, and single runs vary by about ±20%, so read per-task numbers as rough and the overall result as solid. `bench/reports/` has the raw data, and `bench/scripts/charts.py` redraws these charts from it. `bench/` reruns everything.
 
@@ -153,6 +160,7 @@ Nothing to learn: once installed it works on its own, in the terminal and in Cla
 - **Every new session** starts with `TokenForge: active · lean balanced · replies full · dashboard http://127.0.0.1:7878/`, plus a three-line walkthrough for the first three sessions. It is shown to you only, never sent to Claude (`TFORGE_BANNER=0` hides it).
 - **After `/clear`** it says what survived: `TokenForge: checkpoint saved (2 min ago, .forge/snapshots/)`. If there is no fresh handoff, a compact version of the last checkpoint (last two requests, files changed, start of the last reply; at most 900 characters, about 250 tokens per call) is reloaded so Claude continues without re-exploring (`TFORGE_CLEAR_RELOAD=0` turns it off).
 - **Updates:** once a day, in the background, it checks GitHub for a newer version and shows `TokenForge 0.7.2 is available…` with the command to run (`TFORGE_UPDATE_CHECK=0` turns it off).
+- **Papers, notebooks and LaTeX.** `tkit pdf` gives a PDF's text with page markers (opt-in for every Read with `TFORGE_DOCREAD_PDF=1`: Claude Code's own PDF reading, ~1.3k tokens a page, was cheaper on a table-heavy paper and keeps figures, so it stays the default). Notebooks are read as cells, with long outputs trimmed and images left out. LaTeX builds print only errors with file:line, undefined references and citations, and a box summary. `TFORGE_DOCREAD=0` turns the notebook reading off.
 - **No permission prompts for its own tools.** TokenForge's read-only tools (`tread`, `tview`, `tkit ctx/diff/debug/deps/check/test`, `tforge recall`) are approved automatically, alone or chained with read-only commands like `grep` and `sed -n`. Network and remote tools (`tkit http/web/ssh`) still ask; the multi-file edit tools (`tkit edit/patch/fmt`) go through only when the session already accepts edits without asking. Without this, every lookup by name asked for permission, so Claude fell back to `cat` and `sed`. `TFORGE_AUTO_ALLOW=0` turns it off.
 
 ```
@@ -218,7 +226,9 @@ A local dashboard starts in the background with your first session. Open it with
 - **Memory:** the project's past sessions as a graph of sessions, files they edited and recurring keywords, with the same search Claude gets through `tforge recall`. Click a session for its prompts, commits, files and last reply.
 - **Code graph:** folders and files as a force-directed graph, colored by language. Pan, zoom and drag nodes, hover to light up neighbors, switch on call links between files, filter by path or symbol, and click a file for its callers, callees and outline.
 
-**Limits and resets.** Exact 5-hour and weekly usage and reset times only exist in the status-line data Claude Code passes to a status-line command. Run `tforge statusline --setup`. It installs a small recorder in `~/.config/tokenforge/` and prints a `statusLine` snippet for you to put in `~/.claude/settings.json`. Your current status line keeps running behind it. tokenforge edits your settings only for lean tools: once on first start (the default level, see Lean tools) and when you change the level. It writes only its own deny and skill entries, plus `includeGitInstructions` at `max`/`ultra`. Without it, the dashboard estimates the 5-hour window from your session timestamps and labels it as an estimate.
+**Savings in your status line.** On first start, if you have no status line, TokenForge sets one that shows an estimate of what it saved today, e.g. `TF −45% today (~1.2M saved)`, and says so once in the startup notice. If you already have a status line it is never replaced; `tforge statusline --setup` appends the segment to yours (your command keeps running and printing as before). `tforge statusline --remove` restores exactly what was there; `TFORGE_STATUSLINE=0` turns the automatic setup off. The estimate (lib/estimate.mjs) adds up, for sessions shown in the status line: fixed context the lean level removes from every API call (16.9k tokens at `off` minus your level's measured size, 0 for sessions started before the last lean change), tkit output kept out of context (re-sent on each later call until compaction when it can be tied to the session, otherwise counted once), and prompts the answer cache answered with 0 tokens (one call at the context size before). Percent = saved / (used + saved), in tokens processed (cache reads count fully). Subagents are not counted. The dashboard overview shows the same estimate.
+
+**Limits and resets.** Exact 5-hour and weekly usage and reset times only exist in the status-line data Claude Code passes to a status-line command, so the same status line records them (`tforge statusline --setup` if you kept your own). tokenforge edits your Claude Code settings only for lean tools (once on first start, the default level, see Lean tools, and when you change the level: its own deny and skill entries, plus `includeGitInstructions` at `max`/`ultra`) and for the status line above. Without it, the dashboard estimates the 5-hour window from your session timestamps and labels it as an estimate.
 
 **Privacy.** The server listens on 127.0.0.1 only and rejects other Host headers, which blocks DNS rebinding. It answers GET requests, plus one POST for the Settings page (lean level, skills, terse), accepted only from its own page (same-origin `Origin` and a JSON body). It loads nothing from the internet. It reads your transcripts incrementally: only new bytes, with a cache in `~/.cache/tokenforge/`. From transcripts it keeps and serves numbers only, never prompt, reply or file text. Three exceptions: the session page's "Where the tokens went" table, which shows the command or file path behind each costly tool result (read on demand, never cached); the Memory page, which shows prompt and reply snippets and file names from that project's sessions (the index behind it, in `~/.cache/tokenforge/memory/`, holds those snippets); and a project's own `.forge/snapshots/`, shown on its project page so you can see what `/clear` will reload; only files listed in that folder can be requested. `TFORGE_UI=0` disables the auto-start, and `tforge ui --stop` stops it.
 
@@ -370,6 +380,8 @@ Workers run with `--permission-mode acceptEdits` and only `Read`, `Write` and `E
 | `TFORGE_CLEAR_RELOAD` | | `0` stops reloading the compact checkpoint after `/clear` |
 | `TFORGE_UPDATE_CHECK` | | `0` stops the daily background check for a newer version |
 | `TFORGE_AUTO_HANDOFF` | | `0` stops writing `.forge/HANDOFF.md` automatically over the context budget |
+| `TFORGE_DOCREAD` | | `0` reads notebooks in their original form (raw outputs and images) |
+| `TFORGE_DOCREAD_PDF` | | `1` reads PDFs as extracted text (cheaper on plain prose, dearer on table-heavy papers, no figures) |
 | `TFORGE_BANNER` | | `0` hides the "TokenForge: active" line at startup and the checkpoint line after `/clear` |
 | `TFORGE_UI` | | `0` stops the dashboard from starting with your first session (it never auto-starts in headless `claude -p`, SDK or CI sessions) |
 | `TFORGE_UI_PORT` | `7878` | Dashboard port (the next free one is used if taken) |
@@ -394,6 +406,7 @@ Results go to `bench/reports/benchmark-report.md`. See [bench/README.md](bench/R
 | Variant | Tasks | Total tokens vs default | Quality | Verdict |
 |---|---|---|---|---|
 | `TFORGE_PLAN=brief` (policy line: plan briefly) | C, Kotlin, Java, Swift | −13% (−22%, −28%, +13%, +15%) | one drop (Kotlin 100 → 96) | mixed; opt-in only |
+| PDFs read as extracted text (`TFORGE_DOCREAD_PDF=1`) | PDF Q&A without PDF tools, 2 runs | +37% vs clean Claude Code (376k vs 274k median) | unchanged, but extra calls to recover a figure the text dropped | opt-in only |
 | `CLAUDE_CODE_EFFORT_LEVEL=medium` | C, Kotlin, Java, Swift, PHP, Go feature | −5% (−36%, −12%, +5%, +23%, −9%, +17%) | unchanged | within run-to-run noise; not shipped |
 
 Where output tokens go, across all default TokenForge runs: about 51% thinking, 46% code and commands Claude writes, 2% visible replies. Replies are already short, and the code is the work itself, so planning is the only large lever left, and neither variant moved it reliably.

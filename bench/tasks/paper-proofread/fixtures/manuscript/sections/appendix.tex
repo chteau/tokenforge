@@ -1,0 +1,38 @@
+\section{Parametric bootstrap for the MSE}
+\label{app:bootstrap}
+
+Let $\hat\bbeta^{*}$, $\hat\sigma_u^2$ and $\hat\sigma_\gamma^2$ denote the REML
+estimates obtained from the observed data. For $b = 1, \dots, B$ we proceed as
+follows.
+\begin{enumerate}
+  \item Generate $\gamma_k^{*(b)} \sim N(0, \hat\sigma_\gamma^2)$ for
+  $k = 1, \dots, K$, $u_i^{*(b)} \sim N(0, \hat\sigma_u^2)$ and
+  $e_i^{*(b)} \sim N(0, \psi_i)$ for $i = 1, \dots, m$, all independently.
+  \item Compute the bootstrap true values
+  $\theta_i^{*(b)} = \bx_i^\top \hat\bbeta + \hat\beta_r r_i +
+  \boldsymbol{z}_i^\top \boldsymbol{\gamma}^{*(b)} + u_i^{*(b)}$ and the
+  bootstrap data $y_i^{*(b)} = \theta_i^{*(b)} + e_i^{*(b)}$.
+  \item Re-estimate the model from $\{y_i^{*(b)}, \bx_i, r_i, \psi_i\}$ by REML
+  and compute the bootstrap predictor $\hat\theta_i^{*(b)}$.
+\end{enumerate}
+The bootstrap MSE estimator \eqref{eq:boot-mse} estimates the MSE of the
+predictor including the variability due to the estimation of
+$\boldsymbol{\delta}$. Following \citet{butar2003measuring}, we use the
+bias-corrected estimator
+\begin{equation}
+  \mathrm{mse}_{BC}(\hat\theta_i^{\mathrm{SAFH}}) =
+  2\, g_{1i}(\hat{\boldsymbol{\delta}}) - \frac{1}{B} \sum_{b=1}^{B}
+  g_{1i}(\hat{\boldsymbol{\delta}}^{*(b)})
+  + \frac{1}{B} \sum_{b=1}^{B}
+  \left( \hat\theta_i^{*(b)} - \tilde\theta_i^{*(b)} \right)^2,
+  \label{eq:boot-bc}
+\end{equation}
+where $g_{1i}(\boldsymbol{\delta}) = w_i \psi_i$ is the leading term of the MSE
+of the best predictor and $\tilde\theta_i^{*(b)}$ is the best predictor computed
+with the true bootstrap parameters. If \eqref{eq:boot-bc} is negative, which
+happened in fewer than 0.1\% of district-replicate combinations in our
+simulations, we replace it by $g_{1i}(\hat{\boldsymbol{\delta}})$.
+
+Each bootstrap replicate requires one REML fit. With $m = 214$ and $K = 35$,
+a single fit takes about 40 milliseconds on a standard laptop, so that
+$B = 1000$ replicates take well under a minute.

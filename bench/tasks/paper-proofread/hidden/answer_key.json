@@ -1,0 +1,481 @@
+[
+ {
+  "id": "abstract-cv-reduction",
+  "category": "numeric",
+  "file": "main.tex",
+  "lines": [
+   53,
+   53
+  ],
+  "alt": [
+   {
+    "file": "sections/application.tex",
+    "lines": [
+     83,
+     84
+    ]
+   }
+  ],
+  "summary": "Abstract says median CV reduced by 18%; Section 4 and Table 3 give 0.26 -> 0.19, i.e. 27%.",
+  "keywords": [
+   [
+    "18"
+   ],
+   [
+    "27",
+    "cv",
+    "coefficient of variation",
+    "0.26",
+    "0.19"
+   ]
+  ]
+ },
+ {
+  "id": "abstract-all-scenarios",
+  "category": "contradiction",
+  "file": "main.tex",
+  "lines": [
+   49,
+   51
+  ],
+  "alt": [
+   {
+    "file": "sections/simulation.tex",
+    "lines": [
+     42,
+     46
+    ]
+   }
+  ],
+  "summary": "Abstract claims SAFH beat FH in all twelve scenarios; Section 3 and Table 1 show only ten of twelve (FH better in scenarios 1-2).",
+  "keywords": [
+   [
+    "ten of",
+    "10 of",
+    "ten out",
+    "10 out",
+    "two scenario",
+    "2 scenario",
+    "scenarios 1",
+    "scenario 1",
+    "linear",
+    "not all",
+    "all twelve",
+    "all 12",
+    "every scenario",
+    "each scenario",
+    "all scenarios",
+    "all of the"
+   ]
+  ]
+ },
+ {
+  "id": "sim-coverage-average",
+  "category": "numeric",
+  "file": "sections/simulation.tex",
+  "lines": [
+   100,
+   101
+  ],
+  "alt": [
+   {
+    "file": "sections/simulation.tex",
+    "lines": [
+     76,
+     76
+    ]
+   }
+  ],
+  "summary": "Text gives average coverage 94.1%; Table 1 average row is 95.1%.",
+  "keywords": [
+   [
+    "94.1",
+    "95.1"
+   ]
+  ]
+ },
+ {
+  "id": "app-cv-count",
+  "category": "numeric",
+  "file": "sections/application.tex",
+  "lines": [
+   85,
+   86
+  ],
+  "alt": [
+   {
+    "file": "sections/application.tex",
+    "lines": [
+     73,
+     73
+    ]
+   }
+  ],
+  "summary": "Text says districts with CV>0.3 fell from 61 to 17; Table 3 gives 23 for SAFH.",
+  "keywords": [
+   [
+    "17",
+    "23"
+   ]
+  ]
+ },
+ {
+  "id": "boot-pred-weights-swapped",
+  "category": "equation",
+  "file": "sections/methods.tex",
+  "lines": [
+   143,
+   147
+  ],
+  "alt": [
+   {
+    "file": "sections/methods.tex",
+    "lines": [
+     106,
+     109
+    ]
+   }
+  ],
+  "summary": "Bootstrap predictor (eq. boot-pred) swaps the weights w and 1-w relative to the SAFH predictor it claims to substitute.",
+  "keywords": [
+   [
+    "weight",
+    "w_i",
+    "w}_i",
+    "hat w",
+    "w^*",
+    "w*",
+    "shrinkage",
+    "swap",
+    "revers",
+    "interchang",
+    "inconsistent",
+    "eq"
+   ]
+  ]
+ },
+ {
+  "id": "weight-limit-claim",
+  "category": "logic",
+  "file": "sections/methods.tex",
+  "lines": [
+   35,
+   37
+  ],
+  "summary": "With large psi_i, w_i = sigma_u^2/(sigma_u^2+psi_i) goes to zero, so the predictor relies on the synthetic estimate, not the direct estimate.",
+  "keywords": [
+   [
+    "zero",
+    "\u2192 0",
+    "-> 0",
+    "to 0",
+    "close to 0",
+    "near 0",
+    "synthetic",
+    "regression",
+    "shrink",
+    "small",
+    "opposite",
+    "backward",
+    "revers",
+    "wrong",
+    "incorrect",
+    "contradict"
+   ]
+  ]
+ },
+ {
+  "id": "wrong-figure-ref",
+  "category": "cross-reference",
+  "file": "sections/simulation.tex",
+  "lines": [
+   86,
+   86
+  ],
+  "summary": "Bias pattern is shown in Figure fig:bias (sim_bias), but the text references fig:coverage.",
+  "keywords": [
+   [
+    "fig",
+    "figure"
+   ],
+   [
+    "bias",
+    "coverage"
+   ]
+  ]
+ },
+ {
+  "id": "missing-citation",
+  "category": "citation",
+  "file": "sections/introduction.tex",
+  "lines": [
+   50,
+   50
+  ],
+  "summary": "Citation key marchetti2023robust is not defined in refs.bib.",
+  "keywords": [
+   [
+    "marchetti"
+   ]
+  ]
+ },
+ {
+  "id": "district-count-241",
+  "category": "numeric",
+  "file": "sections/application.tex",
+  "lines": [
+   64,
+   64
+  ],
+  "alt": [
+   {
+    "file": "sections/application.tex",
+    "lines": [
+     14,
+     14
+    ]
+   },
+   {
+    "file": "sections/application.tex",
+    "lines": [
+     41,
+     41
+    ]
+   }
+  ],
+  "summary": "Table 3 caption says m = 241 districts; the data have 214 districts.",
+  "keywords": [
+   [
+    "241",
+    "214"
+   ]
+  ]
+ },
+ {
+  "id": "distance-unit",
+  "category": "units",
+  "file": "sections/application.tex",
+  "lines": [
+   36,
+   37
+  ],
+  "summary": "Distance to nearest health facility given as 2.1 to 38.5 m; should be km.",
+  "keywords": [
+   [
+    "km",
+    "kilomet",
+    "unit",
+    "metre",
+    "meter"
+   ]
+  ]
+ },
+ {
+  "id": "duplicated-paragraph",
+  "category": "duplication",
+  "file": "sections/discussion.tex",
+  "lines": [
+   37,
+   48
+  ],
+  "alt": [
+   {
+    "file": "sections/discussion.tex",
+    "lines": [
+     24,
+     35
+    ]
+   }
+  ],
+  "summary": "The 'Several limitations should be noted' paragraph is repeated verbatim.",
+  "keywords": [
+   [
+    "duplicat",
+    "repeat",
+    "twice",
+    "verbatim",
+    "identical",
+    "copy",
+    "copied",
+    "redundan"
+   ]
+  ]
+ },
+ {
+  "id": "casual-causal",
+  "category": "typo",
+  "file": "sections/discussion.tex",
+  "lines": [
+   50,
+   50
+  ],
+  "summary": "'casual interpretation' should be 'causal interpretation'.",
+  "keywords": [
+   [
+    "causal"
+   ]
+  ]
+ },
+ {
+  "id": "lrt-reject-p041",
+  "category": "logic",
+  "file": "sections/application.tex",
+  "lines": [
+   50,
+   52
+  ],
+  "summary": "p = 0.41 does not justify rejecting the null of a linear effect.",
+  "keywords": [
+   [
+    "0.41",
+    "reject",
+    "significan"
+   ]
+  ]
+ },
+ {
+  "id": "width-increases",
+  "category": "wording",
+  "file": "sections/simulation.tex",
+  "lines": [
+   117,
+   118
+  ],
+  "summary": "Interval width goes from 0.214 to 0.081 as sample size grows: it decreases, not increases.",
+  "keywords": [
+   [
+    "decreas",
+    "shrink",
+    "narrow",
+    "increas",
+    "declin",
+    "fall",
+    "drop",
+    "smaller",
+    "reduc"
+   ]
+  ]
+ },
+ {
+  "id": "z-quantile",
+  "category": "numeric",
+  "file": "sections/methods.tex",
+  "lines": [
+   159,
+   161
+  ],
+  "summary": "95% intervals use 1.645 (the 90% quantile); should be 1.96.",
+  "keywords": [
+   [
+    "1.645",
+    "1.96",
+    "90%",
+    "90 %",
+    "90\\%",
+    "quantile",
+    "critical value"
+   ]
+  ]
+ },
+ {
+  "id": "covariate-count",
+  "category": "inconsistency",
+  "file": "sections/methods.tex",
+  "lines": [
+   24,
+   25
+  ],
+  "alt": [
+   {
+    "file": "sections/application.tex",
+    "lines": [
+     28,
+     32
+    ]
+   }
+  ],
+  "summary": "Methods says six district-level covariates; the application lists five.",
+  "keywords": [
+   [
+    "six",
+    "five",
+    "6",
+    "5"
+   ]
+  ]
+ },
+ {
+  "id": "survey-year",
+  "category": "inconsistency",
+  "file": "sections/introduction.tex",
+  "lines": [
+   66,
+   66
+  ],
+  "alt": [
+   {
+    "file": "sections/application.tex",
+    "lines": [
+     7,
+     7
+    ]
+   }
+  ],
+  "summary": "Introduction says the NPHNS was conducted in 2019; elsewhere 2021.",
+  "keywords": [
+   [
+    "2019",
+    "2021"
+   ]
+  ]
+ },
+ {
+  "id": "asymptotic-m-to-zero",
+  "category": "typo",
+  "file": "sections/methods.tex",
+  "lines": [
+   120,
+   120
+  ],
+  "summary": "Consistency should be as m -> infinity, not m -> 0.",
+  "keywords": [
+   [
+    "infin",
+    "\u221e",
+    "\\infty",
+    "inf",
+    "grow",
+    "large",
+    "increas",
+    "m \u2192 0",
+    "m \\to 0",
+    "m->0",
+    "-> 0",
+    "\u2192 0",
+    "to zero",
+    "to 0"
+   ]
+  ]
+ },
+ {
+  "id": "naive-mse-does-not-account",
+  "category": "logic",
+  "file": "sections/methods.tex",
+  "lines": [
+   136,
+   137
+  ],
+  "summary": "The naive plug-in MSE does NOT account for the uncertainty in the variance estimates (missing 'not').",
+  "keywords": [
+   [
+    "not",
+    "fail",
+    "ignore",
+    "neglect",
+    "omit",
+    "does account",
+    "missing"
+   ]
+  ]
+ }
+]

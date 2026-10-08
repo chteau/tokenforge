@@ -1,6 +1,6 @@
 [package]
 name = "tmap"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
 description = "Fast code map for coding agents: ranked symbol search, outline trees, call edges"
 license = "MIT"
@@ -27,6 +27,9 @@ similar = "2"
 ureq = "2"
 rusqlite = { version = "0.32", features = ["bundled"] }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif"] }
+# kit pdf (pure Rust, on lopdf)
+pdf-extract = "0.12"
+unicode-normalization = "0.1"
 
 [profile.release]
 opt-level = 3

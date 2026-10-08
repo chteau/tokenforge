@@ -11,6 +11,7 @@ import { uiState } from '../lib/ui-control.mjs';
 import { SNAP_DIR, listSnapshots, parseSnapshot } from './checkpoint.mjs';
 import { isMain, kitHookOff } from '../lib/hookutil.mjs';
 import { applyDefaultOnce, leanStatus } from '../lib/lean.mjs';
+import { autoStatusline } from '../lib/limits.mjs';
 import { memoryHint } from '../lib/memory.mjs';
 import { updateNotice } from '../lib/update-check.mjs';
 
@@ -147,6 +148,17 @@ function leanDefault() {
     : null;
 }
 
+// The status-line shim lives outside the plugin (it survives updates) and loads lib/estimate.mjs from here.
+const PLUGIN_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
+function statusline() {
+  try {
+    if (readConfig().pluginRoot !== PLUGIN_ROOT) writeConfig({ pluginRoot: PLUGIN_ROOT });
+    return unattended() ? null : autoStatusline();
+  } catch {
+    return null;
+  }
+}
+
 // Shown to the user at startup (systemMessage: zero tokens). The walkthrough appears for the first few sessions only.
 const INTRO_SESSIONS = 3;
 function banner() {
@@ -224,6 +236,8 @@ function main() {
     if (d && !b) notices.push(d);
     const lean = leanDefault();
     if (lean) notices.push(lean);
+    const sl = statusline();
+    if (sl) notices.push(sl);
   }
 
   const parts = [];

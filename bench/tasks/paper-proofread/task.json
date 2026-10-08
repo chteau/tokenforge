@@ -1,0 +1,11 @@
+{
+  "id": "paper-proofread",
+  "title": "Proofread a LaTeX statistics manuscript and list every error",
+  "category": "academic",
+  "language": "latex",
+  "rubric": "review",
+  "timeout_s": 1500,
+  "relevant_files": ["main.tex", "sections/*.tex", "refs.bib"],
+  "allowed_change_globs": ["review.json"],
+  "reference_diff_lines": 116
+}

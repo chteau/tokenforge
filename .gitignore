@@ -3,6 +3,7 @@ node_modules/
 *.tmp
 # benchmark: raw run data and frozen environment templates stay local; reports are committed
 bench/runs/
+bench/runs-superseded/
 bench/environments/*/template/
 bench/results/raw/
 __pycache__/

@@ -5,10 +5,14 @@
 // Reads the project's memory index (lib/memory.mjs). If it doesn't exist yet it is built in the background, so this
 // hook never scans transcripts itself. Off: TFORGE_ANSWER_CACHE=0.
 import { spawn } from 'node:child_process';
+import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isMain, readInput, seenBefore } from '../lib/hookutil.mjs';
 import { earlierAnswer, hasIndex } from '../lib/memory.mjs';
+import { cacheBase } from '../lib/usage.mjs';
+
+const answersFile = () => path.join(cacheBase(), 'answers.jsonl'); // read by lib/estimate.mjs
 
 const TFORGE = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'tforge');
 const day = (t) => (t ? String(t).slice(0, 16).replace('T', ' ') : 'an earlier session');
@@ -46,6 +50,11 @@ if (isMain(import.meta.url)) {
     try {
       const out = input && decide(input);
       if (out) process.stdout.write(JSON.stringify(out));
+      // A held prompt cost 0 tokens: log it for the savings estimate (lib/estimate.mjs).
+      if (out?.decision === 'block') {
+        fs.mkdirSync(path.dirname(answersFile()), { recursive: true });
+        fs.appendFileSync(answersFile(), JSON.stringify({ t: Math.round(Date.now() / 1000), session: input.session_id || null, cwd: input.cwd || '' }) + '\n');
+      }
     } catch {
       // never block a prompt on the cache's own errors
     }

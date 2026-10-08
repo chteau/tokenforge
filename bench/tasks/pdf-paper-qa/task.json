@@ -1,0 +1,35 @@
+{
+  "id": "pdf-paper-qa",
+  "title": "Answer precise questions about a two-column PDF research paper",
+  "category": "academic",
+  "language": "pdf",
+  "rubric": "qa",
+  "timeout_s": 1200,
+  "relevant_files": [
+    "paper.pdf",
+    "QUESTIONS.md"
+  ],
+  "allowed_change_globs": [
+    "ANSWER.md"
+  ],
+  "reference_diff_lines": 10,
+  "hide_tools": [
+    "pdftotext",
+    "pdftoppm",
+    "pdfinfo",
+    "pdfimages",
+    "pdftohtml",
+    "pdftocairo",
+    "gs",
+    "mutool",
+    "qpdf"
+  ],
+  "hide_python_modules": [
+    "pypdf",
+    "PyPDF2",
+    "pdfminer",
+    "pdfplumber",
+    "fitz",
+    "pymupdf"
+  ]
+}

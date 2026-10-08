@@ -1,0 +1,82 @@
+\section{Introduction}
+\label{sec:introduction}
+
+Stunting, defined as a height-for-age $z$-score more than two standard
+deviations below the median of the WHO Child Growth Standards, remains one of
+the most widely used indicators of chronic undernutrition in children under five
+years of age \citep{who2006growth}. National programmes increasingly allocate
+resources at the level of administrative districts, which creates a demand for
+district-level prevalence estimates that are both timely and precise. The
+household surveys that provide the underlying anthropometric data, however, are
+designed to deliver reliable estimates at the national or provincial level. When
+the same data are disaggregated to districts, many districts contain only a few
+dozen measured children and the resulting direct estimates are too variable to
+guide policy \citep{rao2015small}.
+
+Small area estimation addresses this problem by combining the direct survey
+estimates with auxiliary information that is available for all districts, such
+as census aggregates, administrative registers or remotely sensed indicators.
+Among the many available approaches, the area-level model of
+\citet{fay1979estimates} is the most widely used in official statistics because
+it requires only district-level direct estimates and their design-based
+variances, and therefore respects the complex sampling design without requiring
+access to unit-level records \citep{pfeffermann2013new}. The Fay--Herriot model
+links the direct estimates to a linear regression on district covariates and
+produces an empirical best linear unbiased predictor (EBLUP) that is a weighted
+average of the direct estimate and the regression-synthetic estimate.
+
+The linear mean is both the strength and the weakness of the Fay--Herriot model.
+When the relationship between the outcome and a covariate is nonlinear, the
+synthetic component is biased, and because the EBLUP shrinks most strongly in
+districts with small samples, this bias is transferred precisely to the
+districts for which the model is supposed to help most. In nutrition
+applications the relationship between stunting prevalence and measures of
+remoteness or market access is typically nonlinear: prevalence rises steeply
+over the first few hours of travel time to the nearest town and then levels off
+\citep{alderman2012access,headey2018drivers}. Transformations of the covariate
+can partly absorb such patterns, but the choice of transformation is ad hoc and
+rarely reported.
+
+Several authors have relaxed the linearity assumption in small area models.
+\citet{opsomer2008nonparametric} embedded penalized splines in a unit-level
+nested error model and represented the spline coefficients as additional random
+effects, which allows estimation with standard mixed model software.
+\citet{ugarte2009spline} used a similar representation for disease mapping, and
+\citet{sperlich2016model} discussed the trade-off between flexibility and
+stability in model-based small area estimators. For area-level models, where the
+number of districts rather than the number of individuals determines the
+information available for the mean function, the use of splines has received
+less attention; \citet{giusti2012semiparametric} and
+\citet{marchetti2023robust} considered related ideas, but neither provides a
+mean squared error estimator that accounts for the estimation of the smoothing
+parameter.
+
+In this paper we propose a spline-augmented Fay--Herriot (SAFH) model in which a
+single continuous covariate, here a remoteness index, enters through a penalized
+spline, while the remaining covariates enter linearly. Following
+\citet{ruppert2003semiparametric}, the spline is written as a mixed model with a
+second variance component, so that the smoothing parameter and the area-level
+variance can be estimated jointly by restricted maximum likelihood (REML). We
+derive the best predictor under the model, describe a parametric bootstrap for
+its mean squared error (MSE) in the spirit of \citet{butar2003measuring}, and
+compare the approach with the standard Fay--Herriot EBLUP and with a
+Fay--Herriot model using a log-transformed covariate.
+
+The methodology is motivated by the Northern Provinces Household Nutrition
+Survey (NPHNS), a stratified two-stage cluster survey conducted in 2019 to
+monitor the nutritional status of children in four northern provinces. The
+survey was designed to produce provincial estimates, but district-level
+estimates have been requested by the provincial health authorities to target a
+new supplementary feeding programme. Our contribution is therefore both
+methodological and applied: we show that modest nonlinearity in a single
+covariate is enough to produce systematic bias in the standard estimator in
+remote districts, and that the SAFH estimator removes most of this bias at a
+small cost in variance.
+
+The remainder of the paper is organized as follows. Section~\ref{sec:methods}
+introduces the model, the estimation procedure and the MSE estimator.
+Section~\ref{sec:simulation} reports a simulation study, and
+Section~\ref{sec:application} presents the application to the NPHNS data.
+Section~\ref{sec:discussion} concludes with a discussion of limitations and
+extensions, and technical details of the bootstrap are given in
+Appendix~\ref{app:bootstrap}.

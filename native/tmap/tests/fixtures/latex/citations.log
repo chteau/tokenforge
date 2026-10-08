@@ -1,0 +1,76 @@
+This is pdfTeX, Version 3.141592653-2.6-1.40.25 (TeX Live 2023/Debian) (preload
+ed format=pdflatex 2024.1.10)  8 OCT 2026 14:02
+entering extended mode
+ restricted \write18 enabled.
+ %&-line parsing enabled.
+**main.tex
+(./main.tex
+LaTeX2e <2023-11-01> patch level 1
+L3 programming layer <2024-01-04>
+(/usr/share/texlive/texmf-dist/tex/latex/base/article.cls
+Document Class: article 2023/05/17 v1.4n Standard LaTeX document class
+(/usr/share/texlive/texmf-dist/tex/latex/base/size10.clo
+File: size10.clo 2023/05/17 v1.4n Standard LaTeX file (size option)
+)
+\c@part=\count187
+\bibindent=\dimen140
+) (/usr/share/texlive/texmf-dist/tex/latex/graphics/graphicx.sty
+Package: graphicx 2021/09/16 v1.2d Enhanced LaTeX Graphics (DPC,SPQR)
+(/usr/share/texlive/texmf-dist/tex/latex/graphics/keyval.sty
+Package: keyval 2022/05/29 v1.15 key=value parser (DPC)
+\KV@toks@=\toks17
+)
+(/usr/share/texlive/texmf-dist/tex/latex/graphics/graphics.sty
+Package: graphics 2022/03/10 v1.4e Standard LaTeX Graphics (DPC,SPQR)
+)
+\Gin@req@height=\dimen141
+)
+(./main.aux (./sections/related.aux))
+\openout1 = `main.aux'.
+
+(/usr/share/texlive/texmf-dist/tex/latex/natbib/natbib.sty
+Package: natbib 2010/09/13 8.31b (PWD, AO)
+\bibhang=\skip49
+\bibsep=\skip50
+LaTeX Info: Redefining \cite on input line 694.
+\c@NAT@ctr=\count189
+)
+LaTeX Font Info:    Checking defaults for OML/cmm/m/it on input line 12.
+
+LaTeX Warning: Citation `knuth1984' on page 1 undefined on input line 22.
+
+[1
+
+{/var/lib/texmf/fonts/map/pdftex/updmap/pdftex.map}] (./sections/related.tex
+
+Package natbib Warning: Citation `lamport94' on page 2 undefined on input line 
+(natbib)                7.
+
+) [2]
+
+LaTeX Warning: Reference `fig:arch' on page 3 undefined on input line 40.
+
+No file main.bbl.
+No file main.toc.
+[3] [4] (./main.aux (./sections/related.aux))
+
+LaTeX Warning: Label `sec:intro' multiply defined.
+
+
+LaTeX Warning: There were undefined references.
+
+
+LaTeX Warning: There were multiply-defined labels.
+
+
+Package natbib Warning: There were undefined citations.
+
+
+LaTeX Warning: Label(s) may have changed. Rerun to get cross-references right.
+
+ ) 
+Here is how much of TeX's memory you used:
+ 3061 strings out of 476076
+Output written on main.pdf (4 pages, 98213 bytes).
+PDF statistics:
+ 66 PDF objects out of 1000 (max. 8388607)

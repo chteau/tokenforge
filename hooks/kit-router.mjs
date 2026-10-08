@@ -15,6 +15,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { docReplacement } from '../lib/docread.mjs';
 import { deny, exeName, isMain, kitHookOff, readInput, seenBefore, shq, splitPipes, splitSegments, tokenize } from '../lib/hookutil.mjs';
 
 // ---------- build/test rewrites ----------
@@ -161,6 +162,13 @@ export function rewrite(t) {
     return kit('test', rest[0], '-l', 'elixir');
   }
   if (exe === 'mix' && sub === 'compile' && !rest.length) return kit('check', '-l', 'elixir');
+  // LaTeX builds: pdflatex/latexmk with pdflatex-compatible flags only (an engine switch like -xelatex keeps the raw run).
+  // Output becomes errors with file:line, undefined refs/citations and a box summary instead of hundreds of log lines.
+  if (exe === 'latexmk' || exe === 'pdflatex') {
+    const ok = t.slice(1).every((x) => /\.tex$/.test(x) && !x.startsWith('-') ||
+      ['-pdf', '-halt-on-error', '-file-line-error', '-synctex=1', '-interaction=nonstopmode', '-interaction=batchmode', '-quiet', '-silent'].includes(x));
+    return ok ? kit('check', '-l', 'latex') : null;
+  }
   if (exe === 'zig' && sub === 'build') {
     if (rest.length === 1 && rest[0] === 'test') return kit('test', '-l', 'zig');
     if (!rest.length) return kit('check', '-l', 'zig');
@@ -307,7 +315,7 @@ export function readOnly(core) {
 // TokenForge's own read-only tools (and tkit check/test, which the router already auto-approves when it rewrites a
 // raw build/test command). Without this, every `tread`/`tkit ctx` call asks for permission, so the model falls back
 // to cat/sed, which Claude Code already allows. Writes, network and remote tools are not included. Off: TFORGE_AUTO_ALLOW=0.
-const KIT_SAFE = new Set(['ctx', 'diff', 'debug', 'analog', 'proj', 'deps', 'tally', 'tab', 'check', 'test']);
+const KIT_SAFE = new Set(['ctx', 'diff', 'debug', 'analog', 'proj', 'deps', 'tally', 'tab', 'check', 'test', 'pdf']);
 const JX_SAFE = new Set(['shape', 'get', 'keys', 'find']);
 export function ownTool(t, permissionMode) {
   const exe = exeName(t[0] || '');
@@ -463,6 +471,13 @@ export function spillReason(file, sliced) {
 
 function onRead(input) {
   const ti = input.tool_input || {};
+  try {
+    const alt = docReplacement(ti.file_path, ti);
+    if (alt) {
+      process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'allow', updatedInput: { ...ti, file_path: alt } } }));
+      return;
+    }
+  } catch {}
   const why = readReason(ti.file_path, Boolean(ti.offset || ti.limit)) || spillReason(ti.file_path, Boolean(ti.offset || ti.limit));
   if (why && !seenBefore(input.session_id, `kitread\0${ti.file_path}`, 'kit')) deny('PreToolUse', why);
 }

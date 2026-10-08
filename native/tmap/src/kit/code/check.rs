@@ -11,7 +11,7 @@ const HELP: &str = "Build / typecheck / lint the current project; one normalized
 
   tmap kit check [-l STACK] [--fast] [--lint] [--changed] [-e] [-a] [-C DIR]
 
-  -l STACK   only this stack: rust go ts cs luau dart py java cpp php ruby swift elixir zig scala
+  -l STACK   only this stack: rust go ts cs luau dart py java cpp php ruby swift elixir zig scala latex
              (default: all found at the nearest manifest)
   --fast     cheapest pass only (rust: cargo check, not clippy; ts: no eslint; go: no golangci-lint)
   --lint     also run linters that are off by default (eslint)
@@ -23,7 +23,9 @@ Per stack: rust  cargo clippy --all-targets (json) | go  go build + go vet (+ go
   dart  dart analyze | py  ruff + mypy/pyright if configured | java/kotlin  mvn compile / gradle classes
   cpp  cmake --build / meson / make -k (+ clang-tidy with --lint) | php  phpstan or psalm, php -l
   ruby  rubocop/standardrb (+ sorbet) | swift  swift build (+ swiftlint) | elixir  mix compile (+ credo)
-  zig  zig build | scala  sbt compile.
+  zig  zig build | scala  sbt compile
+  latex  latexmk -pdf (else tectonic, else pdflatex + bibtex/biber reruns); prints errors (file:line),
+         undefined refs/citations, multiply-defined labels, missing files, the first 5 bad boxes.
 Output: \"<stack> (<tools>): N errors, M warnings [time]\" then \"path:line:col SEV CODE message\".
 Exit 1 if any error (2 if a detected stack is not ported to tmap kit yet).";
 
@@ -62,7 +64,7 @@ pub fn main(args: Vec<String>) -> i32 {
     }
     let (root, stacks) = find_root(Path::new("."), want.as_deref());
     let Some(root) = root else {
-        die(T, "no project manifest found here or above (Cargo.toml, go.mod, package.json, *.csproj, default.project.json, pubspec.yaml, pyproject.toml)", 2)
+        die(T, "no project manifest found here or above (Cargo.toml, go.mod, package.json, *.csproj, default.project.json, pubspec.yaml, pyproject.toml, main.tex)", 2)
     };
     ctx.root = root;
     let chg = ctx.opt.changed.then(|| changed_files(&ctx.root));
@@ -100,7 +102,8 @@ pub fn main(args: Vec<String>) -> i32 {
         }
         let tools = if used.is_empty() { "-".to_string() } else { used.join(", ") };
         println!(
-            "{st} ({tools}): {e} errors, {w} warnings [{:.1}s]{}",
+            "{st} ({tools}): {e} errors, {w} warnings{} [{:.1}s]{}",
+            d.status,
             t.elapsed().as_secs_f64(),
             if chg.is_some() { " (changed files only)" } else { "" }
         );

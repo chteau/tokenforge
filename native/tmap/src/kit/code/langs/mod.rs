@@ -1,5 +1,5 @@
 //! Extension point for the stacks that live outside the core tools (python: `kit/langs/*.py`):
-//! java (+kotlin), cpp, php, ruby, swift, elixir, zig, scala.
+//! java (+kotlin), cpp, php, ruby, swift, elixir, zig, scala, latex.
 //!
 //! # Adding a language
 //!
@@ -10,7 +10,7 @@
 //!    ```
 //!
 //! 2. Add `pub mod <name>;` below, put `&<name>::LANG` in [`LANGS`] and remove the entry from [`PENDING`].
-//!    Detection already exists: `common::markers` knows all 15 stacks, and `-l <name>` is accepted.
+//!    Detection already exists: `common::markers` knows all 16 stacks, and `-l <name>` is accepted.
 //!
 //! # Hooks (same contract as the python module functions)
 //!
@@ -53,6 +53,7 @@ use std::path::PathBuf;
 pub mod cpp;
 pub mod elixir;
 pub mod java;
+pub mod latex;
 pub mod php;
 pub mod ruby;
 pub mod scala;
@@ -74,7 +75,7 @@ pub struct Lang {
 pub type FmtFn = fn(&Ctx, &[PathBuf], bool) -> (Vec<String>, Vec<String>);
 
 /// Ported languages.
-pub const LANGS: &[&Lang] = &[&java::LANG, &cpp::LANG, &php::LANG, &ruby::LANG, &swift::LANG, &elixir::LANG, &zig::LANG, &scala::LANG];
+pub const LANGS: &[&Lang] = &[&java::LANG, &cpp::LANG, &php::LANG, &ruby::LANG, &swift::LANG, &elixir::LANG, &zig::LANG, &scala::LANG, &latex::LANG];
 
 /// Languages detected but not ported yet, with the extensions their formatter handles (none left).
 pub const PENDING: &[(&str, &[&str])] = &[];

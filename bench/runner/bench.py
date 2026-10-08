@@ -271,6 +271,19 @@ def run_one(cfg, session: Path, canon: dict, tid: str, env: str, rep: int, opts)
     penv = isolation.process_env(cfg, sb)
     if env == "token-forge":
         penv.update(opts.tf_env_map)
+    # task.json "hide_tools"/"hide_python_modules": simulate a machine without them (e.g. no poppler on Windows).
+    # Identical for both agents: stub commands that fail like a missing binary, first on PATH, and Python stubs.
+    if task.get("hide_tools") or task.get("hide_python_modules"):
+        hid = work / "hidden-tools"
+        (hid / "py").mkdir(parents=True, exist_ok=True)
+        for t in task.get("hide_tools", []):
+            (hid / t).write_text(f"#!/bin/sh\necho \"{t}: command not found\" >&2\nexit 127\n")
+            (hid / t).chmod(0o755)
+        for m in task.get("hide_python_modules", []):
+            (hid / "py" / m).mkdir(exist_ok=True)
+            (hid / "py" / m / "__init__.py").write_text(f"raise ModuleNotFoundError(\"No module named '{m}'\")\n")
+        penv["PATH"] = f"{hid}:{penv['PATH']}"
+        penv["PYTHONPATH"] = str(hid / "py")
     clean, env_manifest = isolation.preflight(cfg, env, sb, repo, cargs, penv, history=history)
     (out / "environment_manifest.json").write_text(json.dumps(env_manifest, indent=2) + "\n")
     (out / "prompt.txt").write_text(task["prompt"])

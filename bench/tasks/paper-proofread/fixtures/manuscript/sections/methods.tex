@@ -1,0 +1,162 @@
+\section{Methods}
+\label{sec:methods}
+
+\subsection{The Fay--Herriot model}
+\label{sec:fh}
+
+Let $i = 1, \dots, m$ index the districts and let $\theta_i$ denote the stunting
+prevalence in district $i$. The survey provides a direct estimator $y_i$ of
+$\theta_i$, typically a weighted (H\'ajek) proportion, together with an estimate
+of its design-based sampling variance. The sampling model is
+\begin{equation}
+  y_i = \theta_i + e_i, \qquad e_i \sim N(0, \psi_i),
+  \label{eq:sampling}
+\end{equation}
+where the sampling variances $\psi_i$ are treated as known. In practice they are
+replaced by smoothed design-based estimates; we use the generalized variance
+function described in Section~\ref{sec:data}. The Fay--Herriot linking model is
+\begin{equation}
+  \theta_i = \bx_i^\top \bbeta + u_i, \qquad u_i \sim N(0, \sigma_u^2),
+  \label{eq:linking}
+\end{equation}
+where $\bx_i$ is a vector of district-level covariates, $\bbeta$ is a vector of
+regression coefficients and the area effects $u_i$ are independent of the
+sampling errors $e_i$. In the application, $\bx_i$ contains an intercept and the
+six district-level covariates described in Section~\ref{sec:data}.
+
+Under \eqref{eq:sampling} and \eqref{eq:linking} with known $\bbeta$ and
+$\sigma_u^2$, the best predictor of $\theta_i$ is
+\begin{equation}
+  \tilde\theta_i = w_i\, y_i + (1 - w_i)\, \bx_i^\top \bbeta,
+  \qquad
+  w_i = \frac{\sigma_u^2}{\sigma_u^2 + \psi_i}.
+  \label{eq:bp}
+\end{equation}
+The weight $w_i$ determines how much the predictor relies on the direct
+estimate. In districts with very small samples, $\psi_i$ is large, so $w_i$ is
+close to one and the predictor relies almost entirely on the direct estimate.
+Replacing $\bbeta$ by its weighted least squares estimator and $\sigma_u^2$ by a
+consistent estimator yields the EBLUP $\hat\theta_i^{\mathrm{FH}}$
+\citep{prasad1990estimation}.
+
+\subsection{Spline-augmented linking model}
+\label{sec:safh}
+
+Let $r_i$ denote the remoteness index of district $i$, defined as the
+population-weighted mean travel time to the nearest town of at least 50{,}000
+inhabitants. We replace the linking model \eqref{eq:linking} by
+\begin{equation}
+  \theta_i = \bx_i^\top \bbeta + f(r_i) + u_i, \qquad u_i \sim N(0, \sigma_u^2),
+  \label{eq:safh}
+\end{equation}
+where $f$ is an unknown smooth function and $\bx_i$ no longer contains $r_i$.
+We represent $f$ by a truncated linear spline basis with $K$ knots
+$\kappa_1 < \dots < \kappa_K$ placed at equally spaced sample quantiles of
+$r_1, \dots, r_m$,
+\begin{equation}
+  f(r) = \beta_r\, r + \sum_{k=1}^{K} \gamma_k\, (r - \kappa_k)_+,
+  \qquad \gamma_k \sim N(0, \sigma_\gamma^2),
+  \label{eq:spline}
+\end{equation}
+where $(t)_+ = \max(t, 0)$. Treating the spline coefficients $\gamma_k$ as
+random effects is equivalent to fitting $f$ by penalized least squares with
+smoothing parameter $\lambda = \sigma_u^2 / \sigma_\gamma^2$
+\citep{ruppert2003semiparametric}. The number of knots is not critical once it
+is large enough to capture the features of $f$; following the default rule of
+\citet{ruppert2002selecting} we use $K = \min\{\lfloor m/4 \rfloor, 35\}$.
+
+Writing $\boldsymbol{z}_i = \{(r_i - \kappa_1)_+, \dots, (r_i - \kappa_K)_+\}^\top$
+and $\boldsymbol{\gamma} = (\gamma_1, \dots, \gamma_K)^\top$, the model for the
+direct estimates becomes a linear mixed model with two variance components,
+\begin{equation}
+  \boldsymbol{y} = X \bbeta^{*} + Z \boldsymbol{\gamma} + \boldsymbol{u} + \boldsymbol{e},
+  \label{eq:lmm}
+\end{equation}
+where $X$ has rows $(\bx_i^\top, r_i)$, $\bbeta^{*} = (\bbeta^\top, \beta_r)^\top$
+and $Z$ has rows $\boldsymbol{z}_i^\top$. The marginal covariance matrix of
+$\boldsymbol{y}$ is
+$V = \sigma_\gamma^2 Z Z^\top + \sigma_u^2 I_m + \Psi$, with
+$\Psi = \operatorname{diag}(\psi_1, \dots, \psi_m)$.
+
+\subsection{Estimation and prediction}
+\label{sec:estimation}
+
+The variance components $\boldsymbol{\delta} = (\sigma_u^2, \sigma_\gamma^2)$ are
+estimated by REML, which maximizes
+\begin{equation}
+  \ell_R(\boldsymbol{\delta}) = -\tfrac{1}{2}\left\{
+    \log |V| + \log |X^\top V^{-1} X| + \boldsymbol{y}^\top P \boldsymbol{y}
+  \right\},
+  \qquad P = V^{-1} - V^{-1} X (X^\top V^{-1} X)^{-1} X^\top V^{-1}.
+  \label{eq:reml}
+\end{equation}
+We use a Fisher scoring algorithm started from the method-of-moments estimator
+of $\sigma_u^2$ and $\sigma_\gamma^2 = \sigma_u^2$; when the REML estimate of
+either component is zero we truncate it at a small positive value, as
+recommended by \citet{li2010adjusted}. Given $\hat{\boldsymbol{\delta}}$, the
+fixed effects are estimated by generalized least squares,
+$\hat\bbeta^{*} = (X^\top \hat V^{-1} X)^{-1} X^\top \hat V^{-1} \boldsymbol{y}$,
+and the spline coefficients are predicted by
+$\hat{\boldsymbol{\gamma}} = \hat\sigma_\gamma^2 Z^\top \hat V^{-1}
+(\boldsymbol{y} - X \hat\bbeta^{*})$.
+
+The SAFH predictor of $\theta_i$ is obtained by applying \eqref{eq:bp} with the
+regression-synthetic estimator replaced by the fitted spline mean
+$\hat\mu_i = \bx_i^\top \hat\bbeta + \hat\beta_r r_i + \boldsymbol{z}_i^\top
+\hat{\boldsymbol{\gamma}}$, that is,
+\begin{equation}
+  \hat\theta_i^{\mathrm{SAFH}} = \hat w_i\, y_i + (1 - \hat w_i)\, \hat\mu_i,
+  \qquad \hat w_i = \frac{\hat\sigma_u^2}{\hat\sigma_u^2 + \psi_i}.
+  \label{eq:safh-pred}
+\end{equation}
+Because the spline coefficients are shared across districts while the area
+effects are not, the SAFH estimator borrows strength in two ways: through the
+smooth trend in remoteness and through shrinkage towards that trend.
+
+\begin{proposition}
+\label{prop:consistency}
+Suppose that $\psi_i$ is bounded away from zero and infinity, that the
+remoteness values $r_i$ are dense in a compact interval, and that $f$ has a
+bounded second derivative. Then, as the number of districts $m \to 0$,
+$\hat\sigma_u^2$ is consistent for $\sigma_u^2$ and
+$\hat\theta_i^{\mathrm{SAFH}} - \tilde\theta_i^{\mathrm{SAFH}} = O_p(m^{-1/2})$,
+where $\tilde\theta_i^{\mathrm{SAFH}}$ is the best predictor under
+\eqref{eq:safh} with known parameters.
+\end{proposition}
+
+The proof follows the arguments of \citet{das2004mean} for linear mixed models
+with a fixed number of variance components and is omitted.
+
+\subsection{Mean squared error estimation}
+\label{sec:mse}
+
+A naive estimator of the MSE of \eqref{eq:safh-pred} plugs the estimated
+variance components into the MSE of the best predictor, $g_1(\hat\sigma_u^2) =
+\hat w_i \psi_i$, plus a term for the estimation of $\bbeta^{*}$ and
+$\boldsymbol{\gamma}$. This naive estimator does account for the uncertainty
+in $\hat\sigma_u^2$ and $\hat\sigma_\gamma^2$, and it is therefore biased
+downwards, often severely when $m$ is small \citep{prasad1990estimation}.
+Analytical second-order corrections of the Prasad--Rao type are available for
+the Fay--Herriot model, but their extension to two variance components with a
+truncation at zero is tedious.
+
+We therefore use a parametric bootstrap. Substituting the estimated parameters
+into \eqref{eq:safh-pred}, bootstrap replicates of the predictor are computed as
+\begin{equation}
+  \hat\theta_i^{*} = (1 - \hat w_i^{*})\, y_i^{*} + \hat w_i^{*}\, \hat\mu_i^{*},
+  \label{eq:boot-pred}
+\end{equation}
+where starred quantities are re-estimated from bootstrap data generated from
+the fitted model. The bootstrap MSE estimator is
+\begin{equation}
+  \mathrm{mse}_B(\hat\theta_i^{\mathrm{SAFH}}) = \frac{1}{B} \sum_{b=1}^{B}
+  \left( \hat\theta_i^{*(b)} - \theta_i^{*(b)} \right)^2,
+  \label{eq:boot-mse}
+\end{equation}
+where $\theta_i^{*(b)}$ is the true district value in bootstrap replicate $b$.
+Following \citet{butar2003measuring}, we combine \eqref{eq:boot-mse} with a
+bias-corrected plug-in term so that the resulting estimator is second-order
+unbiased; details are given in Appendix~\ref{app:bootstrap}. Approximate 95\%
+intervals are constructed as $\hat\theta_i^{\mathrm{SAFH}} \pm 1.645
+\{\mathrm{mse}_B(\hat\theta_i^{\mathrm{SAFH}})\}^{1/2}$. We use $B = 1000$
+bootstrap replicates throughout.

@@ -17,6 +17,7 @@ pub mod edit;
 pub mod http;
 pub mod img;
 pub mod jx;
+pub mod pdf;
 pub mod port;
 pub mod ssh;
 pub mod tab;
@@ -41,6 +42,7 @@ pub const TOOLS: &[(&str, Tool, &str)] = &[
     ("jx", jx::main, "JSON/JSONL/TOML: shape | get | keys | find | set | del | merge"),
     ("tab", tab::main, "SQL over CSV/TSV/JSON/JSONL"),
     ("tally", tally::main, "count matches, stats, per file"),
+    ("pdf", pdf::main, "PDF as text, one section per page (exit 3 = scanned: read the pages instead)"),
     ("img", img::main, "image info | fit | crop | grid | diff"),
     ("http", http::main, "HTTP request with a compact response"),
     ("port", port::main, "who listens on a port, --kill"),

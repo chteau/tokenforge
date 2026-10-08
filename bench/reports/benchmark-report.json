@@ -3363,16 +3363,154 @@
       "statuses": [
         "completed"
       ]
+    },
+    "2026-10-08T14-23-57-336a": {
+      "session": "2026-10-08T14-23-57-336a",
+      "seed": 942941,
+      "benchmark_version": "1.0.0",
+      "model": "claude-opus-5-5",
+      "claude_code_version": "2.1.293",
+      "token_forge_version": "0.7.3",
+      "max_tokens": 6000000,
+      "warn_tokens": 3000000,
+      "max_budget_usd": 8.0,
+      "jobs": 2,
+      "canonical_commits": {
+        "paper-proofread": "934d4acad1a5b2e30a1be0a1b5f2e9bcd50c26f5"
+      },
+      "run_order": [
+        "paper-proofread-token-forge-r2",
+        "paper-proofread-native-r2",
+        "paper-proofread-token-forge-r1",
+        "paper-proofread-native-r1"
+      ],
+      "started": "2026-10-08T14:23:57.416077+00:00",
+      "finished": "2026-10-08T14:26:42.667328+00:00",
+      "statuses": [
+        "completed",
+        "completed",
+        "completed",
+        "completed"
+      ]
+    },
+    "2026-10-08T14-26-42-dd6d": {
+      "session": "2026-10-08T14-26-42-dd6d",
+      "seed": 907607,
+      "benchmark_version": "1.0.0",
+      "model": "claude-opus-5-5",
+      "claude_code_version": "2.1.293",
+      "token_forge_version": "0.7.3",
+      "max_tokens": 6000000,
+      "warn_tokens": 3000000,
+      "max_budget_usd": 8.0,
+      "jobs": 2,
+      "canonical_commits": {
+        "pdf-paper-qa": "2f2e9cb00308d85205699ebc6ff6e9855ba085a3"
+      },
+      "run_order": [
+        "pdf-paper-qa-token-forge-r1",
+        "pdf-paper-qa-native-r1",
+        "pdf-paper-qa-token-forge-r2",
+        "pdf-paper-qa-native-r2"
+      ],
+      "started": "2026-10-08T14:26:42.768586+00:00",
+      "finished": "2026-10-08T14:27:47.973842+00:00",
+      "statuses": [
+        "completed",
+        "completed",
+        "completed",
+        "completed"
+      ]
+    },
+    "2026-10-08T14-32-14-514c": {
+      "session": "2026-10-08T14-32-14-514c",
+      "seed": 556989,
+      "benchmark_version": "1.0.0",
+      "model": "claude-opus-5-5",
+      "claude_code_version": "2.1.293",
+      "token_forge_version": "0.7.3",
+      "max_tokens": 6000000,
+      "warn_tokens": 3000000,
+      "max_budget_usd": 8.0,
+      "jobs": 2,
+      "canonical_commits": {
+        "pdf-paper-qa": "2f2e9cb00308d85205699ebc6ff6e9855ba085a3"
+      },
+      "run_order": [
+        "pdf-paper-qa-native-r1",
+        "pdf-paper-qa-token-forge-r1",
+        "pdf-paper-qa-native-r2",
+        "pdf-paper-qa-token-forge-r2"
+      ],
+      "started": "2026-10-08T14:32:14.917861+00:00",
+      "finished": "2026-10-08T14:33:45.138289+00:00",
+      "statuses": [
+        "completed",
+        "completed",
+        "completed",
+        "completed"
+      ]
+    },
+    "2026-10-08T14-34-13-28ad": {
+      "session": "2026-10-08T14-34-13-28ad",
+      "seed": 534580,
+      "benchmark_version": "1.0.0",
+      "model": "claude-opus-5-5",
+      "claude_code_version": "2.1.293",
+      "token_forge_version": "0.8.0",
+      "max_tokens": 6000000,
+      "warn_tokens": 3000000,
+      "max_budget_usd": 8.0,
+      "jobs": 2,
+      "canonical_commits": {
+        "pdf-paper-qa": "2f2e9cb00308d85205699ebc6ff6e9855ba085a3"
+      },
+      "run_order": [
+        "pdf-paper-qa-token-forge-r1",
+        "pdf-paper-qa-token-forge-r2"
+      ],
+      "started": "2026-10-08T14:34:13.500064+00:00",
+      "finished": "2026-10-08T14:34:28.650102+00:00",
+      "statuses": [
+        "completed",
+        "completed"
+      ]
+    },
+    "2026-10-08T14-34-58-879d": {
+      "session": "2026-10-08T14-34-58-879d",
+      "seed": 408756,
+      "benchmark_version": "1.0.0",
+      "model": "claude-opus-5-5",
+      "claude_code_version": "2.1.293",
+      "token_forge_version": "0.8.0",
+      "max_tokens": 6000000,
+      "warn_tokens": 3000000,
+      "max_budget_usd": 8.0,
+      "jobs": 2,
+      "canonical_commits": {
+        "paper-proofread": "934d4acad1a5b2e30a1be0a1b5f2e9bcd50c26f5"
+      },
+      "run_order": [
+        "paper-proofread-token-forge-r2",
+        "paper-proofread-token-forge-r1"
+      ],
+      "started": "2026-10-08T14:34:58.971527+00:00",
+      "finished": "2026-10-08T14:36:19.108891+00:00",
+      "statuses": [
+        "completed",
+        "completed"
+      ]
     }
   },
   "token_forge_build": {
-    "version": "0.7.0",
-    "plugin_sha256": "1d360dd51c682ea30218ce09e6c7335a04ed9aff67958d56978665498c454ec9",
-    "plugin_git_commit": "c68f6f571e9a40b0a5f2b0e1cfbbddbf26b49b27",
+    "version": "0.8.0",
+    "plugin_sha256": "31952bff7273f37197e21f0d72618573d6e19e6055fc8299c45655db37972f98",
+    "plugin_git_commit": "d7c74387caae6345c7e9e00705b5cfc704a88f7e",
     "plugin_git_dirty": true,
     "lean": "balanced",
     "equivalent_builds": {
-      "b9471cc0bd41eca4c6ad736ab1e477014da3df69c55e121763eca62cbc3e1727": "0.7.0 build used for the main runs. Later builds (0.7.1) add only user-facing or permission behaviour that does not change what the model is sent in benchmark sessions (headless, bypassPermissions): startup banner and /clear notice (systemMessage, headless sessions skip them), auto-approval of own tools (no-op under bypassPermissions), dashboard auto-start, Windows path fix, the opt-in TFORGE_PLAN=brief line (off by default). One router change can affect behaviour: focused grep/sed/head reads of dependency source are no longer refused."
+      "b9471cc0bd41eca4c6ad736ab1e477014da3df69c55e121763eca62cbc3e1727": "Earlier 0.7.x builds. They differ from the current build only in behaviour benchmark sessions (headless, bypassPermissions) do not see, plus: two small wording changes in the injected policy (terse rule: 'a list the user asked for stays complete'; 'don't re-run checks to double-check' instead of 'never re-read or re-run to double-check'), about 20 tokens; focused reads of dependency source are no longer refused; documents (.md/.tex/...) are never folded; PDF and notebook Reads get text (no existing task reads PDFs or notebooks). The 34 main tasks were run on these builds.",
+      "1d360dd51c682ea30218ce09e6c7335a04ed9aff67958d56978665498c454ec9": "Earlier 0.7.x builds. They differ from the current build only in behaviour benchmark sessions (headless, bypassPermissions) do not see, plus: two small wording changes in the injected policy (terse rule: 'a list the user asked for stays complete'; 'don't re-run checks to double-check' instead of 'never re-read or re-run to double-check'), about 20 tokens; focused reads of dependency source are no longer refused; documents (.md/.tex/...) are never folded; PDF and notebook Reads get text (no existing task reads PDFs or notebooks). The 34 main tasks were run on these builds."
     }
   },
   "excluded_runs_other_build": [
@@ -3488,139 +3626,143 @@
     "2026-10-08T13-39-59-37b4/swift-cli-token-forge+effort-medium-r1",
     "2026-10-08T13-39-59-fd7d/java-http-token-forge+effort-medium-r1",
     "2026-10-08T13-46-08-b8ed/go-feature-token-forge+effort-medium-r1",
-    "2026-10-08T13-46-08-d601/php-api-token-forge+effort-medium-r1"
+    "2026-10-08T13-46-08-d601/php-api-token-forge+effort-medium-r1",
+    "2026-10-08T14-23-57-336a/paper-proofread-token-forge-r1",
+    "2026-10-08T14-23-57-336a/paper-proofread-token-forge-r2",
+    "2026-10-08T14-32-14-514c/pdf-paper-qa-token-forge-r1",
+    "2026-10-08T14-32-14-514c/pdf-paper-qa-token-forge-r2"
   ],
   "excluded_runs_other_claude_code": [],
   "excluded_tasks": {
     "ruby-cli": "run once per side (native 389,848 tokens, quality 96.83; tokenforge 443,388 tokens, quality 96.25) and left out of the published comparison by the maintainer. Runs are kept in runs/."
   },
   "aggregate": {
-    "tasks_paired": 34,
-    "runs_executed": 75,
+    "tasks_paired": 36,
+    "runs_executed": 83,
     "runs_not_executed": 0,
     "token_savings_percent": {
-      "n": 34,
-      "mean": 50.06,
-      "median": 53.28,
+      "n": 36,
+      "mean": 49.61,
+      "median": 51.51,
       "min": 9.98,
       "max": 75.41,
-      "stdev": 17.4,
-      "p10": 24.79,
-      "p25": 42.09,
-      "p75": 61.44,
-      "p90": 70.22
+      "stdev": 17.1,
+      "p10": 27.11,
+      "p25": 40.97,
+      "p75": 60.8,
+      "p90": 69.78
     },
     "input_savings_percent": {
-      "n": 34,
-      "mean": 51.6,
-      "median": 55.56,
+      "n": 36,
+      "mean": 51.08,
+      "median": 53.59,
       "min": 10.18,
       "max": 77.07,
-      "stdev": 17.76,
-      "p10": 26.46,
-      "p25": 43.54,
+      "stdev": 17.47,
+      "p10": 28.57,
+      "p25": 42.77,
       "p75": 62.93,
-      "p90": 72.0
+      "p90": 71.32
     },
     "output_savings_percent": {
-      "n": 34,
-      "mean": 20.05,
+      "n": 36,
+      "mean": 21.21,
       "median": 21.94,
       "min": -12.72,
-      "max": 46.39,
-      "stdev": 15.67,
-      "p10": 0.34,
-      "p25": 9.09,
-      "p75": 30.45,
-      "p90": 38.92
+      "max": 71.64,
+      "stdev": 17.57,
+      "p10": 1.23,
+      "p25": 9.11,
+      "p75": 30.78,
+      "p90": 40.53
     },
     "uncached_input_savings_percent": {
-      "n": 34,
-      "mean": 20.75,
-      "median": 18.98,
+      "n": 36,
+      "mean": 19.33,
+      "median": 17.56,
       "min": -16.29,
       "max": 42.73,
-      "stdev": 13.01,
-      "p10": 7.03,
-      "p25": 13.16,
-      "p75": 29.69,
-      "p90": 37.11
+      "stdev": 14.07,
+      "p10": 4.58,
+      "p25": 12.13,
+      "p75": 29.25,
+      "p90": 36.8
     },
     "input_equivalent_savings_percent": {
-      "n": 34,
-      "mean": 27.48,
-      "median": 29.09,
+      "n": 36,
+      "mean": 26.83,
+      "median": 26.34,
       "min": -5.33,
       "max": 51.84,
-      "stdev": 14.61,
-      "p10": 8.08,
-      "p25": 20.05,
-      "p75": 37.68,
-      "p90": 47.48
+      "stdev": 14.47,
+      "p10": 9.19,
+      "p25": 19.09,
+      "p75": 35.54,
+      "p90": 47.39
     },
     "cost_savings_percent": {
-      "n": 34,
-      "mean": 23.71,
-      "median": 23.31,
+      "n": 36,
+      "mean": 22.79,
+      "median": 22.34,
       "min": -9.51,
       "max": 48.32,
-      "stdev": 14.21,
-      "p10": 6.69,
-      "p25": 16.13,
-      "p75": 34.4,
-      "p90": 42.47
+      "stdev": 14.33,
+      "p10": 6.04,
+      "p25": 13.34,
+      "p75": 32.72,
+      "p90": 42.34
     },
     "quality_diff": {
-      "n": 34,
-      "mean": 0.5,
+      "n": 36,
+      "mean": 0.54,
       "median": 0.0,
       "min": -6.0,
       "max": 11.5,
-      "stdev": 2.53,
+      "stdev": 2.48,
       "p10": 0.0,
       "p25": 0.0,
       "p75": 0.0,
-      "p90": 2.85
+      "p90": 2.75
     },
     "tool_call_reduction_percent": {
-      "n": 34,
-      "mean": 42.47,
+      "n": 36,
+      "mean": 42.65,
       "median": 49.0,
       "min": -10.0,
       "max": 73.08,
-      "stdev": 21.64,
-      "p10": 15.46,
-      "p25": 27.59,
-      "p75": 59.77,
-      "p90": 67.89
+      "stdev": 21.3,
+      "p10": 16.23,
+      "p25": 28.25,
+      "p75": 60.0,
+      "p90": 67.55
     },
     "files_read_reduction_percent": {
-      "n": 34,
-      "mean": -16.83,
+      "n": 36,
+      "mean": -13.58,
       "median": 14.39,
       "min": -900.0,
-      "max": 71.43,
-      "stdev": 163.44,
-      "p10": -61.67,
-      "p25": -10.77,
+      "max": 83.33,
+      "stdev": 159.59,
+      "p10": -58.34,
+      "p25": -7.29,
       "p75": 50.0,
-      "p90": 60.0
+      "p90": 63.34
     },
     "first_request_overhead_tokens": {
-      "n": 34,
-      "mean": -6734.25,
+      "n": 36,
+      "mean": -6732.88,
       "median": -6735.0,
       "min": -6747,
-      "max": -6726,
-      "stdev": 5.25,
+      "max": -6708.0,
+      "stdev": 7.69,
       "p10": -6741.0,
       "p25": -6738.0,
-      "p75": -6732.0,
+      "p75": -6729.0,
       "p90": -6726.0
     },
-    "pooled_token_savings_percent": 51.71,
+    "pooled_token_savings_percent": 51.52,
     "sign_test": {
-      "tasks_tf_cheaper": 34,
+      "tasks_tf_cheaper": 36,
       "tasks_tf_costlier": 0,
       "p_value_two_sided": 0.0
     }
@@ -3628,254 +3770,263 @@
   "per_agent": {
     "native": {
       "total_tokens": {
-        "n": 39,
-        "mean": 681020.82,
-        "median": 597805,
-        "min": 180606,
+        "n": 43,
+        "mean": 641528.37,
+        "median": 540060,
+        "min": 165107,
         "max": 2428089,
-        "stdev": 482600.58,
-        "p10": 251457.4,
-        "p25": 385897.0,
-        "p75": 791453.5,
-        "p90": 1266100.8
+        "stdev": 476371.03,
+        "p10": 216594.2,
+        "p25": 301208.0,
+        "p75": 752021.5,
+        "p90": 1191627.8
       },
       "input_tokens": {
-        "n": 39,
-        "mean": 654993.15,
-        "median": 558267,
-        "min": 175659,
+        "n": 43,
+        "mean": 617365.23,
+        "median": 517414,
+        "min": 163942,
         "max": 2392370,
-        "stdev": 475363.84,
-        "p10": 238991.8,
-        "p25": 371049.0,
-        "p75": 754481.5,
-        "p90": 1220444.2
+        "stdev": 468196.18,
+        "p10": 206657.4,
+        "p25": 285420.5,
+        "p75": 713774.0,
+        "p90": 1140357.4
       },
       "output_tokens": {
-        "n": 39,
-        "mean": 26027.67,
-        "median": 23963,
-        "min": 3080,
+        "n": 43,
+        "mean": 24163.14,
+        "median": 23410,
+        "min": 1165,
         "max": 51942,
-        "stdev": 14181.47,
-        "p10": 6325.0,
-        "p25": 15607.5,
-        "p75": 38411.5,
-        "p90": 43613.2
+        "stdev": 14751.5,
+        "p10": 5051.2,
+        "p25": 10045.5,
+        "p75": 37317.5,
+        "p90": 43133.8
       },
       "cached_input_tokens": {
-        "n": 39,
-        "mean": 605326.15,
-        "median": 505717,
-        "min": 146754,
+        "n": 43,
+        "mean": 568413.51,
+        "median": 477937,
+        "min": 108780,
         "max": 2287992,
-        "stdev": 455623.41,
-        "p10": 217095.4,
-        "p25": 331025.5,
-        "p75": 699461.5,
-        "p90": 1145672.4
+        "stdev": 449559.68,
+        "p10": 182199.4,
+        "p25": 250264.5,
+        "p75": 660671.0,
+        "p90": 1073938.2
       },
       "uncached_input_tokens": {
-        "n": 39,
-        "mean": 49667,
-        "median": 46683,
+        "n": 43,
+        "mean": 48951.72,
+        "median": 46347,
         "min": 20090,
         "max": 109554,
-        "stdev": 21736.81,
-        "p10": 26601.4,
+        "stdev": 20941.41,
+        "p10": 27913.8,
         "p25": 36332.5,
-        "p75": 57112.0,
-        "p90": 69565.8
+        "p75": 55225.0,
+        "p90": 67315.0
       },
       "input_equivalent_tokens": {
-        "n": 39,
-        "mean": 252747.79,
-        "median": 232163,
+        "n": 43,
+        "mean": 238840.12,
+        "median": 216791,
         "min": 63936,
         "max": 537852,
-        "stdev": 123257.57,
-        "p10": 97431.0,
-        "p25": 157718.0,
-        "p75": 330525.0,
-        "p90": 386951.4
+        "stdev": 125261.82,
+        "p10": 88294.4,
+        "p25": 133227.5,
+        "p75": 324248.5,
+        "p90": 376496.8
       },
       "total_cost_usd_reported": {
-        "n": 39,
-        "mean": 1.04,
-        "median": 0.98,
+        "n": 43,
+        "mean": 0.99,
+        "median": 0.92,
         "min": 0.2816716,
         "max": 2.113899,
-        "stdev": 0.47,
-        "p10": 0.41,
-        "p25": 0.68,
-        "p75": 1.37,
-        "p90": 1.57
+        "stdev": 0.48,
+        "p10": 0.44,
+        "p25": 0.58,
+        "p75": 1.35,
+        "p90": 1.54
       },
       "tool_calls": {
-        "n": 39,
-        "mean": 14.33,
-        "median": 13,
-        "min": 5,
+        "n": 43,
+        "mean": 13.72,
+        "median": 12,
+        "min": 3,
         "max": 32,
-        "stdev": 6.35,
+        "stdev": 6.42,
         "p10": 7.0,
-        "p25": 10.0,
-        "p75": 19.0,
-        "p90": 22.6
+        "p25": 9.0,
+        "p75": 18.0,
+        "p90": 22.0
       },
       "duration_seconds": {
-        "n": 39,
-        "mean": 241.63,
-        "median": 230.1,
-        "min": 35.0,
+        "n": 43,
+        "mean": 224.62,
+        "median": 205.1,
+        "min": 15.0,
         "max": 530.2,
-        "stdev": 132.96,
-        "p10": 64.0,
-        "p25": 137.6,
-        "p75": 355.1,
-        "p90": 391.18
+        "stdev": 137.69,
+        "p10": 56.0,
+        "p25": 92.5,
+        "p75": 345.1,
+        "p90": 389.18
       },
       "quality_score": {
-        "n": 39,
-        "mean": 98.89,
+        "n": 43,
+        "mean": 98.78,
         "median": 100.0,
         "min": 87.0,
         "max": 100.0,
-        "stdev": 2.72,
-        "p10": 96.99,
-        "p25": 100.0,
+        "stdev": 2.71,
+        "p10": 96.72,
+        "p25": 98.75,
         "p75": 100.0,
         "p90": 100.0
       },
-      "completion_rate": 0.872,
-      "runs": 39
+      "completion_rate": 0.884,
+      "runs": 43
     },
     "token-forge": {
       "total_tokens": {
-        "n": 36,
-        "mean": 338522.08,
-        "median": 300613.0,
+        "n": 40,
+        "mean": 319429.1,
+        "median": 268473.0,
         "min": 62243,
         "max": 1616842,
-        "stdev": 271685.7,
-        "p10": 112856.5,
-        "p25": 189896.25,
-        "p75": 383089.0,
-        "p90": 586627.0
+        "stdev": 263930.66,
+        "p10": 114495.3,
+        "p25": 153182.75,
+        "p75": 366441.75,
+        "p90": 572776.6
       },
       "input_tokens": {
-        "n": 36,
-        "mean": 314631.83,
-        "median": 262248.0,
+        "n": 40,
+        "mean": 297491.53,
+        "median": 240604.0,
         "min": 55503,
         "max": 1582356,
-        "stdev": 266571.43,
-        "p10": 107848.5,
-        "p25": 169961.25,
-        "p75": 346258.25,
-        "p90": 556183.5
+        "stdev": 257938.15,
+        "p10": 108490.5,
+        "p25": 140137.25,
+        "p75": 340593.0,
+        "p90": 529662.3
       },
       "output_tokens": {
-        "n": 36,
-        "mean": 23890.25,
-        "median": 21970.5,
-        "min": 1711,
+        "n": 40,
+        "mean": 21937.58,
+        "median": 17437.0,
+        "min": 903,
         "max": 46282,
-        "stdev": 13509.87,
-        "p10": 6399.5,
-        "p25": 14225.75,
-        "p75": 34788.0,
-        "p90": 41760.0
+        "stdev": 14149.94,
+        "p10": 3728.8,
+        "p25": 10980.25,
+        "p75": 34393.0,
+        "p90": 41298.4
       },
       "cached_input_tokens": {
-        "n": 36,
-        "mean": 274929.97,
-        "median": 216012.0,
+        "n": 40,
+        "mean": 257321.5,
+        "median": 205303.5,
         "min": 42357,
         "max": 1495129,
-        "stdev": 252143.07,
-        "p10": 83110.5,
-        "p25": 141044.25,
-        "p75": 306140.75,
-        "p90": 493916.0
+        "stdev": 244922.25,
+        "p10": 83508.3,
+        "p25": 115169.0,
+        "p75": 302055.75,
+        "p90": 468717.6
       },
       "uncached_input_tokens": {
-        "n": 36,
-        "mean": 39701.86,
+        "n": 40,
+        "mean": 40170.03,
         "median": 38541.0,
         "min": 13146,
         "max": 87227,
-        "stdev": 17233.83,
-        "p10": 20943.0,
-        "p25": 25680.25,
-        "p75": 50392.75,
-        "p90": 57585.5
+        "stdev": 16636.95,
+        "p10": 21989.4,
+        "p25": 26562.0,
+        "p75": 50647.25,
+        "p90": 55162.7
       },
       "input_equivalent_tokens": {
-        "n": 36,
-        "mean": 196567.17,
-        "median": 194914.5,
+        "n": 40,
+        "mean": 185628.33,
+        "median": 162173.0,
         "min": 33621,
         "max": 430964,
-        "stdev": 97914.81,
-        "p10": 74262.0,
-        "p25": 121677.75,
-        "p75": 268259.5,
-        "p90": 316784.0
+        "stdev": 98561.27,
+        "p10": 77526.2,
+        "p25": 110000.75,
+        "p75": 256087.5,
+        "p90": 315168.0
       },
       "total_cost_usd_reported": {
-        "n": 36,
-        "mean": 0.85,
-        "median": 0.83,
+        "n": 40,
+        "mean": 0.81,
+        "median": 0.73,
         "min": 0.1610248,
         "max": 1.6863538,
         "stdev": 0.4,
-        "p10": 0.35,
-        "p25": 0.54,
-        "p75": 1.16,
+        "p10": 0.39,
+        "p25": 0.49,
+        "p75": 1.12,
         "p90": 1.37
       },
       "tool_calls": {
-        "n": 36,
-        "mean": 7.92,
-        "median": 7.0,
+        "n": 40,
+        "mean": 7.55,
+        "median": 6.0,
         "min": 3,
         "max": 25,
-        "stdev": 4.07,
-        "p10": 4.5,
-        "p25": 6.0,
-        "p75": 9.25,
-        "p90": 12.0
+        "stdev": 4.03,
+        "p10": 3.9,
+        "p25": 5.0,
+        "p75": 9.0,
+        "p90": 11.2
       },
       "duration_seconds": {
-        "n": 36,
-        "mean": 221.17,
-        "median": 222.55,
-        "min": 25.0,
+        "n": 40,
+        "mean": 203.55,
+        "median": 177.5,
+        "min": 15.0,
         "max": 495.1,
-        "stdev": 126.98,
-        "p10": 60.0,
-        "p25": 120.0,
-        "p75": 312.6,
+        "stdev": 132.01,
+        "p10": 44.5,
+        "p25": 95.0,
+        "p75": 310.1,
         "p90": 380.1
       },
       "quality_score": {
-        "n": 36,
-        "mean": 99.59,
+        "n": 40,
+        "mean": 99.52,
         "median": 100.0,
         "min": 94.0,
         "max": 100.0,
-        "stdev": 1.27,
-        "p10": 98.53,
+        "stdev": 1.37,
+        "p10": 97.07,
         "p25": 100.0,
         "p75": 100.0,
         "p90": 100.0
       },
-      "completion_rate": 0.944,
-      "runs": 36
+      "completion_rate": 0.95,
+      "runs": 40
     }
   },
   "per_category": {
+    "academic": {
+      "tasks": [
+        "paper-proofread",
+        "pdf-paper-qa"
+      ],
+      "median_token_savings_percent": 41.915,
+      "median_quality_diff": 1.2199999999999989,
+      "verdict": "better (all tasks cheaper by >5%)"
+    },
     "architecture": {
       "tasks": [
         "architecture"
@@ -5839,6 +5990,186 @@
       }
     },
     {
+      "task": "paper-proofread",
+      "category": "academic",
+      "runs": {
+        "native": 2,
+        "token-forge": 2
+      },
+      "native": {
+        "total_tokens": 238636.0,
+        "input_tokens": 229940.5,
+        "output_tokens": 8695.5,
+        "cached_input_tokens": 193495.5,
+        "uncached_input_tokens": 36445.0,
+        "input_equivalent_tokens": 108380.0,
+        "total_cost_usd_reported": 0.5041171,
+        "tool_calls": 8.0,
+        "duration_seconds": 82.5,
+        "quality_score": 95.325,
+        "files_read": 0.0,
+        "lines_read": 914.0,
+        "bytes_read": 49963.0,
+        "first_request_context_tokens": 16698.0,
+        "api_requests": 6.5,
+        "redundant_reads": 0.5,
+        "tool_result_bytes": 51145.0,
+        "files_read_incl_bash": 9.0,
+        "context_precision_approx": 0.9,
+        "subagent_calls": 0.0,
+        "completion_rate": 1.0,
+        "statuses": [
+          "completed",
+          "completed"
+        ],
+        "tests_passed": [
+          null,
+          null
+        ],
+        "tokens_per_quality_point": 2503.4,
+        "quality_per_million_tokens": 399.46,
+        "nested_session_tokens": 0.0
+      },
+      "token-forge": {
+        "total_tokens": 157073.5,
+        "input_tokens": 149274.5,
+        "output_tokens": 7799.0,
+        "cached_input_tokens": 113833.0,
+        "uncached_input_tokens": 35441.5,
+        "input_equivalent_tokens": 94677.0,
+        "total_cost_usd_reported": 0.46222660000000004,
+        "tool_calls": 5.5,
+        "duration_seconds": 75.0,
+        "quality_score": 97.765,
+        "files_read": 0.0,
+        "lines_read": 926.5,
+        "bytes_read": 52891.5,
+        "first_request_context_tokens": 9990.0,
+        "api_requests": 6.5,
+        "redundant_reads": 0.0,
+        "tool_result_bytes": 54292.0,
+        "files_read_incl_bash": 1.5,
+        "context_precision_approx": 0.25,
+        "subagent_calls": 0.0,
+        "completion_rate": 1.0,
+        "statuses": [
+          "completed",
+          "completed"
+        ],
+        "tests_passed": [
+          null,
+          null
+        ],
+        "tokens_per_quality_point": 1606.6,
+        "quality_per_million_tokens": 622.42,
+        "nested_session_tokens": 0.0
+      },
+      "diff": {
+        "total_tokens_abs": 81562.5,
+        "token_savings_percent": 34.18,
+        "input_savings_percent": 35.08,
+        "output_savings_percent": 10.31,
+        "uncached_input_savings_percent": 2.75,
+        "input_equivalent_savings_percent": 12.64,
+        "cost_savings_percent": 8.31,
+        "quality_diff": 2.4399999999999977,
+        "tool_call_diff_percent": 31.25,
+        "files_read_diff_percent": 83.33,
+        "lines_read_diff_percent": -1.37,
+        "first_request_overhead_tokens": -6708.0
+      }
+    },
+    {
+      "task": "pdf-paper-qa",
+      "category": "academic",
+      "runs": {
+        "native": 2,
+        "token-forge": 2
+      },
+      "native": {
+        "total_tokens": 274318.0,
+        "input_tokens": 271045.5,
+        "output_tokens": 3272.5,
+        "cached_input_tokens": 223535.0,
+        "uncached_input_tokens": 47510.5,
+        "input_equivalent_tokens": 98100.5,
+        "total_cost_usd_reported": 0.490177,
+        "tool_calls": 7.5,
+        "duration_seconds": 35.0,
+        "quality_score": 100.0,
+        "files_read": 1.0,
+        "lines_read": 118.0,
+        "bytes_read": 17637.5,
+        "first_request_context_tokens": 16468.0,
+        "api_requests": 8.0,
+        "redundant_reads": 0.5,
+        "tool_result_bytes": 34364.5,
+        "files_read_incl_bash": 2.0,
+        "context_precision_approx": 1.0,
+        "subagent_calls": 0.0,
+        "completion_rate": 1.0,
+        "statuses": [
+          "completed",
+          "completed"
+        ],
+        "tests_passed": [
+          null,
+          null
+        ],
+        "tokens_per_quality_point": 2743.2,
+        "quality_per_million_tokens": 364.54,
+        "nested_session_tokens": 0.0
+      },
+      "token-forge": {
+        "total_tokens": 138111.0,
+        "input_tokens": 137183.0,
+        "output_tokens": 928.0,
+        "cached_input_tokens": 83857.5,
+        "uncached_input_tokens": 53325.5,
+        "input_equivalent_tokens": 79680.5,
+        "total_cost_usd_reported": 0.4619035,
+        "tool_calls": 3.0,
+        "duration_seconds": 15.0,
+        "quality_score": 100.0,
+        "files_read": 1.0,
+        "lines_read": 18.0,
+        "bytes_read": 1391.0,
+        "first_request_context_tokens": 9757.0,
+        "api_requests": 4.0,
+        "redundant_reads": 0.0,
+        "tool_result_bytes": 1403.0,
+        "files_read_incl_bash": 2.0,
+        "context_precision_approx": 1.0,
+        "subagent_calls": 0.0,
+        "completion_rate": 1.0,
+        "statuses": [
+          "completed",
+          "completed"
+        ],
+        "tests_passed": [
+          null,
+          null
+        ],
+        "tokens_per_quality_point": 1381.1,
+        "quality_per_million_tokens": 724.06,
+        "nested_session_tokens": 0.0
+      },
+      "diff": {
+        "total_tokens_abs": 136207.0,
+        "token_savings_percent": 49.65,
+        "input_savings_percent": 49.39,
+        "output_savings_percent": 71.64,
+        "uncached_input_savings_percent": -12.24,
+        "input_equivalent_savings_percent": 18.78,
+        "cost_savings_percent": 5.77,
+        "quality_diff": 0.0,
+        "tool_call_diff_percent": 60.0,
+        "files_read_diff_percent": 0.0,
+        "lines_read_diff_percent": 84.75,
+        "first_request_overhead_tokens": -6711.0
+      }
+    },
+    {
       "task": "perl-cli",
       "category": "greenfield",
       "runs": {
@@ -6967,7 +7298,7 @@
     "prompt_hash_mismatch": [],
     "missing_evaluation": [],
     "api_models": {
-      "claude-opus-5-5": 75
+      "claude-opus-5-5": 83
     },
     "runs_with_other_models": []
   },
@@ -31567,6 +31898,2192 @@
             "get_missing_key": true
           },
           "hidden_failures": []
+        }
+      }
+    },
+    {
+      "run_id": "paper-proofread-native-r1",
+      "task": "paper-proofread",
+      "category": "academic",
+      "agent": "native",
+      "repetition": 1,
+      "model": "claude-opus-5-5",
+      "claude_code_version": "2.1.293",
+      "benchmark_version": "1.0.0",
+      "token_forge_version": null,
+      "token_forge_plugin_sha256": null,
+      "repository_commit": "934d4acad1a5b2e30a1be0a1b5f2e9bcd50c26f5",
+      "prompt_hash": "e658a11ffc83b1136284f01d8b41c2bc6fc43c75fe4d2953dcd60a7e8339dd4c",
+      "session_id": "90e8c679-5f31-46d5-92af-33d429a5132b",
+      "sandbox": "/var/tmp/cc-sandbox/694636f4",
+      "max_tokens": 6000000,
+      "max_budget_usd": 8.0,
+      "timeout_s": 1500,
+      "variant": null,
+      "tf_env": null,
+      "history": null,
+      "status": "completed",
+      "isolation_problems": [],
+      "leftover_processes_killed": [],
+      "builtin_plugins": [
+        "cc-plugin-agents-md",
+        "cc-plugin-telemetry",
+        "cc-plugin-plugin-authoring"
+      ],
+      "start_time": "2026-10-08T14:25:12.565737+00:00",
+      "end_time": "2026-10-08T14:26:42.603095+00:00",
+      "duration_seconds": 90.0,
+      "num_turns": 10,
+      "total_cost_usd_reported": 0.54377,
+      "input_tokens": 258230,
+      "output_tokens": 9516,
+      "total_tokens": 267746,
+      "cached_input_tokens": 219530,
+      "uncached_input_tokens": 38700,
+      "cache_creation_input_tokens": 38686,
+      "input_equivalent_tokens": 117904,
+      "api_requests": 7,
+      "first_request_context_tokens": 16695,
+      "result_event_usage": {
+        "input_tokens": 14,
+        "cache_creation_input_tokens": 38686,
+        "cache_read_input_tokens": 219530,
+        "output_tokens": 9516,
+        "output_tokens_details": {
+          "thinking_tokens": 5153
+        },
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 0
+        },
+        "service_tier": "standard",
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 38686,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "inference_geo": "not_available",
+        "iterations": [
+          {
+            "input_tokens": 2,
+            "output_tokens": 1121,
+            "cache_read_input_tokens": 46546,
+            "cache_creation_input_tokens": 2500,
+            "cache_creation": {
+              "ephemeral_5m_input_tokens": 0,
+              "ephemeral_1h_input_tokens": 2500
+            },
+            "type": "message"
+          }
+        ],
+        "speed": "standard",
+        "fallback_credit": null
+      },
+      "result_event_model_usage": {
+        "claude-opus-5-5": {
+          "inputTokens": 14,
+          "outputTokens": 9516,
+          "cacheReadInputTokens": 219530,
+          "cacheCreationInputTokens": 38686,
+          "webSearchRequests": 0,
+          "costUSD": 0.54377,
+          "contextWindow": 1000000,
+          "maxOutputTokens": 128000,
+          "thinkingTokens": 5153,
+          "canonicalModel": "claude-opus-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      },
+      "tool_calls": 9,
+      "files_read": 0,
+      "lines_read": 942,
+      "bytes_read": 52196,
+      "tests_passed": null,
+      "build_passed": null,
+      "lint_passed": null,
+      "format_passed": null,
+      "typecheck_passed": null,
+      "hidden_tests_passed": null,
+      "hidden_tests_total": null,
+      "task_status": "completed",
+      "task_completed": true,
+      "quality_score": 95.12,
+      "final_head": "934d4acad1a5b2e30a1be0a1b5f2e9bcd50c26f5",
+      "tools": {
+        "total_tool_calls": 9,
+        "by_name": {
+          "Bash": 7,
+          "Read": 2
+        },
+        "file_reads": 2,
+        "searches": 0,
+        "bash_search_commands": 2,
+        "bash_view_commands": 4,
+        "shell_commands": 7,
+        "edits": 0,
+        "writes": 0,
+        "subagent_calls": 0,
+        "skill_calls": 0,
+        "other_tool_calls": 0,
+        "tokenforge_cli_commands": 0,
+        "files_read": 0,
+        "files_read_incl_bash_heuristic": 10,
+        "lines_read": 942,
+        "bytes_read": 52196,
+        "tool_result_bytes": 53014,
+        "redundant_reads": 0,
+        "relevant_files_read": 8,
+        "irrelevant_files_read": 2,
+        "context_precision_approx": 0.8,
+        "files_read_list": [
+          "README.md",
+          "figures/sim_bias.pdf",
+          "main.tex",
+          "refs.bib",
+          "sections/appendix.tex",
+          "sections/application.tex",
+          "sections/discussion.tex",
+          "sections/introduction.tex",
+          "sections/methods.tex",
+          "sections/simulation.tex"
+        ]
+      },
+      "tokens_exact": {
+        "all": {
+          "requests": 7,
+          "input_tokens_total": 258230,
+          "uncached_input_tokens": 38700,
+          "input_tokens_no_cache": 14,
+          "cache_creation_input_tokens": 38686,
+          "cached_input_tokens": 219530,
+          "output_tokens": 9516,
+          "total_tokens": 267746,
+          "thinking_tokens": 5153,
+          "input_equivalent_tokens": 117904
+        },
+        "main": {
+          "requests": 7,
+          "input_tokens_total": 258230,
+          "uncached_input_tokens": 38700,
+          "input_tokens_no_cache": 14,
+          "cache_creation_input_tokens": 38686,
+          "cached_input_tokens": 219530,
+          "output_tokens": 9516,
+          "total_tokens": 267746,
+          "thinking_tokens": 5153,
+          "input_equivalent_tokens": 117904
+        },
+        "subagents": {
+          "requests": 0,
+          "input_tokens_total": 0,
+          "uncached_input_tokens": 0,
+          "input_tokens_no_cache": 0,
+          "cache_creation_input_tokens": 0,
+          "cached_input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "thinking_tokens": 0,
+          "input_equivalent_tokens": 0
+        },
+        "nested_sessions": {
+          "requests": 0,
+          "input_tokens_total": 0,
+          "uncached_input_tokens": 0,
+          "input_tokens_no_cache": 0,
+          "cache_creation_input_tokens": 0,
+          "cached_input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "thinking_tokens": 0,
+          "input_equivalent_tokens": 0
+        },
+        "by_model": {
+          "claude-opus-5-5": {
+            "requests": 7,
+            "input_tokens_total": 258230,
+            "uncached_input_tokens": 38700,
+            "input_tokens_no_cache": 14,
+            "cache_creation_input_tokens": 38686,
+            "cached_input_tokens": 219530,
+            "output_tokens": 9516,
+            "total_tokens": 267746,
+            "thinking_tokens": 5153,
+            "input_equivalent_tokens": 117904
+          }
+        },
+        "first_request_context_tokens": 16695
+      },
+      "estimated": {
+        "tool_result_tokens_est": 13254,
+        "hook_injected_context_tokens_est": 0,
+        "skill_listing_tokens_est": 1655,
+        "method": "UTF-8 bytes / 4; NOT exact"
+      },
+      "hooks": {
+        "count": 0,
+        "by_event": {},
+        "injected_context_chars": 0,
+        "tool_rewrites": 0,
+        "tool_denials": 0
+      },
+      "eval": {
+        "task": "paper-proofread",
+        "checks": {
+          "build_passed": null,
+          "tests_passed": null,
+          "lint_passed": null,
+          "format_passed": null,
+          "typecheck_passed": null
+        },
+        "rubric": "review",
+        "components": {
+          "recall": 80.53,
+          "precision": 14.59
+        },
+        "quality_score": 95.12,
+        "status": "completed",
+        "matched": {
+          "abstract-cv-reduction": "Abstract reports an 18% reduction of the median CV, but the median CV fell from 0.26 to 0.19 (Table 3), a 27% reduction ",
+          "abstract-all-scenarios": "Abstract says SAFH reduced average RMSE relative to FH 'in all twelve scenarios', but Table 1 and Section 3.2 show SAFH ",
+          "sim-coverage-average": "Average coverage is given as 94.1%, which contradicts both Table 1 (average 95.1%) and the same sentence's 'no scenario ",
+          "app-cv-count": "Text says the number of districts with CV > 0.3 fell from 61 to 17, but Table 3 reports 23 under SAFH. Should be 'from 6",
+          "boot-pred-weights-swapped": "Bootstrap predictor (eq:boot-pred) has the weights swapped: (1 - w*) y* + w* mu*. To be consistent with eq. (safh-pred),",
+          "weight-limit-claim": "With w_i = sigma_u^2/(sigma_u^2 + psi_i), a large psi_i (small sample) makes w_i close to zero, not one, so the predicto",
+          "wrong-figure-ref": "Relative bias by remoteness decile is shown in Figure~\\ref{fig:bias} (sim_bias.pdf), not Figure~\\ref{fig:coverage}. Shou",
+          "missing-citation": "\\citet{marchetti2023robust} has no entry in refs.bib, so the citation is undefined (shows as '?'). Add the bibliography ",
+          "district-count-241": "Table 3 caption gives m = 241 districts, but the text (Sections 4.1 and 4.2) and the appendix use 214 districts. Should ",
+          "distance-unit": "Mean household distance to the nearest health facility is given as 2.1 to 38.5 m (metres), which is implausible. Should ",
+          "duplicated-paragraph": "The 'Several limitations should be noted...' paragraph (lines 37-48) is a verbatim duplicate of the preceding paragraph ",
+          "casual-causal": "'should not be given a casual interpretation' should be 'causal interpretation'. The paragraph is about not interpreting",
+          "lrt-reject-p041": "The LRT p-value of 0.41 does not support 'we reject the null hypothesis of a linear remoteness effect', which also contr",
+          "width-increases": "Says the average SAFH interval width 'increases' from 0.214 (n_i < 20) to 0.081 (n_i >= 100), but the width decreases as",
+          "z-quantile": "Approximate 95% intervals use the multiplier 1.645, which gives 90% intervals. Should be 1.96 (the simulation reports co",
+          "survey-year": "NPHNS is said to have been conducted in 2019, but the abstract, Section 4.1 (March-August 2021), Table 3 and Figure 3 ca",
+          "asymptotic-m-to-zero": "Asymptotic statement says 'as the number of districts m -> 0'; consistency and the O_p(m^{-1/2}) rate require m -> infin",
+          "naive-mse-does-not-account": "'This naive estimator does account for the uncertainty in sigma_u^2 and sigma_gamma^2, and it is therefore biased downwa"
+        },
+        "missed": [
+          "covariate-count"
+        ],
+        "false_positives": [
+          "sections/introduction.tex:44 ugarte2009spline is described as using splines 'for disease mapping', but the cited paper (refs.bib)"
+        ],
+        "true_positives": 18,
+        "reported": 19,
+        "flooded": false,
+        "details": {
+          "review_valid": true,
+          "problem": null,
+          "findings_reported": 19,
+          "missing_keys": [],
+          "changed_files": [
+            "review.json"
+          ],
+          "unrelated_changes": []
+        }
+      }
+    },
+    {
+      "run_id": "paper-proofread-native-r2",
+      "task": "paper-proofread",
+      "category": "academic",
+      "agent": "native",
+      "repetition": 2,
+      "model": "claude-opus-5-5",
+      "claude_code_version": "2.1.293",
+      "benchmark_version": "1.0.0",
+      "token_forge_version": null,
+      "token_forge_plugin_sha256": null,
+      "repository_commit": "934d4acad1a5b2e30a1be0a1b5f2e9bcd50c26f5",
+      "prompt_hash": "e658a11ffc83b1136284f01d8b41c2bc6fc43c75fe4d2953dcd60a7e8339dd4c",
+      "session_id": "8e912424-c5d1-4fea-97e6-6c76160590a5",
+      "sandbox": "/var/tmp/cc-sandbox/44ceebcf",
+      "max_tokens": 6000000,
+      "max_budget_usd": 8.0,
+      "timeout_s": 1500,
+      "variant": null,
+      "tf_env": null,
+      "history": null,
+      "status": "completed",
+      "isolation_problems": [],
+      "leftover_processes_killed": [],
+      "builtin_plugins": [
+        "cc-plugin-agents-md",
+        "cc-plugin-telemetry",
+        "cc-plugin-plugin-authoring"
+      ],
+      "start_time": "2026-10-08T14:23:57.433442+00:00",
+      "end_time": "2026-10-08T14:25:12.463786+00:00",
+      "duration_seconds": 75.0,
+      "num_turns": 8,
+      "total_cost_usd_reported": 0.4644641999999999,
+      "input_tokens": 201651,
+      "output_tokens": 7875,
+      "total_tokens": 209526,
+      "cached_input_tokens": 167461,
+      "uncached_input_tokens": 34190,
+      "cache_creation_input_tokens": 34178,
+      "input_equivalent_tokens": 98856,
+      "api_requests": 6,
+      "first_request_context_tokens": 16701,
+      "result_event_usage": {
+        "input_tokens": 12,
+        "cache_creation_input_tokens": 34178,
+        "cache_read_input_tokens": 167461,
+        "output_tokens": 7875,
+        "output_tokens_details": {
+          "thinking_tokens": 4026
+        },
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 0
+        },
+        "service_tier": "standard",
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 34178,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "inference_geo": "not_available",
+        "iterations": [
+          {
+            "input_tokens": 2,
+            "output_tokens": 1122,
+            "cache_read_input_tokens": 42692,
+            "cache_creation_input_tokens": 1846,
+            "cache_creation": {
+              "ephemeral_5m_input_tokens": 0,
+              "ephemeral_1h_input_tokens": 1846
+            },
+            "type": "message"
+          }
+        ],
+        "speed": "standard",
+        "fallback_credit": null
+      },
+      "result_event_model_usage": {
+        "claude-opus-5-5": {
+          "inputTokens": 12,
+          "outputTokens": 7875,
+          "cacheReadInputTokens": 167461,
+          "cacheCreationInputTokens": 34178,
+          "webSearchRequests": 0,
+          "costUSD": 0.4644641999999999,
+          "contextWindow": 1000000,
+          "maxOutputTokens": 128000,
+          "thinkingTokens": 4026,
+          "canonicalModel": "claude-opus-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      },
+      "tool_calls": 7,
+      "files_read": 0,
+      "lines_read": 886,
+      "bytes_read": 47730,
+      "tests_passed": null,
+      "build_passed": null,
+      "lint_passed": null,
+      "format_passed": null,
+      "typecheck_passed": null,
+      "hidden_tests_passed": null,
+      "hidden_tests_total": null,
+      "task_status": "completed",
+      "task_completed": true,
+      "quality_score": 95.53,
+      "final_head": "934d4acad1a5b2e30a1be0a1b5f2e9bcd50c26f5",
+      "tools": {
+        "total_tool_calls": 7,
+        "by_name": {
+          "Bash": 7
+        },
+        "file_reads": 0,
+        "searches": 0,
+        "bash_search_commands": 2,
+        "bash_view_commands": 5,
+        "shell_commands": 7,
+        "edits": 0,
+        "writes": 0,
+        "subagent_calls": 0,
+        "skill_calls": 0,
+        "other_tool_calls": 0,
+        "tokenforge_cli_commands": 0,
+        "files_read": 0,
+        "files_read_incl_bash_heuristic": 8,
+        "lines_read": 886,
+        "bytes_read": 47730,
+        "tool_result_bytes": 49276,
+        "redundant_reads": 1,
+        "relevant_files_read": 8,
+        "irrelevant_files_read": 0,
+        "context_precision_approx": 1.0,
+        "files_read_list": [
+          "main.tex",
+          "refs.bib",
+          "sections/appendix.tex",
+          "sections/application.tex",
+          "sections/discussion.tex",
+          "sections/introduction.tex",
+          "sections/methods.tex",
+          "sections/simulation.tex"
+        ]
+      },
+      "tokens_exact": {
+        "all": {
+          "requests": 6,
+          "input_tokens_total": 201651,
+          "uncached_input_tokens": 34190,
+          "input_tokens_no_cache": 12,
+          "cache_creation_input_tokens": 34178,
+          "cached_input_tokens": 167461,
+          "output_tokens": 7875,
+          "total_tokens": 209526,
+          "thinking_tokens": 4026,
+          "input_equivalent_tokens": 98856
+        },
+        "main": {
+          "requests": 6,
+          "input_tokens_total": 201651,
+          "uncached_input_tokens": 34190,
+          "input_tokens_no_cache": 12,
+          "cache_creation_input_tokens": 34178,
+          "cached_input_tokens": 167461,
+          "output_tokens": 7875,
+          "total_tokens": 209526,
+          "thinking_tokens": 4026,
+          "input_equivalent_tokens": 98856
+        },
+        "subagents": {
+          "requests": 0,
+          "input_tokens_total": 0,
+          "uncached_input_tokens": 0,
+          "input_tokens_no_cache": 0,
+          "cache_creation_input_tokens": 0,
+          "cached_input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "thinking_tokens": 0,
+          "input_equivalent_tokens": 0
+        },
+        "nested_sessions": {
+          "requests": 0,
+          "input_tokens_total": 0,
+          "uncached_input_tokens": 0,
+          "input_tokens_no_cache": 0,
+          "cache_creation_input_tokens": 0,
+          "cached_input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "thinking_tokens": 0,
+          "input_equivalent_tokens": 0
+        },
+        "by_model": {
+          "claude-opus-5-5": {
+            "requests": 6,
+            "input_tokens_total": 201651,
+            "uncached_input_tokens": 34190,
+            "input_tokens_no_cache": 12,
+            "cache_creation_input_tokens": 34178,
+            "cached_input_tokens": 167461,
+            "output_tokens": 7875,
+            "total_tokens": 209526,
+            "thinking_tokens": 4026,
+            "input_equivalent_tokens": 98856
+          }
+        },
+        "first_request_context_tokens": 16701
+      },
+      "estimated": {
+        "tool_result_tokens_est": 12319,
+        "hook_injected_context_tokens_est": 0,
+        "skill_listing_tokens_est": 1655,
+        "method": "UTF-8 bytes / 4; NOT exact"
+      },
+      "hooks": {
+        "count": 0,
+        "by_event": {},
+        "injected_context_chars": 0,
+        "tool_rewrites": 0,
+        "tool_denials": 0
+      },
+      "eval": {
+        "task": "paper-proofread",
+        "checks": {
+          "build_passed": null,
+          "tests_passed": null,
+          "lint_passed": null,
+          "format_passed": null,
+          "typecheck_passed": null
+        },
+        "rubric": "review",
+        "components": {
+          "recall": 80.53,
+          "precision": 15.0
+        },
+        "quality_score": 95.53,
+        "status": "completed",
+        "matched": {
+          "abstract-cv-reduction": "Abstract reports an 18% reduction in median CV, but Table 3 and Section 4.3 give 0.26 -> 0.19, a reduction of 27%.",
+          "abstract-all-scenarios": "Abstract says SAFH reduced RMSE relative to FH in all twelve scenarios, but Section 3 and Table 1 show SAFH has larger R",
+          "sim-coverage-average": "Average coverage is stated as 94.1%, but Table 1 gives an average of 95.1% (and 94.1% would contradict 'no scenario belo",
+          "app-cv-count": "Number of districts with CV > 0.3 under SAFH is stated as 17, but Table 3 gives 23 (61 -> 23).",
+          "boot-pred-weights-swapped": "Bootstrap predictor swaps the weights: by Eq. (safh-pred) it should be hat w_i^* y_i^* + (1 - hat w_i^*) hat mu_i^*.",
+          "weight-limit-claim": "When psi_i is large, w_i = sigma_u^2/(sigma_u^2 + psi_i) is close to zero, not one, so the predictor relies almost entir",
+          "wrong-figure-ref": "Relative bias by remoteness decile is shown in Figure fig:bias (sim_bias.pdf), not Figure fig:coverage.",
+          "missing-citation": "Citation key marchetti2023robust does not exist in refs.bib (undefined citation); add the reference or correct the key.",
+          "district-count-241": "Table 3 caption says m = 241 districts, but the data comprise 214 districts (Sections 4.1, 4.2 and Appendix A).",
+          "distance-unit": "Distance from households to the nearest health facility of 2.1 to 38.5 m is implausible; units should be km.",
+          "duplicated-paragraph": "The 'Several limitations should be noted...' paragraph (lines 37\u201348) is a verbatim duplicate of lines 24\u201335; delete it.",
+          "casual-causal": "'casual interpretation' should be 'causal interpretation' (the paragraph is about not identifying the causal effect of t",
+          "lrt-reject-p041": "A p-value of 0.41 does not justify rejecting H0 of a linear remoteness effect; either the p-value is wrong (should be sm",
+          "width-increases": "Interval width goes from 0.214 to 0.081, i.e. it decreases with sample size, not 'increases'.",
+          "z-quantile": "Approximate 95% intervals use the multiplier 1.645 (90% level); should be 1.96.",
+          "survey-year": "NPHNS is said to be conducted in 2019, but the abstract, Section 4.1 (March\u2013August 2021) and table/figure captions say 2",
+          "asymptotic-m-to-zero": "Asymptotic statement should be as the number of districts m -> infinity, not m -> 0.",
+          "naive-mse-does-not-account": "'This naive estimator does account for the uncertainty' should be 'does not account'; otherwise the conclusion that it i"
+        },
+        "missed": [
+          "covariate-count"
+        ],
+        "false_positives": [],
+        "true_positives": 18,
+        "reported": 18,
+        "flooded": false,
+        "details": {
+          "review_valid": true,
+          "problem": null,
+          "findings_reported": 18,
+          "missing_keys": [],
+          "changed_files": [
+            "review.json"
+          ],
+          "unrelated_changes": []
+        }
+      }
+    },
+    {
+      "run_id": "pdf-paper-qa-native-r1",
+      "task": "pdf-paper-qa",
+      "category": "academic",
+      "agent": "native",
+      "repetition": 1,
+      "model": "claude-opus-5-5",
+      "claude_code_version": "2.1.293",
+      "benchmark_version": "1.0.0",
+      "token_forge_version": null,
+      "token_forge_plugin_sha256": null,
+      "repository_commit": "2f2e9cb00308d85205699ebc6ff6e9855ba085a3",
+      "prompt_hash": "3eb735bc6861e1dd74a3284062ef0787652ef23316a9d7e39ad4014256bbbc35",
+      "session_id": "6702d9e2-c15b-4bdf-b764-77d3ae8c99ce",
+      "sandbox": "/var/tmp/cc-sandbox/25ab908a",
+      "max_tokens": 6000000,
+      "max_budget_usd": 8.0,
+      "timeout_s": 1200,
+      "variant": null,
+      "tf_env": null,
+      "history": null,
+      "status": "completed",
+      "isolation_problems": [],
+      "leftover_processes_killed": [],
+      "builtin_plugins": [
+        "cc-plugin-agents-md",
+        "cc-plugin-telemetry",
+        "cc-plugin-plugin-authoring"
+      ],
+      "start_time": "2026-10-08T14:32:14.933561+00:00",
+      "end_time": "2026-10-08T14:33:09.961448+00:00",
+      "duration_seconds": 55.0,
+      "num_turns": 13,
+      "total_cost_usd_reported": 0.49403400000000003,
+      "input_tokens": 378149,
+      "output_tokens": 5380,
+      "total_tokens": 383529,
+      "cached_input_tokens": 338290,
+      "uncached_input_tokens": 39859,
+      "cache_creation_input_tokens": 39835,
+      "input_equivalent_tokens": 110547,
+      "api_requests": 12,
+      "first_request_context_tokens": 16468,
+      "result_event_usage": {
+        "input_tokens": 24,
+        "cache_creation_input_tokens": 39835,
+        "cache_read_input_tokens": 338290,
+        "output_tokens": 5380,
+        "output_tokens_details": {
+          "thinking_tokens": 639
+        },
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 0
+        },
+        "service_tier": "standard",
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 39835,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "inference_geo": "not_available",
+        "iterations": [
+          {
+            "input_tokens": 2,
+            "output_tokens": 370,
+            "cache_read_input_tokens": 49724,
+            "cache_creation_input_tokens": 471,
+            "cache_creation": {
+              "ephemeral_5m_input_tokens": 0,
+              "ephemeral_1h_input_tokens": 471
+            },
+            "type": "message"
+          }
+        ],
+        "speed": "standard",
+        "fallback_credit": null
+      },
+      "result_event_model_usage": {
+        "claude-opus-5-5": {
+          "inputTokens": 24,
+          "outputTokens": 5380,
+          "cacheReadInputTokens": 338290,
+          "cacheCreationInputTokens": 39835,
+          "webSearchRequests": 0,
+          "costUSD": 0.49403400000000003,
+          "contextWindow": 1000000,
+          "maxOutputTokens": 128000,
+          "thinkingTokens": 639,
+          "canonicalModel": "claude-opus-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      },
+      "tool_calls": 12,
+      "files_read": 1,
+      "lines_read": 219,
+      "bytes_read": 33910,
+      "tests_passed": null,
+      "build_passed": null,
+      "lint_passed": null,
+      "format_passed": null,
+      "typecheck_passed": null,
+      "hidden_tests_passed": null,
+      "hidden_tests_total": null,
+      "task_status": "completed",
+      "task_completed": true,
+      "quality_score": 100.0,
+      "final_head": "2f2e9cb00308d85205699ebc6ff6e9855ba085a3",
+      "tools": {
+        "total_tool_calls": 12,
+        "by_name": {
+          "Bash": 9,
+          "Read": 3
+        },
+        "file_reads": 3,
+        "searches": 0,
+        "bash_search_commands": 1,
+        "bash_view_commands": 2,
+        "shell_commands": 9,
+        "edits": 0,
+        "writes": 0,
+        "subagent_calls": 0,
+        "skill_calls": 0,
+        "other_tool_calls": 0,
+        "tokenforge_cli_commands": 0,
+        "files_read": 1,
+        "files_read_incl_bash_heuristic": 2,
+        "lines_read": 219,
+        "bytes_read": 33910,
+        "tool_result_bytes": 67223,
+        "redundant_reads": 1,
+        "relevant_files_read": 2,
+        "irrelevant_files_read": 0,
+        "context_precision_approx": 1.0,
+        "files_read_list": [
+          "QUESTIONS.md",
+          "paper.pdf"
+        ]
+      },
+      "tokens_exact": {
+        "all": {
+          "requests": 12,
+          "input_tokens_total": 378149,
+          "uncached_input_tokens": 39859,
+          "input_tokens_no_cache": 24,
+          "cache_creation_input_tokens": 39835,
+          "cached_input_tokens": 338290,
+          "output_tokens": 5380,
+          "total_tokens": 383529,
+          "thinking_tokens": 639,
+          "input_equivalent_tokens": 110547
+        },
+        "main": {
+          "requests": 12,
+          "input_tokens_total": 378149,
+          "uncached_input_tokens": 39859,
+          "input_tokens_no_cache": 24,
+          "cache_creation_input_tokens": 39835,
+          "cached_input_tokens": 338290,
+          "output_tokens": 5380,
+          "total_tokens": 383529,
+          "thinking_tokens": 639,
+          "input_equivalent_tokens": 110547
+        },
+        "subagents": {
+          "requests": 0,
+          "input_tokens_total": 0,
+          "uncached_input_tokens": 0,
+          "input_tokens_no_cache": 0,
+          "cache_creation_input_tokens": 0,
+          "cached_input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "thinking_tokens": 0,
+          "input_equivalent_tokens": 0
+        },
+        "nested_sessions": {
+          "requests": 0,
+          "input_tokens_total": 0,
+          "uncached_input_tokens": 0,
+          "input_tokens_no_cache": 0,
+          "cache_creation_input_tokens": 0,
+          "cached_input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "thinking_tokens": 0,
+          "input_equivalent_tokens": 0
+        },
+        "by_model": {
+          "claude-opus-5-5": {
+            "requests": 12,
+            "input_tokens_total": 378149,
+            "uncached_input_tokens": 39859,
+            "input_tokens_no_cache": 24,
+            "cache_creation_input_tokens": 39835,
+            "cached_input_tokens": 338290,
+            "output_tokens": 5380,
+            "total_tokens": 383529,
+            "thinking_tokens": 639,
+            "input_equivalent_tokens": 110547
+          }
+        },
+        "first_request_context_tokens": 16468
+      },
+      "estimated": {
+        "tool_result_tokens_est": 16806,
+        "hook_injected_context_tokens_est": 0,
+        "skill_listing_tokens_est": 1655,
+        "method": "UTF-8 bytes / 4; NOT exact"
+      },
+      "hooks": {
+        "count": 0,
+        "by_event": {},
+        "injected_context_chars": 0,
+        "tool_rewrites": 0,
+        "tool_denials": 0
+      },
+      "eval": {
+        "task": "pdf-paper-qa",
+        "checks": {
+          "build_passed": null,
+          "tests_passed": null,
+          "lint_passed": null,
+          "format_passed": null,
+          "typecheck_passed": null
+        },
+        "rubric": "qa",
+        "components": {
+          "answers": 100.0
+        },
+        "quality_score": 100.0,
+        "status": "completed",
+        "correct": 10,
+        "total": 10,
+        "per_question": {
+          "1": true,
+          "2": true,
+          "3": true,
+          "4": true,
+          "5": true,
+          "6": true,
+          "7": true,
+          "8": true,
+          "9": true,
+          "10": true
+        },
+        "wrong": [],
+        "details": {
+          "changed_files": [
+            "ANSWER.md"
+          ],
+          "unrelated_changes": [],
+          "answer_found": true,
+          "answers_parsed": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10
+          ]
+        }
+      }
+    },
+    {
+      "run_id": "pdf-paper-qa-native-r2",
+      "task": "pdf-paper-qa",
+      "category": "academic",
+      "agent": "native",
+      "repetition": 2,
+      "model": "claude-opus-5-5",
+      "claude_code_version": "2.1.293",
+      "benchmark_version": "1.0.0",
+      "token_forge_version": null,
+      "token_forge_plugin_sha256": null,
+      "repository_commit": "2f2e9cb00308d85205699ebc6ff6e9855ba085a3",
+      "prompt_hash": "3eb735bc6861e1dd74a3284062ef0787652ef23316a9d7e39ad4014256bbbc35",
+      "session_id": "0e1aeff6-f87a-4225-ba58-3cb79e5a4192",
+      "sandbox": "/var/tmp/cc-sandbox/22831ea5",
+      "max_tokens": 6000000,
+      "max_budget_usd": 8.0,
+      "timeout_s": 1200,
+      "variant": null,
+      "tf_env": null,
+      "history": null,
+      "status": "completed",
+      "isolation_problems": [],
+      "leftover_processes_killed": [],
+      "builtin_plugins": [
+        "cc-plugin-agents-md",
+        "cc-plugin-telemetry",
+        "cc-plugin-plugin-authoring"
+      ],
+      "start_time": "2026-10-08T14:33:00.053547+00:00",
+      "end_time": "2026-10-08T14:33:15.075514+00:00",
+      "duration_seconds": 15.0,
+      "num_turns": 4,
+      "total_cost_usd_reported": 0.48632,
+      "input_tokens": 163942,
+      "output_tokens": 1165,
+      "total_tokens": 165107,
+      "cached_input_tokens": 108780,
+      "uncached_input_tokens": 55162,
+      "cache_creation_input_tokens": 55154,
+      "input_equivalent_tokens": 85654,
+      "api_requests": 4,
+      "first_request_context_tokens": 16468,
+      "result_event_usage": {
+        "input_tokens": 8,
+        "cache_creation_input_tokens": 55154,
+        "cache_read_input_tokens": 108780,
+        "output_tokens": 1165,
+        "output_tokens_details": {
+          "thinking_tokens": 193
+        },
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 0
+        },
+        "service_tier": "standard",
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 55154,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "inference_geo": "not_available",
+        "iterations": [
+          {
+            "input_tokens": 2,
+            "output_tokens": 399,
+            "cache_read_input_tokens": 64845,
+            "cache_creation_input_tokens": 669,
+            "cache_creation": {
+              "ephemeral_5m_input_tokens": 0,
+              "ephemeral_1h_input_tokens": 669
+            },
+            "type": "message"
+          }
+        ],
+        "speed": "standard",
+        "fallback_credit": null
+      },
+      "result_event_model_usage": {
+        "claude-opus-5-5": {
+          "inputTokens": 8,
+          "outputTokens": 1165,
+          "cacheReadInputTokens": 108780,
+          "cacheCreationInputTokens": 55154,
+          "webSearchRequests": 0,
+          "costUSD": 0.48632,
+          "contextWindow": 1000000,
+          "maxOutputTokens": 128000,
+          "thinkingTokens": 193,
+          "canonicalModel": "claude-opus-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      },
+      "tool_calls": 3,
+      "files_read": 1,
+      "lines_read": 17,
+      "bytes_read": 1365,
+      "tests_passed": null,
+      "build_passed": null,
+      "lint_passed": null,
+      "format_passed": null,
+      "typecheck_passed": null,
+      "hidden_tests_passed": null,
+      "hidden_tests_total": null,
+      "task_status": "completed",
+      "task_completed": true,
+      "quality_score": 100.0,
+      "final_head": "2f2e9cb00308d85205699ebc6ff6e9855ba085a3",
+      "tools": {
+        "total_tool_calls": 3,
+        "by_name": {
+          "Bash": 1,
+          "Read": 1,
+          "Write": 1
+        },
+        "file_reads": 1,
+        "searches": 0,
+        "bash_search_commands": 0,
+        "bash_view_commands": 1,
+        "shell_commands": 1,
+        "edits": 0,
+        "writes": 1,
+        "subagent_calls": 0,
+        "skill_calls": 0,
+        "other_tool_calls": 0,
+        "tokenforge_cli_commands": 0,
+        "files_read": 1,
+        "files_read_incl_bash_heuristic": 2,
+        "lines_read": 17,
+        "bytes_read": 1365,
+        "tool_result_bytes": 1506,
+        "redundant_reads": 0,
+        "relevant_files_read": 2,
+        "irrelevant_files_read": 0,
+        "context_precision_approx": 1.0,
+        "files_read_list": [
+          "QUESTIONS.md",
+          "paper.pdf"
+        ]
+      },
+      "tokens_exact": {
+        "all": {
+          "requests": 4,
+          "input_tokens_total": 163942,
+          "uncached_input_tokens": 55162,
+          "input_tokens_no_cache": 8,
+          "cache_creation_input_tokens": 55154,
+          "cached_input_tokens": 108780,
+          "output_tokens": 1165,
+          "total_tokens": 165107,
+          "thinking_tokens": 193,
+          "input_equivalent_tokens": 85654
+        },
+        "main": {
+          "requests": 4,
+          "input_tokens_total": 163942,
+          "uncached_input_tokens": 55162,
+          "input_tokens_no_cache": 8,
+          "cache_creation_input_tokens": 55154,
+          "cached_input_tokens": 108780,
+          "output_tokens": 1165,
+          "total_tokens": 165107,
+          "thinking_tokens": 193,
+          "input_equivalent_tokens": 85654
+        },
+        "subagents": {
+          "requests": 0,
+          "input_tokens_total": 0,
+          "uncached_input_tokens": 0,
+          "input_tokens_no_cache": 0,
+          "cache_creation_input_tokens": 0,
+          "cached_input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "thinking_tokens": 0,
+          "input_equivalent_tokens": 0
+        },
+        "nested_sessions": {
+          "requests": 0,
+          "input_tokens_total": 0,
+          "uncached_input_tokens": 0,
+          "input_tokens_no_cache": 0,
+          "cache_creation_input_tokens": 0,
+          "cached_input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "thinking_tokens": 0,
+          "input_equivalent_tokens": 0
+        },
+        "by_model": {
+          "claude-opus-5-5": {
+            "requests": 4,
+            "input_tokens_total": 163942,
+            "uncached_input_tokens": 55162,
+            "input_tokens_no_cache": 8,
+            "cache_creation_input_tokens": 55154,
+            "cached_input_tokens": 108780,
+            "output_tokens": 1165,
+            "total_tokens": 165107,
+            "thinking_tokens": 193,
+            "input_equivalent_tokens": 85654
+          }
+        },
+        "first_request_context_tokens": 16468
+      },
+      "estimated": {
+        "tool_result_tokens_est": 376,
+        "hook_injected_context_tokens_est": 0,
+        "skill_listing_tokens_est": 1655,
+        "method": "UTF-8 bytes / 4; NOT exact"
+      },
+      "hooks": {
+        "count": 0,
+        "by_event": {},
+        "injected_context_chars": 0,
+        "tool_rewrites": 0,
+        "tool_denials": 0
+      },
+      "eval": {
+        "task": "pdf-paper-qa",
+        "checks": {
+          "build_passed": null,
+          "tests_passed": null,
+          "lint_passed": null,
+          "format_passed": null,
+          "typecheck_passed": null
+        },
+        "rubric": "qa",
+        "components": {
+          "answers": 100.0
+        },
+        "quality_score": 100.0,
+        "status": "completed",
+        "correct": 10,
+        "total": 10,
+        "per_question": {
+          "1": true,
+          "2": true,
+          "3": true,
+          "4": true,
+          "5": true,
+          "6": true,
+          "7": true,
+          "8": true,
+          "9": true,
+          "10": true
+        },
+        "wrong": [],
+        "details": {
+          "changed_files": [
+            "ANSWER.md"
+          ],
+          "unrelated_changes": [],
+          "answer_found": true,
+          "answers_parsed": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10
+          ]
+        }
+      }
+    },
+    {
+      "run_id": "pdf-paper-qa-token-forge-r1",
+      "task": "pdf-paper-qa",
+      "category": "academic",
+      "agent": "token-forge",
+      "repetition": 1,
+      "model": "claude-opus-5-5",
+      "claude_code_version": "2.1.293",
+      "benchmark_version": "1.0.0",
+      "token_forge_version": "0.8.0",
+      "token_forge_plugin_sha256": "31952bff7273f37197e21f0d72618573d6e19e6055fc8299c45655db37972f98",
+      "repository_commit": "2f2e9cb00308d85205699ebc6ff6e9855ba085a3",
+      "prompt_hash": "3eb735bc6861e1dd74a3284062ef0787652ef23316a9d7e39ad4014256bbbc35",
+      "session_id": "e799a740-aaa9-4390-a132-ee59ad3a82d9",
+      "sandbox": "/var/tmp/cc-sandbox/0d7911cf",
+      "max_tokens": 6000000,
+      "max_budget_usd": 8.0,
+      "timeout_s": 1200,
+      "variant": null,
+      "tf_env": {},
+      "history": null,
+      "status": "completed",
+      "isolation_problems": [],
+      "leftover_processes_killed": [],
+      "builtin_plugins": [
+        "cc-plugin-agents-md",
+        "cc-plugin-telemetry",
+        "cc-plugin-plugin-authoring"
+      ],
+      "start_time": "2026-10-08T14:34:13.541348+00:00",
+      "end_time": "2026-10-08T14:34:28.576548+00:00",
+      "duration_seconds": 15.0,
+      "num_turns": 4,
+      "total_cost_usd_reported": 0.4625502,
+      "input_tokens": 137195,
+      "output_tokens": 953,
+      "total_tokens": 138148,
+      "cached_input_tokens": 83851,
+      "uncached_input_tokens": 53344,
+      "cache_creation_input_tokens": 53336,
+      "input_equivalent_tokens": 79828,
+      "api_requests": 4,
+      "first_request_context_tokens": 9757,
+      "result_event_usage": {
+        "input_tokens": 8,
+        "cache_creation_input_tokens": 53336,
+        "cache_read_input_tokens": 83851,
+        "output_tokens": 953,
+        "output_tokens_details": {
+          "thinking_tokens": 121
+        },
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 0
+        },
+        "service_tier": "standard",
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 53336,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "inference_geo": "not_available",
+        "iterations": [
+          {
+            "input_tokens": 2,
+            "output_tokens": 181,
+            "cache_read_input_tokens": 58194,
+            "cache_creation_input_tokens": 585,
+            "cache_creation": {
+              "ephemeral_5m_input_tokens": 0,
+              "ephemeral_1h_input_tokens": 585
+            },
+            "type": "message"
+          }
+        ],
+        "speed": "standard",
+        "fallback_credit": null
+      },
+      "result_event_model_usage": {
+        "claude-opus-5-5": {
+          "inputTokens": 8,
+          "outputTokens": 953,
+          "cacheReadInputTokens": 83851,
+          "cacheCreationInputTokens": 53336,
+          "webSearchRequests": 0,
+          "costUSD": 0.4625502,
+          "contextWindow": 1000000,
+          "maxOutputTokens": 128000,
+          "thinkingTokens": 121,
+          "canonicalModel": "claude-opus-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      },
+      "tool_calls": 3,
+      "files_read": 1,
+      "lines_read": 18,
+      "bytes_read": 1392,
+      "tests_passed": null,
+      "build_passed": null,
+      "lint_passed": null,
+      "format_passed": null,
+      "typecheck_passed": null,
+      "hidden_tests_passed": null,
+      "hidden_tests_total": null,
+      "task_status": "completed",
+      "task_completed": true,
+      "quality_score": 100.0,
+      "final_head": "2f2e9cb00308d85205699ebc6ff6e9855ba085a3",
+      "tools": {
+        "total_tool_calls": 3,
+        "by_name": {
+          "Bash": 2,
+          "Read": 1
+        },
+        "file_reads": 1,
+        "searches": 0,
+        "bash_search_commands": 1,
+        "bash_view_commands": 1,
+        "shell_commands": 2,
+        "edits": 0,
+        "writes": 0,
+        "subagent_calls": 0,
+        "skill_calls": 0,
+        "other_tool_calls": 0,
+        "tokenforge_cli_commands": 0,
+        "files_read": 1,
+        "files_read_incl_bash_heuristic": 2,
+        "lines_read": 18,
+        "bytes_read": 1392,
+        "tool_result_bytes": 1404,
+        "redundant_reads": 0,
+        "relevant_files_read": 2,
+        "irrelevant_files_read": 0,
+        "context_precision_approx": 1.0,
+        "files_read_list": [
+          "QUESTIONS.md",
+          "paper.pdf"
+        ]
+      },
+      "tokens_exact": {
+        "all": {
+          "requests": 4,
+          "input_tokens_total": 137195,
+          "uncached_input_tokens": 53344,
+          "input_tokens_no_cache": 8,
+          "cache_creation_input_tokens": 53336,
+          "cached_input_tokens": 83851,
+          "output_tokens": 953,
+          "total_tokens": 138148,
+          "thinking_tokens": 121,
+          "input_equivalent_tokens": 79828
+        },
+        "main": {
+          "requests": 4,
+          "input_tokens_total": 137195,
+          "uncached_input_tokens": 53344,
+          "input_tokens_no_cache": 8,
+          "cache_creation_input_tokens": 53336,
+          "cached_input_tokens": 83851,
+          "output_tokens": 953,
+          "total_tokens": 138148,
+          "thinking_tokens": 121,
+          "input_equivalent_tokens": 79828
+        },
+        "subagents": {
+          "requests": 0,
+          "input_tokens_total": 0,
+          "uncached_input_tokens": 0,
+          "input_tokens_no_cache": 0,
+          "cache_creation_input_tokens": 0,
+          "cached_input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "thinking_tokens": 0,
+          "input_equivalent_tokens": 0
+        },
+        "nested_sessions": {
+          "requests": 0,
+          "input_tokens_total": 0,
+          "uncached_input_tokens": 0,
+          "input_tokens_no_cache": 0,
+          "cache_creation_input_tokens": 0,
+          "cached_input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "thinking_tokens": 0,
+          "input_equivalent_tokens": 0
+        },
+        "by_model": {
+          "claude-opus-5-5": {
+            "requests": 4,
+            "input_tokens_total": 137195,
+            "uncached_input_tokens": 53344,
+            "input_tokens_no_cache": 8,
+            "cache_creation_input_tokens": 53336,
+            "cached_input_tokens": 83851,
+            "output_tokens": 953,
+            "total_tokens": 138148,
+            "thinking_tokens": 121,
+            "input_equivalent_tokens": 79828
+          }
+        },
+        "first_request_context_tokens": 9757
+      },
+      "estimated": {
+        "tool_result_tokens_est": 351,
+        "hook_injected_context_tokens_est": 620,
+        "skill_listing_tokens_est": 133,
+        "method": "UTF-8 bytes / 4; NOT exact"
+      },
+      "hooks": {
+        "count": 3,
+        "by_event": {
+          "SessionStart": 2,
+          "PreToolUse": 1
+        },
+        "injected_context_chars": 2482,
+        "tool_rewrites": 1,
+        "tool_denials": 0
+      },
+      "eval": {
+        "task": "pdf-paper-qa",
+        "checks": {
+          "build_passed": null,
+          "tests_passed": null,
+          "lint_passed": null,
+          "format_passed": null,
+          "typecheck_passed": null
+        },
+        "rubric": "qa",
+        "components": {
+          "answers": 100.0
+        },
+        "quality_score": 100.0,
+        "status": "completed",
+        "correct": 10,
+        "total": 10,
+        "per_question": {
+          "1": true,
+          "2": true,
+          "3": true,
+          "4": true,
+          "5": true,
+          "6": true,
+          "7": true,
+          "8": true,
+          "9": true,
+          "10": true
+        },
+        "wrong": [],
+        "details": {
+          "changed_files": [
+            "ANSWER.md"
+          ],
+          "unrelated_changes": [],
+          "answer_found": true,
+          "answers_parsed": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10
+          ]
+        }
+      }
+    },
+    {
+      "run_id": "pdf-paper-qa-token-forge-r2",
+      "task": "pdf-paper-qa",
+      "category": "academic",
+      "agent": "token-forge",
+      "repetition": 2,
+      "model": "claude-opus-5-5",
+      "claude_code_version": "2.1.293",
+      "benchmark_version": "1.0.0",
+      "token_forge_version": "0.8.0",
+      "token_forge_plugin_sha256": "31952bff7273f37197e21f0d72618573d6e19e6055fc8299c45655db37972f98",
+      "repository_commit": "2f2e9cb00308d85205699ebc6ff6e9855ba085a3",
+      "prompt_hash": "3eb735bc6861e1dd74a3284062ef0787652ef23316a9d7e39ad4014256bbbc35",
+      "session_id": "1d4f3914-5b8d-4761-a600-fd76c420de67",
+      "sandbox": "/var/tmp/cc-sandbox/d8237dc5",
+      "max_tokens": 6000000,
+      "max_budget_usd": 8.0,
+      "timeout_s": 1200,
+      "variant": null,
+      "tf_env": {},
+      "history": null,
+      "status": "completed",
+      "isolation_problems": [],
+      "leftover_processes_killed": [],
+      "builtin_plugins": [
+        "cc-plugin-agents-md",
+        "cc-plugin-telemetry",
+        "cc-plugin-plugin-authoring"
+      ],
+      "start_time": "2026-10-08T14:34:13.542244+00:00",
+      "end_time": "2026-10-08T14:34:28.576514+00:00",
+      "duration_seconds": 15.0,
+      "num_turns": 4,
+      "total_cost_usd_reported": 0.4612568,
+      "input_tokens": 137171,
+      "output_tokens": 903,
+      "total_tokens": 138074,
+      "cached_input_tokens": 83864,
+      "uncached_input_tokens": 53307,
+      "cache_creation_input_tokens": 53299,
+      "input_equivalent_tokens": 79533,
+      "api_requests": 4,
+      "first_request_context_tokens": 9757,
+      "result_event_usage": {
+        "input_tokens": 8,
+        "cache_creation_input_tokens": 53299,
+        "cache_read_input_tokens": 83864,
+        "output_tokens": 903,
+        "output_tokens_details": {
+          "thinking_tokens": 129
+        },
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 0
+        },
+        "service_tier": "standard",
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 53299,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "inference_geo": "not_available",
+        "iterations": [
+          {
+            "input_tokens": 2,
+            "output_tokens": 171,
+            "cache_read_input_tokens": 58202,
+            "cache_creation_input_tokens": 540,
+            "cache_creation": {
+              "ephemeral_5m_input_tokens": 0,
+              "ephemeral_1h_input_tokens": 540
+            },
+            "type": "message"
+          }
+        ],
+        "speed": "standard",
+        "fallback_credit": null
+      },
+      "result_event_model_usage": {
+        "claude-opus-5-5": {
+          "inputTokens": 8,
+          "outputTokens": 903,
+          "cacheReadInputTokens": 83864,
+          "cacheCreationInputTokens": 53299,
+          "webSearchRequests": 0,
+          "costUSD": 0.4612568,
+          "contextWindow": 1000000,
+          "maxOutputTokens": 128000,
+          "thinkingTokens": 129,
+          "canonicalModel": "claude-opus-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      },
+      "tool_calls": 3,
+      "files_read": 1,
+      "lines_read": 18,
+      "bytes_read": 1390,
+      "tests_passed": null,
+      "build_passed": null,
+      "lint_passed": null,
+      "format_passed": null,
+      "typecheck_passed": null,
+      "hidden_tests_passed": null,
+      "hidden_tests_total": null,
+      "task_status": "completed",
+      "task_completed": true,
+      "quality_score": 100.0,
+      "final_head": "2f2e9cb00308d85205699ebc6ff6e9855ba085a3",
+      "tools": {
+        "total_tool_calls": 3,
+        "by_name": {
+          "Bash": 2,
+          "Read": 1
+        },
+        "file_reads": 1,
+        "searches": 0,
+        "bash_search_commands": 1,
+        "bash_view_commands": 1,
+        "shell_commands": 2,
+        "edits": 0,
+        "writes": 0,
+        "subagent_calls": 0,
+        "skill_calls": 0,
+        "other_tool_calls": 0,
+        "tokenforge_cli_commands": 0,
+        "files_read": 1,
+        "files_read_incl_bash_heuristic": 2,
+        "lines_read": 18,
+        "bytes_read": 1390,
+        "tool_result_bytes": 1402,
+        "redundant_reads": 0,
+        "relevant_files_read": 2,
+        "irrelevant_files_read": 0,
+        "context_precision_approx": 1.0,
+        "files_read_list": [
+          "QUESTIONS.md",
+          "paper.pdf"
+        ]
+      },
+      "tokens_exact": {
+        "all": {
+          "requests": 4,
+          "input_tokens_total": 137171,
+          "uncached_input_tokens": 53307,
+          "input_tokens_no_cache": 8,
+          "cache_creation_input_tokens": 53299,
+          "cached_input_tokens": 83864,
+          "output_tokens": 903,
+          "total_tokens": 138074,
+          "thinking_tokens": 129,
+          "input_equivalent_tokens": 79533
+        },
+        "main": {
+          "requests": 4,
+          "input_tokens_total": 137171,
+          "uncached_input_tokens": 53307,
+          "input_tokens_no_cache": 8,
+          "cache_creation_input_tokens": 53299,
+          "cached_input_tokens": 83864,
+          "output_tokens": 903,
+          "total_tokens": 138074,
+          "thinking_tokens": 129,
+          "input_equivalent_tokens": 79533
+        },
+        "subagents": {
+          "requests": 0,
+          "input_tokens_total": 0,
+          "uncached_input_tokens": 0,
+          "input_tokens_no_cache": 0,
+          "cache_creation_input_tokens": 0,
+          "cached_input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "thinking_tokens": 0,
+          "input_equivalent_tokens": 0
+        },
+        "nested_sessions": {
+          "requests": 0,
+          "input_tokens_total": 0,
+          "uncached_input_tokens": 0,
+          "input_tokens_no_cache": 0,
+          "cache_creation_input_tokens": 0,
+          "cached_input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "thinking_tokens": 0,
+          "input_equivalent_tokens": 0
+        },
+        "by_model": {
+          "claude-opus-5-5": {
+            "requests": 4,
+            "input_tokens_total": 137171,
+            "uncached_input_tokens": 53307,
+            "input_tokens_no_cache": 8,
+            "cache_creation_input_tokens": 53299,
+            "cached_input_tokens": 83864,
+            "output_tokens": 903,
+            "total_tokens": 138074,
+            "thinking_tokens": 129,
+            "input_equivalent_tokens": 79533
+          }
+        },
+        "first_request_context_tokens": 9757
+      },
+      "estimated": {
+        "tool_result_tokens_est": 350,
+        "hook_injected_context_tokens_est": 620,
+        "skill_listing_tokens_est": 133,
+        "method": "UTF-8 bytes / 4; NOT exact"
+      },
+      "hooks": {
+        "count": 3,
+        "by_event": {
+          "SessionStart": 2,
+          "PreToolUse": 1
+        },
+        "injected_context_chars": 2482,
+        "tool_rewrites": 1,
+        "tool_denials": 0
+      },
+      "eval": {
+        "task": "pdf-paper-qa",
+        "checks": {
+          "build_passed": null,
+          "tests_passed": null,
+          "lint_passed": null,
+          "format_passed": null,
+          "typecheck_passed": null
+        },
+        "rubric": "qa",
+        "components": {
+          "answers": 100.0
+        },
+        "quality_score": 100.0,
+        "status": "completed",
+        "correct": 10,
+        "total": 10,
+        "per_question": {
+          "1": true,
+          "2": true,
+          "3": true,
+          "4": true,
+          "5": true,
+          "6": true,
+          "7": true,
+          "8": true,
+          "9": true,
+          "10": true
+        },
+        "wrong": [],
+        "details": {
+          "changed_files": [
+            "ANSWER.md"
+          ],
+          "unrelated_changes": [],
+          "answer_found": true,
+          "answers_parsed": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10
+          ]
+        }
+      }
+    },
+    {
+      "run_id": "paper-proofread-token-forge-r1",
+      "task": "paper-proofread",
+      "category": "academic",
+      "agent": "token-forge",
+      "repetition": 1,
+      "model": "claude-opus-5-5",
+      "claude_code_version": "2.1.293",
+      "benchmark_version": "1.0.0",
+      "token_forge_version": "0.8.0",
+      "token_forge_plugin_sha256": "31952bff7273f37197e21f0d72618573d6e19e6055fc8299c45655db37972f98",
+      "repository_commit": "934d4acad1a5b2e30a1be0a1b5f2e9bcd50c26f5",
+      "prompt_hash": "e658a11ffc83b1136284f01d8b41c2bc6fc43c75fe4d2953dcd60a7e8339dd4c",
+      "session_id": "134bd300-0051-4392-a8e2-864309232e74",
+      "sandbox": "/var/tmp/cc-sandbox/0e1e45f4",
+      "max_tokens": 6000000,
+      "max_budget_usd": 8.0,
+      "timeout_s": 1500,
+      "variant": null,
+      "tf_env": {},
+      "history": null,
+      "status": "completed",
+      "isolation_problems": [],
+      "leftover_processes_killed": [],
+      "builtin_plugins": [
+        "cc-plugin-agents-md",
+        "cc-plugin-telemetry",
+        "cc-plugin-plugin-authoring"
+      ],
+      "start_time": "2026-10-08T14:34:59.013763+00:00",
+      "end_time": "2026-10-08T14:36:19.042849+00:00",
+      "duration_seconds": 80.0,
+      "num_turns": 6,
+      "total_cost_usd_reported": 0.4728454,
+      "input_tokens": 119869,
+      "output_tokens": 8374,
+      "total_tokens": 128243,
+      "cached_input_tokens": 83787,
+      "uncached_input_tokens": 36082,
+      "cache_creation_input_tokens": 36070,
+      "input_equivalent_tokens": 95348,
+      "api_requests": 6,
+      "first_request_context_tokens": 9990,
+      "result_event_usage": {
+        "input_tokens": 12,
+        "cache_creation_input_tokens": 36070,
+        "cache_read_input_tokens": 83787,
+        "output_tokens": 8374,
+        "output_tokens_details": {
+          "thinking_tokens": 5101
+        },
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 0
+        },
+        "service_tier": "standard",
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 36070,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "inference_geo": "not_available",
+        "iterations": [
+          {
+            "input_tokens": 2,
+            "output_tokens": 454,
+            "cache_read_input_tokens": 34153,
+            "cache_creation_input_tokens": 7360,
+            "cache_creation": {
+              "ephemeral_5m_input_tokens": 0,
+              "ephemeral_1h_input_tokens": 7360
+            },
+            "type": "message"
+          }
+        ],
+        "speed": "standard",
+        "fallback_credit": null
+      },
+      "result_event_model_usage": {
+        "claude-opus-5-5": {
+          "inputTokens": 12,
+          "outputTokens": 8374,
+          "cacheReadInputTokens": 83787,
+          "cacheCreationInputTokens": 36070,
+          "webSearchRequests": 0,
+          "costUSD": 0.4728454,
+          "contextWindow": 1000000,
+          "maxOutputTokens": 128000,
+          "thinkingTokens": 5101,
+          "canonicalModel": "claude-opus-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      },
+      "tool_calls": 5,
+      "files_read": 0,
+      "lines_read": 945,
+      "bytes_read": 53831,
+      "tests_passed": null,
+      "build_passed": null,
+      "lint_passed": null,
+      "format_passed": null,
+      "typecheck_passed": null,
+      "hidden_tests_passed": null,
+      "hidden_tests_total": null,
+      "task_status": "completed",
+      "task_completed": true,
+      "quality_score": 95.53,
+      "final_head": "934d4acad1a5b2e30a1be0a1b5f2e9bcd50c26f5",
+      "tools": {
+        "total_tool_calls": 5,
+        "by_name": {
+          "Bash": 3,
+          "Read": 2
+        },
+        "file_reads": 2,
+        "searches": 0,
+        "bash_search_commands": 1,
+        "bash_view_commands": 1,
+        "shell_commands": 3,
+        "edits": 0,
+        "writes": 0,
+        "subagent_calls": 0,
+        "skill_calls": 0,
+        "other_tool_calls": 0,
+        "tokenforge_cli_commands": 0,
+        "files_read": 0,
+        "files_read_incl_bash_heuristic": 1,
+        "lines_read": 945,
+        "bytes_read": 53831,
+        "tool_result_bytes": 54330,
+        "redundant_reads": 0,
+        "relevant_files_read": 0,
+        "irrelevant_files_read": 1,
+        "context_precision_approx": 0.0,
+        "files_read_list": [
+          "README.md"
+        ]
+      },
+      "tokens_exact": {
+        "all": {
+          "requests": 6,
+          "input_tokens_total": 119869,
+          "uncached_input_tokens": 36082,
+          "input_tokens_no_cache": 12,
+          "cache_creation_input_tokens": 36070,
+          "cached_input_tokens": 83787,
+          "output_tokens": 8374,
+          "total_tokens": 128243,
+          "thinking_tokens": 5101,
+          "input_equivalent_tokens": 95348
+        },
+        "main": {
+          "requests": 6,
+          "input_tokens_total": 119869,
+          "uncached_input_tokens": 36082,
+          "input_tokens_no_cache": 12,
+          "cache_creation_input_tokens": 36070,
+          "cached_input_tokens": 83787,
+          "output_tokens": 8374,
+          "total_tokens": 128243,
+          "thinking_tokens": 5101,
+          "input_equivalent_tokens": 95348
+        },
+        "subagents": {
+          "requests": 0,
+          "input_tokens_total": 0,
+          "uncached_input_tokens": 0,
+          "input_tokens_no_cache": 0,
+          "cache_creation_input_tokens": 0,
+          "cached_input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "thinking_tokens": 0,
+          "input_equivalent_tokens": 0
+        },
+        "nested_sessions": {
+          "requests": 0,
+          "input_tokens_total": 0,
+          "uncached_input_tokens": 0,
+          "input_tokens_no_cache": 0,
+          "cache_creation_input_tokens": 0,
+          "cached_input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "thinking_tokens": 0,
+          "input_equivalent_tokens": 0
+        },
+        "by_model": {
+          "claude-opus-5-5": {
+            "requests": 6,
+            "input_tokens_total": 119869,
+            "uncached_input_tokens": 36082,
+            "input_tokens_no_cache": 12,
+            "cache_creation_input_tokens": 36070,
+            "cached_input_tokens": 83787,
+            "output_tokens": 8374,
+            "total_tokens": 128243,
+            "thinking_tokens": 5101,
+            "input_equivalent_tokens": 95348
+          }
+        },
+        "first_request_context_tokens": 9990
+      },
+      "estimated": {
+        "tool_result_tokens_est": 13582,
+        "hook_injected_context_tokens_est": 620,
+        "skill_listing_tokens_est": 133,
+        "method": "UTF-8 bytes / 4; NOT exact"
+      },
+      "hooks": {
+        "count": 3,
+        "by_event": {
+          "SessionStart": 2,
+          "PreToolUse": 1
+        },
+        "injected_context_chars": 2482,
+        "tool_rewrites": 1,
+        "tool_denials": 0
+      },
+      "eval": {
+        "task": "paper-proofread",
+        "checks": {
+          "build_passed": null,
+          "tests_passed": null,
+          "lint_passed": null,
+          "format_passed": null,
+          "typecheck_passed": null
+        },
+        "rubric": "review",
+        "components": {
+          "recall": 80.53,
+          "precision": 15.0
+        },
+        "quality_score": 95.53,
+        "status": "completed",
+        "matched": {
+          "abstract-cv-reduction": "Abstract reports an 18% reduction in median CV, but Table 3 and Section 4.3 give a fall from 0.26 to 0.19, i.e. a reduct",
+          "abstract-all-scenarios": "Abstract says SAFH reduced RMSE relative to FH 'in all twelve scenarios', but Section 3 and Table 2 show SAFH is slightl",
+          "sim-coverage-average": "Average coverage is given as 94.1%, but Table 2 reports an average of 95.1%. 94.1% also contradicts the same sentence's ",
+          "app-cv-count": "Number of districts with CV > 0.3 is said to fall from 61 to 17, but Table 3 reports 23 under SAFH. Should read 'from 61",
+          "boot-pred-weights-swapped": "In the bootstrap predictor (eq:boot-pred) the weights are swapped: it uses (1 - w*) y* + w* mu*, which is inconsistent w",
+          "weight-limit-claim": "When psi_i is large, w_i = sigma_u^2/(sigma_u^2 + psi_i) is close to zero, not one, so the predictor relies almost entir",
+          "wrong-figure-ref": "Relative bias by remoteness decile is shown in Figure~\\ref{fig:bias} (sim_bias.pdf), not Figure~\\ref{fig:coverage}, whic",
+          "missing-citation": "\\citet{marchetti2023robust} has no entry in refs.bib, so the citation is undefined. Add the reference to refs.bib or cit",
+          "district-count-241": "Table 3 caption says m = 241 districts, but the survey covers 214 districts (Section 4.1, Section 4.2, Appendix). Should",
+          "distance-unit": "Mean distance from a household to the nearest health facility is given as 2.1 to 38.5 m (metres), which is implausible f",
+          "duplicated-paragraph": "Lines 37-48 repeat the 'Several limitations should be noted...' paragraph of lines 24-35 word for word. Delete the dupli",
+          "casual-causal": "'should not be given a casual interpretation' should be 'causal interpretation'. The rest of the paragraph is about conf",
+          "lrt-reject-p041": "The likelihood ratio test gives p = 0.41, yet the text says 'we reject the null hypothesis of a linear remoteness effect",
+          "width-increases": "Interval width goes from 0.214 (n_i < 20) to 0.081 (n_i >= 100), which is a decrease, not an increase, as Table 4 and th",
+          "z-quantile": "Intervals described as approximate 95% intervals use the multiplier 1.645, which gives 90% intervals. For 95% intervals ",
+          "survey-year": "NPHNS is said to have been conducted in 2019, but the abstract, Section 4.1 (March--August 2021), Table 3 and Figure 3 a",
+          "asymptotic-m-to-zero": "Asymptotics are stated as 'm -> 0'. Consistency and the O_p(m^{-1/2}) rate require the number of districts to grow. Shou",
+          "naive-mse-does-not-account": "'This naive estimator does account for the uncertainty in the estimated variance components, and it is therefore biased "
+        },
+        "missed": [
+          "covariate-count"
+        ],
+        "false_positives": [],
+        "true_positives": 18,
+        "reported": 18,
+        "flooded": false,
+        "details": {
+          "review_valid": true,
+          "problem": null,
+          "findings_reported": 18,
+          "missing_keys": [],
+          "changed_files": [
+            "review.json"
+          ],
+          "unrelated_changes": []
+        }
+      }
+    },
+    {
+      "run_id": "paper-proofread-token-forge-r2",
+      "task": "paper-proofread",
+      "category": "academic",
+      "agent": "token-forge",
+      "repetition": 2,
+      "model": "claude-opus-5-5",
+      "claude_code_version": "2.1.293",
+      "benchmark_version": "1.0.0",
+      "token_forge_version": "0.8.0",
+      "token_forge_plugin_sha256": "31952bff7273f37197e21f0d72618573d6e19e6055fc8299c45655db37972f98",
+      "repository_commit": "934d4acad1a5b2e30a1be0a1b5f2e9bcd50c26f5",
+      "prompt_hash": "e658a11ffc83b1136284f01d8b41c2bc6fc43c75fe4d2953dcd60a7e8339dd4c",
+      "session_id": "76ca9823-41ea-4688-b89a-71769b0d08a1",
+      "sandbox": "/var/tmp/cc-sandbox/3b7c72ca",
+      "max_tokens": 6000000,
+      "max_budget_usd": 8.0,
+      "timeout_s": 1500,
+      "variant": null,
+      "tf_env": {},
+      "history": null,
+      "status": "completed",
+      "isolation_problems": [],
+      "leftover_processes_killed": [],
+      "builtin_plugins": [
+        "cc-plugin-agents-md",
+        "cc-plugin-telemetry",
+        "cc-plugin-plugin-authoring"
+      ],
+      "start_time": "2026-10-08T14:34:59.014069+00:00",
+      "end_time": "2026-10-08T14:36:09.042168+00:00",
+      "duration_seconds": 70.0,
+      "num_turns": 7,
+      "total_cost_usd_reported": 0.45160780000000006,
+      "input_tokens": 178680,
+      "output_tokens": 7224,
+      "total_tokens": 185904,
+      "cached_input_tokens": 143879,
+      "uncached_input_tokens": 34801,
+      "cache_creation_input_tokens": 34787,
+      "input_equivalent_tokens": 94006,
+      "api_requests": 7,
+      "first_request_context_tokens": 9990,
+      "result_event_usage": {
+        "input_tokens": 14,
+        "cache_creation_input_tokens": 34787,
+        "cache_read_input_tokens": 143879,
+        "output_tokens": 7224,
+        "output_tokens_details": {
+          "thinking_tokens": 3229
+        },
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 0
+        },
+        "service_tier": "standard",
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 34787,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "inference_geo": "not_available",
+        "iterations": [
+          {
+            "input_tokens": 2,
+            "output_tokens": 637,
+            "cache_read_input_tokens": 38114,
+            "cache_creation_input_tokens": 2116,
+            "cache_creation": {
+              "ephemeral_5m_input_tokens": 0,
+              "ephemeral_1h_input_tokens": 2116
+            },
+            "type": "message"
+          }
+        ],
+        "speed": "standard",
+        "fallback_credit": null
+      },
+      "result_event_model_usage": {
+        "claude-opus-5-5": {
+          "inputTokens": 14,
+          "outputTokens": 7224,
+          "cacheReadInputTokens": 143879,
+          "cacheCreationInputTokens": 34787,
+          "webSearchRequests": 0,
+          "costUSD": 0.45160780000000006,
+          "contextWindow": 1000000,
+          "maxOutputTokens": 128000,
+          "thinkingTokens": 3229,
+          "canonicalModel": "claude-opus-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      },
+      "tool_calls": 6,
+      "files_read": 0,
+      "lines_read": 908,
+      "bytes_read": 51952,
+      "tests_passed": null,
+      "build_passed": null,
+      "lint_passed": null,
+      "format_passed": null,
+      "typecheck_passed": null,
+      "hidden_tests_passed": null,
+      "hidden_tests_total": null,
+      "task_status": "completed",
+      "task_completed": true,
+      "quality_score": 100.0,
+      "final_head": "934d4acad1a5b2e30a1be0a1b5f2e9bcd50c26f5",
+      "tools": {
+        "total_tool_calls": 6,
+        "by_name": {
+          "Bash": 4,
+          "Read": 2
+        },
+        "file_reads": 2,
+        "searches": 0,
+        "bash_search_commands": 2,
+        "bash_view_commands": 1,
+        "shell_commands": 4,
+        "edits": 0,
+        "writes": 0,
+        "subagent_calls": 0,
+        "skill_calls": 0,
+        "other_tool_calls": 0,
+        "tokenforge_cli_commands": 0,
+        "files_read": 0,
+        "files_read_incl_bash_heuristic": 2,
+        "lines_read": 908,
+        "bytes_read": 51952,
+        "tool_result_bytes": 54254,
+        "redundant_reads": 0,
+        "relevant_files_read": 1,
+        "irrelevant_files_read": 1,
+        "context_precision_approx": 0.5,
+        "files_read_list": [
+          "README.md",
+          "refs.bib"
+        ]
+      },
+      "tokens_exact": {
+        "all": {
+          "requests": 7,
+          "input_tokens_total": 178680,
+          "uncached_input_tokens": 34801,
+          "input_tokens_no_cache": 14,
+          "cache_creation_input_tokens": 34787,
+          "cached_input_tokens": 143879,
+          "output_tokens": 7224,
+          "total_tokens": 185904,
+          "thinking_tokens": 3229,
+          "input_equivalent_tokens": 94006
+        },
+        "main": {
+          "requests": 7,
+          "input_tokens_total": 178680,
+          "uncached_input_tokens": 34801,
+          "input_tokens_no_cache": 14,
+          "cache_creation_input_tokens": 34787,
+          "cached_input_tokens": 143879,
+          "output_tokens": 7224,
+          "total_tokens": 185904,
+          "thinking_tokens": 3229,
+          "input_equivalent_tokens": 94006
+        },
+        "subagents": {
+          "requests": 0,
+          "input_tokens_total": 0,
+          "uncached_input_tokens": 0,
+          "input_tokens_no_cache": 0,
+          "cache_creation_input_tokens": 0,
+          "cached_input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "thinking_tokens": 0,
+          "input_equivalent_tokens": 0
+        },
+        "nested_sessions": {
+          "requests": 0,
+          "input_tokens_total": 0,
+          "uncached_input_tokens": 0,
+          "input_tokens_no_cache": 0,
+          "cache_creation_input_tokens": 0,
+          "cached_input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "thinking_tokens": 0,
+          "input_equivalent_tokens": 0
+        },
+        "by_model": {
+          "claude-opus-5-5": {
+            "requests": 7,
+            "input_tokens_total": 178680,
+            "uncached_input_tokens": 34801,
+            "input_tokens_no_cache": 14,
+            "cache_creation_input_tokens": 34787,
+            "cached_input_tokens": 143879,
+            "output_tokens": 7224,
+            "total_tokens": 185904,
+            "thinking_tokens": 3229,
+            "input_equivalent_tokens": 94006
+          }
+        },
+        "first_request_context_tokens": 9990
+      },
+      "estimated": {
+        "tool_result_tokens_est": 13564,
+        "hook_injected_context_tokens_est": 620,
+        "skill_listing_tokens_est": 133,
+        "method": "UTF-8 bytes / 4; NOT exact"
+      },
+      "hooks": {
+        "count": 3,
+        "by_event": {
+          "SessionStart": 2,
+          "PreToolUse": 1
+        },
+        "injected_context_chars": 2482,
+        "tool_rewrites": 1,
+        "tool_denials": 0
+      },
+      "eval": {
+        "task": "paper-proofread",
+        "checks": {
+          "build_passed": null,
+          "tests_passed": null,
+          "lint_passed": null,
+          "format_passed": null,
+          "typecheck_passed": null
+        },
+        "rubric": "review",
+        "components": {
+          "recall": 85.0,
+          "precision": 15.0
+        },
+        "quality_score": 100.0,
+        "status": "completed",
+        "matched": {
+          "abstract-cv-reduction": "Abstract reports an 18% reduction in median CV, but Table 3 and Section 4 give 0.26 -> 0.19, a reduction of 27%. Should ",
+          "abstract-all-scenarios": "Abstract says SAFH reduced RMSE relative to FH 'in all twelve scenarios', but Section 3 and Table 2 show SAFH is slightl",
+          "sim-coverage-average": "Average coverage is given as 94.1%, which is inconsistent with Table 2 (average 95.1%) and with the claim 'no scenario b",
+          "app-cv-count": "Says the number of districts with CV > 0.3 fell from 61 to 17, but Table 3 gives 23 under SAFH. Should be 'from 61 to 23",
+          "boot-pred-weights-swapped": "The weights in the bootstrap predictor are swapped: (1 - w*) y* + w* mu*. This is inconsistent with eq. (safh-pred), whi",
+          "weight-limit-claim": "With w_i = sigma_u^2/(sigma_u^2 + psi_i), a large psi_i makes w_i close to zero, not one, so the predictor relies almost",
+          "wrong-figure-ref": "Relative bias by remoteness decile is attributed to Figure~\\ref{fig:coverage}, but that figure shows coverage against sa",
+          "missing-citation": "\\citet{marchetti2023robust} has no entry in refs.bib, so the citation is undefined. Add the reference to refs.bib or cit",
+          "district-count-241": "Table caption gives m = 241 districts, but the data section and model fitting use 214 districts (as does the appendix). ",
+          "distance-unit": "Mean distance to the nearest health facility is given as 2.1 to 38.5 m. Metres are implausible for district-level travel",
+          "duplicated-paragraph": "The 'Several limitations should be noted...' paragraph (lines 37-48) repeats lines 24-35 word for word. Remove the dupli",
+          "casual-causal": "'casual interpretation' should be 'causal interpretation'. The paragraph is about not reading f-hat as the causal effect",
+          "lrt-reject-p041": "The LRT of H0: sigma_gamma^2 = 0 gives p = 0.41, yet the text says 'so we reject the null hypothesis'. At p = 0.41 the n",
+          "width-increases": "Says the average SAFH interval width 'increases' from 0.214 (n_i < 20) to 0.081 (n_i >= 100), but the width decreases (T",
+          "z-quantile": "Approximate 95% intervals use the multiplier 1.645, which gives 90% intervals. Should be 1.96.",
+          "covariate-count": "States that x_i contains an intercept and 'six' district-level covariates, but Section 4.1 lists five covariates (water ",
+          "survey-year": "NPHNS is said to have been conducted in 2019, but the title/abstract, Section 4.1 (March-August 2021) and Table 3 refer ",
+          "asymptotic-m-to-zero": "Asymptotics are stated as 'm -> 0'. Consistency as the number of districts grows requires m -> infinity.",
+          "naive-mse-does-not-account": "Says the naive estimator 'does account for' the uncertainty in the estimated variance components, then concludes it is t"
+        },
+        "missed": [],
+        "false_positives": [],
+        "true_positives": 19,
+        "reported": 19,
+        "flooded": false,
+        "details": {
+          "review_valid": true,
+          "problem": null,
+          "findings_reported": 19,
+          "missing_keys": [],
+          "changed_files": [
+            "review.json"
+          ],
+          "unrelated_changes": []
         }
       }
     }

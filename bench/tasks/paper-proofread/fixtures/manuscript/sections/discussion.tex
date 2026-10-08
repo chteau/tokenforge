@@ -1,0 +1,62 @@
+\section{Discussion}
+\label{sec:discussion}
+
+We have proposed a spline-augmented Fay--Herriot estimator that relaxes the
+linearity of the regression mean for a single continuous covariate while
+retaining the simplicity of an area-level model. Because the spline is
+represented as a second random effect, the model can be fitted with standard
+REML machinery, and the smoothing parameter is selected automatically as part
+of the variance component estimation. The parametric bootstrap provides MSE
+estimates that account for the estimation of both variance components, and our
+simulations indicate that the resulting intervals have close to nominal
+coverage even with as few as 50 districts.
+
+In the NPHNS application, the SAFH estimator changed the substantive
+conclusions in a policy-relevant way: four additional districts were classified
+as exceeding the national stunting target, all of them in the eastern
+highlands, where the standard model underestimates prevalence. This illustrates
+a general point about small area estimation that is easy to overlook. Model
+misspecification does not merely add noise to the district estimates; it
+produces bias that is correlated with district characteristics, and because
+shrinkage is strongest where samples are smallest, the bias is concentrated in
+the districts that are usually of greatest policy interest.
+
+Several limitations should be noted. First, the SAFH model allows a nonlinear
+effect for only one covariate. Additive models with several smooth terms are a
+natural extension, but with a few hundred districts the data contain limited
+information about several smooth functions simultaneously, and we expect the
+REML estimates of the corresponding variance components to be unstable. Second,
+like all Fay--Herriot type models, SAFH treats the smoothed sampling variances
+$\psi_i$ as known. Errors in the generalized variance function propagate to the
+weights $\hat w_i$, and a fully Bayesian treatment that models the sampling
+variances jointly with the prevalences would be a useful extension
+\citep{you2006small}. Third, the remoteness index is itself estimated from a
+travel-time surface, and measurement error in $r_i$ could attenuate the
+estimated function $\hat f$ \citep{ybarra2008small}.
+
+Several limitations should be noted. First, the SAFH model allows a nonlinear
+effect for only one covariate. Additive models with several smooth terms are a
+natural extension, but with a few hundred districts the data contain limited
+information about several smooth functions simultaneously, and we expect the
+REML estimates of the corresponding variance components to be unstable. Second,
+like all Fay--Herriot type models, SAFH treats the smoothed sampling variances
+$\psi_i$ as known. Errors in the generalized variance function propagate to the
+weights $\hat w_i$, and a fully Bayesian treatment that models the sampling
+variances jointly with the prevalences would be a useful extension
+\citep{you2006small}. Third, the remoteness index is itself estimated from a
+travel-time surface, and measurement error in $r_i$ could attenuate the
+estimated function $\hat f$ \citep{ybarra2008small}.
+
+Finally, the estimated function $\hat f$ should not be given a casual
+interpretation. Remoteness is correlated with many unobserved determinants of
+child growth, including dietary diversity, disease burden and access to
+antenatal care, and the SAFH model is designed for prediction rather than for
+identifying the effect of travel time on stunting. Policies that reduce travel
+times, such as road construction, may therefore have effects on nutrition that
+differ substantially from what the slope of $\hat f$ would suggest.
+
+The approach extends directly to other indicators routinely published from
+household surveys, such as wasting, underweight or vaccination coverage, and to
+other auxiliary variables with a plausibly nonlinear relationship to the
+outcome, such as night-time light intensity or population density. An
+implementation in R is provided in the supplementary material.

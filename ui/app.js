@@ -299,6 +299,13 @@ function windowGauge(b) {
     <span class="state">Shows time elapsed, not usage. Exact limits: <code>tforge statusline --setup</code></span></div></div>`;
 }
 
+// Same estimate as the status line (lib/estimate.mjs), in raw tokens, for sessions the status line has seen today.
+function savedLead(e) {
+  if (!e || !(e.saved > 0)) return '';
+  const parts = [e.fixed && `lean tools ${compact(e.fixed)}`, e.tools && `tkit ${compact(e.tools)}`, e.answers && `answer cache ${compact(e.answers)}`].filter(Boolean).join(', ');
+  return `<div class="lead"><b>TokenForge today: ~${Math.round(e.pct * 100)}% fewer tokens</b> (~${compact(e.saved)} saved: ${parts}). An estimate, from sessions shown in your status line.</div>`;
+}
+
 async function overviewView() {
   header([{ label: 'Pages' }, { label: 'Overview' }], 'Overview');
   // Savings are optional: an older server without the route must not break the overview.
@@ -320,7 +327,7 @@ async function overviewView() {
     <div class="grid cols-2" style="margin-top:18px">
       <div class="card hero">
         <div><div class="eyebrow">Input-equivalent tokens today</div><div class="big">${compact(o.totals.today.weq)}</div>
-        <div class="lead">Every call re-reads the whole conversation, so cost grows with turns × context. Cache reads count 0.1×, cache writes 1.25×, output 5×.</div></div>
+        <div class="lead">Every call re-reads the whole conversation, so cost grows with turns × context. Cache reads count 0.1×, cache writes 1.25×, output 5×.</div>${savedLead(sv.estimate)}</div>
         <div class="foot">${b ? `Window ${clock(b.start)} to ${clock(b.end)}: ${comma(b.calls)} calls so far` : 'No calls in the last 5 hours'}${o.models[0] ? ` · mostly ${esc(o.models[0].model.replace(/^claude-/, ''))}` : ''}</div>
       </div>
       <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(220px,1fr))">${gauges}</div>

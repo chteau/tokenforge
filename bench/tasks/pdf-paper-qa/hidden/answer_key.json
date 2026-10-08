@@ -1,0 +1,224 @@
+[
+ {
+  "id": 1,
+  "source": "Table 3 (main MAE table)",
+  "checks": [
+   {
+    "type": "number",
+    "values": [
+     6.84
+    ],
+    "abs_tol": 0.006
+   }
+  ]
+ },
+ {
+  "id": 2,
+  "source": "Section 6.4 text and Appendix Table 7",
+  "checks": [
+   {
+    "type": "number",
+    "values": [
+     0.0003
+    ],
+    "rel_tol": 0.01
+   }
+  ]
+ },
+ {
+  "id": 3,
+  "source": "Table 4 (RMSE at 72 h) only",
+  "checks": [
+   {
+    "type": "choice",
+    "options": {
+     "persistence": [
+      "persistence"
+     ],
+     "harmonic": [
+      "harmonic"
+     ],
+     "lstm": [
+      "lstm"
+     ],
+     "informer": [
+      "informer"
+     ],
+     "dlinear": [
+      "dlinear"
+     ],
+     "patchtst": [
+      "patchtst"
+     ]
+    },
+    "answer": "dlinear"
+   }
+  ]
+ },
+ {
+  "id": 4,
+  "source": "Equation (5) only",
+  "checks": [
+   {
+    "type": "number",
+    "values": [
+     0.15
+    ],
+    "abs_tol": 0.0005
+   }
+  ]
+ },
+ {
+  "id": 5,
+  "source": "Section 8 Limitations",
+  "checks": [
+   {
+    "type": "keywords",
+    "groups": [
+     [
+      "river",
+      "fluvial"
+     ],
+     [
+      "discharge",
+      "flood",
+      "flow"
+     ]
+    ]
+   }
+  ]
+ },
+ {
+  "id": 6,
+  "source": "Figure 3 (raster image) only",
+  "checks": [
+   {
+    "type": "choice",
+    "options": {
+     "harmonic": [
+      "harmonic"
+     ],
+     "sparse": [
+      "sparse",
+      "attention",
+      "attn"
+     ],
+     "surge": [
+      "surge"
+     ],
+     "phase": [
+      "phase"
+     ],
+     "station": [
+      "station"
+     ]
+    },
+    "answer": "harmonic"
+   },
+   {
+    "type": "number",
+    "values": [
+     8.92
+    ],
+    "abs_tol": 0.006
+   }
+  ]
+ },
+ {
+  "id": 7,
+  "source": "Section 6.1 citation [21] + reference list",
+  "checks": [
+   {
+    "type": "number",
+    "values": [
+     2017
+    ],
+    "abs_tol": 0
+   }
+  ]
+ },
+ {
+  "id": 8,
+  "source": "Table 2 (datasets) only",
+  "checks": [
+   {
+    "type": "number",
+    "values": [
+     6
+    ],
+    "abs_tol": 0
+   },
+   {
+    "type": "keywords",
+    "groups": [
+     [
+      "min"
+     ]
+    ]
+   }
+  ]
+ },
+ {
+  "id": 9,
+  "source": "Table 5 (efficiency) only",
+  "checks": [
+   {
+    "type": "number",
+    "values": [
+     7.9,
+     7900000
+    ],
+    "rel_tol": 0.005
+   }
+  ]
+ },
+ {
+  "id": 10,
+  "source": "Table 3 (main MAE table)",
+  "checks": [
+   {
+    "type": "keywords",
+    "groups": [
+     [
+      "pacific"
+     ],
+     [
+      "6 h",
+      "6h",
+      "6-h",
+      "6 hour",
+      "6-hour",
+      "6\u2011hour",
+      "six-hour",
+      "six hour",
+      "6 hours"
+     ]
+    ]
+   },
+   {
+    "type": "choice",
+    "options": {
+     "persistence": [
+      "persistence"
+     ],
+     "harmonic": [
+      "harmonic"
+     ],
+     "lstm": [
+      "lstm"
+     ],
+     "informer": [
+      "informer"
+     ],
+     "dlinear": [
+      "dlinear"
+     ],
+     "patchtst": [
+      "patchtst"
+     ]
+    },
+    "answer": "harmonic"
+   }
+  ]
+ }
+]
