@@ -1,0 +1,22 @@
+diff --git a/ANSWER.md b/ANSWER.md
+new file mode 100644
+index 0000000..5ef6ed2
+--- /dev/null
++++ b/ANSWER.md
+@@ -0,0 +1,16 @@
++# Where the `RAS` (remote area surcharge) line comes from
++
++1. `services/gateway/main.ts:start` — HTTP API entry point: loads layered config, builds the service container (`buildContainer`, which calls `registerRates` and registers each adjuster under `adjuster.<name>`; `adjuster.zone` is `zoneUplift` because `features.zoneEngineV2` is off), mounts routes and starts the `node:http` server.
++2. `services/gateway/routes/index.ts:mountRoutes` — installs global middleware, adds `resolveTenant` and rate limiting for the `/v2` prefix, and maps the `V2_ROUTES` table entry `POST /quotes` (action `quotes.postQuote`, scope `quotes:write`) to the controller.
++3. `services/gateway/middleware/tenant.ts:resolveTenant` — per request: maps the API key to a tenant from `config/tenants.json` and sets `ctx.tenant.pricingProfile` (internal tenants may override it via `x-pricing-profile`). The profile decides whether the zone adjuster runs at all (e.g. `standard`/`marketplace` include it, `contract` does not).
++4. `services/gateway/controllers/quotes.controller.ts:postQuote` — validates the body (`validateQuoteInput`) and calls the `shipping.quotes` service from the container.
++5. `packages/shipping/src/quotes/QuoteService.ts:createQuote` — computes the base rate (`RateCalculator.calculate` in `packages/rates`), builds the adjust context (subtotal = base amount, locale from market) and runs the tenant's adjuster chain.
++6. `packages/rates/src/registry.ts:resolve` — `AdjusterRegistry.resolve(profile)` reads `pricing.profiles[profile]` from config and looks each key up in the container; for `standard` this yields fuel, zone, residential and peak adjusters.
++7. `packages/rates/src/adjustments.ts:zoneUplift` — classifies the destination with `classifyPostcode` (generated district tables in `zones/data/districts.gen.ts`, e.g. `HS1` -> class `R`), takes `rates.zoneUpliftBps.R = 350` (3.5%) from config and emits the line with code `lineItemCode('zone','R')` = `RAS`, label "Remote area surcharge".
++8. `packages/shipping/src/quotes/QuoteRepository.ts:save` — appends the quote, including its line items, to the `quotes` collection of the `JsonlStore` (`core.store`); `createQuote` then publishes `quote.created`.
++
++Not on this path:
++- `packages/pricing/src/surcharge.ts` (`applyRemoteSurcharge`, 3.5% constant) and `packages/pricing/src/RateCalculator.ts` are only used by the unmounted v1 handler (`services/gateway/handlers/quote.ts`, `routes/v1.ts:registerV1Routes`) and `tools/quote-diff.ts`.
++- `packages/legacy/tariff/surcharge.ts` (`remoteAreaSurcharge`) and `packages/legacy/quotes/QuoteRepository.ts` are used only by the offline CLI `quote` command.
++- `packages/rates/src/zones/zoneEngineV2.ts` (`zoneUpliftV2`) only replaces `zoneUplift` when `features.zoneEngineV2` is enabled (off by default); `packages/rates/src/fuelSurcharge.ts` is dead; `packages/rates/src/surcharge.ts` is the residential surcharge.
++- `packages/core/src/tenant/resolveTenant.ts` is the deprecated monolith resolver, and `packages/sdk/gen/quotesClient.gen.ts:createQuote` is the generated client, not server code.

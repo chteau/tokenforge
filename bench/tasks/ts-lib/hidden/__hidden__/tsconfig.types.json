@@ -1,0 +1,22 @@
+{
+  "compilerOptions": {
+    "target": "es2024",
+    "lib": ["es2024"],
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "strict": true,
+    "skipLibCheck": true,
+    "types": []
+  },
+  "files": [
+    "types/primitives.ts",
+    "types/object.ts",
+    "types/modifiers.ts",
+    "types/array-union.ts",
+    "types/safe-parse.ts",
+    "types/nested.ts",
+    "types/schema-param.ts"
+  ]
+}

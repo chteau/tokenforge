@@ -1,0 +1,566 @@
+{
+  "sessions": {
+    "2026-10-08T00-48-18-9a48": {
+      "session": "2026-10-08T00-48-18-9a48",
+      "seed": 12848,
+      "benchmark_version": "1.0.0",
+      "model": "claude-opus-5-5",
+      "claude_code_version": "2.1.293",
+      "token_forge_version": "0.7.0",
+      "max_tokens": 6000000,
+      "warn_tokens": 3000000,
+      "max_budget_usd": 8.0,
+      "jobs": 1,
+      "canonical_commits": {
+        "cross-module-debug": "a5f5573f9c4b51c9f79020e18c8ed6b1453d99d0"
+      },
+      "run_order": [
+        "cross-module-debug-token-forge-r1"
+      ],
+      "started": "2026-10-08T00:48:18.296747+00:00",
+      "finished": "2026-10-08T00:48:44.663685+00:00",
+      "statuses": [
+        "completed"
+      ]
+    }
+  },
+  "token_forge_build": {
+    "version": "0.7.0",
+    "plugin_sha256": "b9471cc0bd41eca4c6ad736ab1e477014da3df69c55e121763eca62cbc3e1727",
+    "plugin_git_commit": "b8291147b76456b90981d0631844d4c713914fce",
+    "plugin_git_dirty": true,
+    "lean": "balanced",
+    "equivalent_builds": {
+      "b9471cc0bd41eca4c6ad736ab1e477014da3df69c55e121763eca62cbc3e1727": "Same plugin behaviour as the current build: differs only in dashboard UI files (favicon, page title)."
+    }
+  },
+  "excluded_runs_other_build": [],
+  "excluded_runs_other_claude_code": [],
+  "aggregate": {
+    "tasks_paired": 0,
+    "runs_executed": 1,
+    "runs_not_executed": 0,
+    "token_savings_percent": null,
+    "input_savings_percent": null,
+    "output_savings_percent": null,
+    "uncached_input_savings_percent": null,
+    "input_equivalent_savings_percent": null,
+    "cost_savings_percent": null,
+    "quality_diff": null,
+    "tool_call_reduction_percent": null,
+    "files_read_reduction_percent": null,
+    "first_request_overhead_tokens": null,
+    "pooled_token_savings_percent": null,
+    "sign_test": {
+      "tasks_tf_cheaper": 0,
+      "tasks_tf_costlier": 0,
+      "p_value_two_sided": null
+    }
+  },
+  "per_agent": {
+    "native": {
+      "total_tokens": null,
+      "input_tokens": null,
+      "output_tokens": null,
+      "cached_input_tokens": null,
+      "uncached_input_tokens": null,
+      "input_equivalent_tokens": null,
+      "total_cost_usd_reported": null,
+      "tool_calls": null,
+      "duration_seconds": null,
+      "quality_score": null,
+      "completion_rate": null,
+      "runs": 0
+    },
+    "token-forge": {
+      "total_tokens": {
+        "n": 1,
+        "mean": 92003,
+        "median": 92003,
+        "min": 92003,
+        "max": 92003,
+        "stdev": null,
+        "p10": 92003,
+        "p25": 92003,
+        "p75": 92003,
+        "p90": 92003
+      },
+      "input_tokens": {
+        "n": 1,
+        "mean": 90292,
+        "median": 90292,
+        "min": 90292,
+        "max": 90292,
+        "stdev": null,
+        "p10": 90292,
+        "p25": 90292,
+        "p75": 90292,
+        "p90": 90292
+      },
+      "output_tokens": {
+        "n": 1,
+        "mean": 1711,
+        "median": 1711,
+        "min": 1711,
+        "max": 1711,
+        "stdev": null,
+        "p10": 1711,
+        "p25": 1711,
+        "p75": 1711,
+        "p90": 1711
+      },
+      "cached_input_tokens": {
+        "n": 1,
+        "mean": 76344,
+        "median": 76344,
+        "min": 76344,
+        "max": 76344,
+        "stdev": null,
+        "p10": 76344,
+        "p25": 76344,
+        "p75": 76344,
+        "p90": 76344
+      },
+      "uncached_input_tokens": {
+        "n": 1,
+        "mean": 13948,
+        "median": 13948,
+        "min": 13948,
+        "max": 13948,
+        "stdev": null,
+        "p10": 13948,
+        "p25": 13948,
+        "p75": 13948,
+        "p90": 13948
+      },
+      "input_equivalent_tokens": {
+        "n": 1,
+        "mean": 33621,
+        "median": 33621,
+        "min": 33621,
+        "max": 33621,
+        "stdev": null,
+        "p10": 33621,
+        "p25": 33621,
+        "p75": 33621,
+        "p90": 33621
+      },
+      "total_cost_usd_reported": {
+        "n": 1,
+        "mean": 0.16,
+        "median": 0.16,
+        "min": 0.1610248,
+        "max": 0.1610248,
+        "stdev": null,
+        "p10": 0.16,
+        "p25": 0.16,
+        "p75": 0.16,
+        "p90": 0.16
+      },
+      "tool_calls": {
+        "n": 1,
+        "mean": 5,
+        "median": 5,
+        "min": 5,
+        "max": 5,
+        "stdev": null,
+        "p10": 5,
+        "p25": 5,
+        "p75": 5,
+        "p90": 5
+      },
+      "duration_seconds": {
+        "n": 1,
+        "mean": 25.0,
+        "median": 25.0,
+        "min": 25.0,
+        "max": 25.0,
+        "stdev": null,
+        "p10": 25.0,
+        "p25": 25.0,
+        "p75": 25.0,
+        "p90": 25.0
+      },
+      "quality_score": {
+        "n": 1,
+        "mean": 100.0,
+        "median": 100.0,
+        "min": 100.0,
+        "max": 100.0,
+        "stdev": null,
+        "p10": 100.0,
+        "p25": 100.0,
+        "p75": 100.0,
+        "p90": 100.0
+      },
+      "completion_rate": 1.0,
+      "runs": 1
+    }
+  },
+  "per_category": {},
+  "per_task": [
+    {
+      "task": "cross-module-debug",
+      "category": "debugging",
+      "runs": {
+        "native": 0,
+        "token-forge": 1
+      },
+      "native": {
+        "total_tokens": null,
+        "input_tokens": null,
+        "output_tokens": null,
+        "cached_input_tokens": null,
+        "uncached_input_tokens": null,
+        "input_equivalent_tokens": null,
+        "total_cost_usd_reported": null,
+        "tool_calls": null,
+        "duration_seconds": null,
+        "quality_score": null,
+        "files_read": null,
+        "lines_read": null,
+        "bytes_read": null,
+        "first_request_context_tokens": null,
+        "api_requests": null,
+        "redundant_reads": null,
+        "tool_result_bytes": null,
+        "files_read_incl_bash": null,
+        "context_precision_approx": null,
+        "subagent_calls": null,
+        "completion_rate": null,
+        "statuses": [],
+        "tests_passed": [],
+        "tokens_per_quality_point": null,
+        "quality_per_million_tokens": null,
+        "nested_session_tokens": null
+      },
+      "token-forge": {
+        "total_tokens": 92003,
+        "input_tokens": 90292,
+        "output_tokens": 1711,
+        "cached_input_tokens": 76344,
+        "uncached_input_tokens": 13948,
+        "input_equivalent_tokens": 33621,
+        "total_cost_usd_reported": 0.1610248,
+        "tool_calls": 5,
+        "duration_seconds": 25.0,
+        "quality_score": 100.0,
+        "files_read": 0,
+        "lines_read": 416,
+        "bytes_read": 18120,
+        "first_request_context_tokens": 10192,
+        "api_requests": 6,
+        "redundant_reads": 2,
+        "tool_result_bytes": 18120,
+        "files_read_incl_bash": 8,
+        "context_precision_approx": 0.625,
+        "subagent_calls": 0,
+        "completion_rate": 1.0,
+        "statuses": [
+          "completed"
+        ],
+        "tests_passed": [
+          true
+        ],
+        "tokens_per_quality_point": 920.0,
+        "quality_per_million_tokens": 1086.92,
+        "nested_session_tokens": 0
+      }
+    }
+  ],
+  "validation": {
+    "contaminated_or_invalid_runs": [],
+    "isolation_problems": [],
+    "missing_telemetry": [],
+    "repo_commit_mismatch": [],
+    "prompt_hash_mismatch": [],
+    "missing_evaluation": [],
+    "api_models": {
+      "claude-opus-5-5": 1
+    },
+    "runs_with_other_models": []
+  },
+  "runs": [
+    {
+      "run_id": "cross-module-debug-token-forge-r1",
+      "task": "cross-module-debug",
+      "category": "debugging",
+      "agent": "token-forge",
+      "repetition": 1,
+      "model": "claude-opus-5-5",
+      "claude_code_version": "2.1.293",
+      "benchmark_version": "1.0.0",
+      "token_forge_version": "0.7.0",
+      "token_forge_plugin_sha256": "b9471cc0bd41eca4c6ad736ab1e477014da3df69c55e121763eca62cbc3e1727",
+      "repository_commit": "a5f5573f9c4b51c9f79020e18c8ed6b1453d99d0",
+      "prompt_hash": "46500feead12b03e0c0335a02da3b5217123fdb5944b26fc77b712408160970a",
+      "session_id": "b0f33f45-2b2e-4ff1-9423-b6dd44d734d6",
+      "sandbox": "/var/tmp/cc-sandbox/85b17237",
+      "max_tokens": 6000000,
+      "max_budget_usd": 8.0,
+      "timeout_s": 1500,
+      "variant": null,
+      "tf_env": {},
+      "history": null,
+      "status": "completed",
+      "isolation_problems": [],
+      "leftover_processes_killed": [
+        "/home/linuxbrew/.linuxbrew/Cellar/node/26.10.0_2/bin/node /var/tmp/cc-sandbox/85b17237/plugin/tokenforge/bin/tforge ui"
+      ],
+      "builtin_plugins": [
+        "cc-plugin-agents-md",
+        "cc-plugin-telemetry",
+        "cc-plugin-plugin-authoring"
+      ],
+      "start_time": "2026-10-08T00:48:18.345387+00:00",
+      "end_time": "2026-10-08T00:48:43.360499+00:00",
+      "duration_seconds": 25.0,
+      "num_turns": 6,
+      "total_cost_usd_reported": 0.1610248,
+      "input_tokens": 90292,
+      "output_tokens": 1711,
+      "total_tokens": 92003,
+      "cached_input_tokens": 76344,
+      "uncached_input_tokens": 13948,
+      "cache_creation_input_tokens": 13936,
+      "input_equivalent_tokens": 33621,
+      "api_requests": 6,
+      "first_request_context_tokens": 10192,
+      "result_event_usage": {
+        "input_tokens": 12,
+        "cache_creation_input_tokens": 13936,
+        "cache_read_input_tokens": 76344,
+        "output_tokens": 1711,
+        "output_tokens_details": {
+          "thinking_tokens": 114
+        },
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 0
+        },
+        "service_tier": "standard",
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 13936,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "inference_geo": "not_available",
+        "iterations": [
+          {
+            "input_tokens": 2,
+            "output_tokens": 348,
+            "cache_read_input_tokens": 18583,
+            "cache_creation_input_tokens": 796,
+            "cache_creation": {
+              "ephemeral_5m_input_tokens": 0,
+              "ephemeral_1h_input_tokens": 796
+            },
+            "type": "message"
+          }
+        ],
+        "speed": "standard",
+        "fallback_credit": null
+      },
+      "result_event_model_usage": {
+        "claude-opus-5-5": {
+          "inputTokens": 12,
+          "outputTokens": 1711,
+          "cacheReadInputTokens": 76344,
+          "cacheCreationInputTokens": 13936,
+          "webSearchRequests": 0,
+          "costUSD": 0.1610248,
+          "contextWindow": 1000000,
+          "maxOutputTokens": 128000,
+          "thinkingTokens": 114,
+          "canonicalModel": "claude-opus-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      },
+      "tool_calls": 5,
+      "files_read": 0,
+      "lines_read": 416,
+      "bytes_read": 18120,
+      "tests_passed": true,
+      "build_passed": true,
+      "lint_passed": null,
+      "format_passed": null,
+      "typecheck_passed": true,
+      "hidden_tests_passed": 13,
+      "hidden_tests_total": 13,
+      "task_status": "completed",
+      "task_completed": true,
+      "quality_score": 100.0,
+      "final_head": "a5f5573f9c4b51c9f79020e18c8ed6b1453d99d0",
+      "tools": {
+        "total_tool_calls": 5,
+        "by_name": {
+          "Bash": 5
+        },
+        "file_reads": 0,
+        "searches": 0,
+        "bash_search_commands": 4,
+        "bash_view_commands": 5,
+        "shell_commands": 5,
+        "edits": 0,
+        "writes": 0,
+        "subagent_calls": 0,
+        "skill_calls": 0,
+        "other_tool_calls": 0,
+        "tokenforge_cli_commands": 1,
+        "files_read": 0,
+        "files_read_incl_bash_heuristic": 8,
+        "lines_read": 416,
+        "bytes_read": 18120,
+        "tool_result_bytes": 18120,
+        "redundant_reads": 2,
+        "relevant_files_read": 5,
+        "irrelevant_files_read": 3,
+        "context_precision_approx": 0.625,
+        "files_read_list": [
+          "168s/ownerId: actor.userId/ownerId: account.ownerId/",
+          "2>/dev/null",
+          "package.json",
+          "packages/shared/src/events.ts",
+          "packages/transfers/src/transfer-service.ts",
+          "server/cache/summary-cache.ts",
+          "server/deps.ts",
+          "tests/api/dashboard.api.test.ts"
+        ]
+      },
+      "tokens_exact": {
+        "all": {
+          "requests": 6,
+          "input_tokens_total": 90292,
+          "uncached_input_tokens": 13948,
+          "input_tokens_no_cache": 12,
+          "cache_creation_input_tokens": 13936,
+          "cached_input_tokens": 76344,
+          "output_tokens": 1711,
+          "total_tokens": 92003,
+          "thinking_tokens": 114,
+          "input_equivalent_tokens": 33621
+        },
+        "main": {
+          "requests": 6,
+          "input_tokens_total": 90292,
+          "uncached_input_tokens": 13948,
+          "input_tokens_no_cache": 12,
+          "cache_creation_input_tokens": 13936,
+          "cached_input_tokens": 76344,
+          "output_tokens": 1711,
+          "total_tokens": 92003,
+          "thinking_tokens": 114,
+          "input_equivalent_tokens": 33621
+        },
+        "subagents": {
+          "requests": 0,
+          "input_tokens_total": 0,
+          "uncached_input_tokens": 0,
+          "input_tokens_no_cache": 0,
+          "cache_creation_input_tokens": 0,
+          "cached_input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "thinking_tokens": 0,
+          "input_equivalent_tokens": 0
+        },
+        "nested_sessions": {
+          "requests": 0,
+          "input_tokens_total": 0,
+          "uncached_input_tokens": 0,
+          "input_tokens_no_cache": 0,
+          "cache_creation_input_tokens": 0,
+          "cached_input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "thinking_tokens": 0,
+          "input_equivalent_tokens": 0
+        },
+        "by_model": {
+          "claude-opus-5-5": {
+            "requests": 6,
+            "input_tokens_total": 90292,
+            "uncached_input_tokens": 13948,
+            "input_tokens_no_cache": 12,
+            "cache_creation_input_tokens": 13936,
+            "cached_input_tokens": 76344,
+            "output_tokens": 1711,
+            "total_tokens": 92003,
+            "thinking_tokens": 114,
+            "input_equivalent_tokens": 33621
+          }
+        },
+        "first_request_context_tokens": 10192
+      },
+      "estimated": {
+        "tool_result_tokens_est": 4530,
+        "hook_injected_context_tokens_est": 614,
+        "skill_listing_tokens_est": 133,
+        "method": "UTF-8 bytes / 4; NOT exact"
+      },
+      "hooks": {
+        "count": 7,
+        "by_event": {
+          "SessionStart": 3,
+          "PreToolUse": 4
+        },
+        "injected_context_chars": 2456,
+        "tool_rewrites": 4,
+        "tool_denials": 0
+      },
+      "eval": {
+        "task": "cross-module-debug",
+        "checks": {
+          "build_passed": true,
+          "tests_passed": true,
+          "lint_passed": null,
+          "format_passed": null,
+          "typecheck_passed": true
+        },
+        "rubric": "debugging",
+        "components": {
+          "correctness": 40.0,
+          "regression": 20,
+          "architecture": 15.0,
+          "completeness": 15.0,
+          "cleanliness": 10
+        },
+        "quality_score": 100.0,
+        "status": "completed",
+        "requirements_met": {
+          "recipient_dashboard_fresh": true,
+          "original_regression_test": true,
+          "cache_still_effective": true
+        },
+        "hidden_tests_passed": 13,
+        "hidden_tests_total": 13,
+        "details": {
+          "typecheck_output": "",
+          "import_check": "imported 92/92\n",
+          "original_tests_missing": [],
+          "original_tests_output": "rts offsets (0.38502ms)\n\u2714 time zones (21.929006ms)\n\u25b6 html templating\n  \u2714 escapes interpolated values (0.805996ms)\n  \u2714 does not double-escape nested templates or raw values (0.139234ms)\n  \u2714 renders arrays and skips empty values (0.147119ms)\n  \u2714 escapes quotes for attributes (0.129646ms)\n  \u2714 builds query strings from non-empty values (0.378226ms)\n\u2714 html templating (2.817646ms)\n\u25b6 JSON file store\n  \u2714 round-trips registered tables (3.16857ms)\n  \u2714 reports a missing file and rejects double registration (0.412341ms)\n\u2714 JSON file store (5.003575ms)\n\u25b6 ledger\n  \u2714 keeps balances and balanceAfter in sync (3.927938ms)\n  \u2714 refuses to overdraw (0.473466ms)\n  \u2714 posts both legs of a transfer (17.499107ms)\n  \u2714 lists entries newest first with paging and by time window (0.971479ms)\n\u2714 ledger (24.050845ms)\n\u25b6 parseAmount\n  \u2714 converts decimal strings into minor units (1.107567ms)\n  \u2714 respects zero-decimal currencies (0.15308ms)\n  \u2714 rejects malformed input (0.265132ms)\n\u2714 parseAmount (2.775576ms)\n\u25b6 formatDecimal\n  \u2714 formats minor units without symbols or grouping (0.187425ms)\n\u2714 formatDecimal (0.336427ms)\n\u25b6 formatMoney\n  \u2714 formats with currency symbols (18.694341ms)\n\u2714 formatMoney (19.087135ms)\n\u25b6 currency helpers\n  \u2714 recognises supported currencies (0.439883ms)\n  \u2714 sums per currency (0.2741ms)\n\u2714 currency helpers (1.176148ms)\n\u25b6 router\n  \u2714 matches static and parameterised paths (1.434757ms)\n  \u2714 reports method-not-allowed and not-found (0.244684ms)\n  \u2714 rejects duplicate routes (2.971968ms)\n\u2714 router (5.80917ms)\n\u25b6 request parsing\n  \u2714 parses cookies (1.33602ms)\n  \u2714 parses JSON and form bodies (0.302172ms)\n  \u2714 extracts bearer tokens (0.192013ms)\n\u2714 request parsing (2.24433ms)\n\u25b6 client-side transfer form validation\n  \u2714 accepts a well-formed request (1.100834ms)\n  \u2714 flags missing and malformed fields (0.248029ms)\n  \u2714 rejects zero amounts and fractional yen (0.206371ms)\n\u2714 client-side transfer form validation (2.520473ms)\n\u25b6 transfer status machine\n  \u2714 allows only forward transitions (1.960643ms)\n\u2714 transfer status machine (2.850318ms)\n\u25b6 daily limits\n  \u2714 uses per-user overrides and defaults (0.166395ms)\n  \u2714 counts only today's completed transfers in the customer's time zone (14.714134ms)\n\u2714 daily limits (15.080137ms)\n\u25b6 TtlCache\n  \u2714 serves values until they expire (1.353323ms)\n  \u2714 returns copies so callers cannot mutate cached values (0.196853ms)\n  \u2714 invalidates by key and prefix and evicts the oldest entry when full (0.286663ms)\n\u2714 TtlCache (2.952861ms)\n\u25b6 SummaryCache\n  \u2714 keys summaries per user and invalidates on account changes (0.390169ms)\n\u2714 SummaryCache (0.544632ms)\n\u25b6 schema validation\n  \u2714 returns typed values and applies defaults (1.216344ms)\n  \u2714 collects every issue with field names (0.987029ms)\n  \u2714 throws VALIDATION_ERROR from parseOrThrow (0.400228ms)\n  \u2714 validates decimal strings and ids (0.205439ms)\n  \u2714 converts query strings to objects (0.143862ms)\n\u2714 schema validation (3.88167ms)\n\u2139 tests 95\n\u2139 suites 30\n\u2139 pass 95\n\u2139 fail 0\n\u2139 cancelled 0\n\u2139 skipped 0\n\u2139 todo 0\n\u2139 duration_ms 419.415796\n",
+          "agent_tests_output": "\u25b6 dashboard API\n  \u2714 summarises balances and month-to-date figures in the customer's time zone (22.552357ms)\n  \u2714 serves repeated reads from the summary cache (9.785461ms)\n  \u2714 refreshes after the customer moves money between their own accounts (13.501978ms)\n  \u2714 refreshes the recipient's summary after an incoming transfer from another customer (17.072971ms)\n  \u2714 refreshes after an admin deposit (15.680163ms)\n  \u2714 expires cached summaries after the configured TTL (7.939184ms)\n  \u2714 exposes cache statistics to admins only (15.686475ms)\n\u2714 dashboard API (103.213933ms)\n\u2139 tests 7\n\u2139 suites 1\n\u2139 pass 7\n\u2139 fail 0\n\u2139 cancelled 0\n\u2139 skipped 0\n\u2139 todo 0\n\u2139 duration_ms 214.860897\n",
+          "agent_tests": [
+            "tests/api/dashboard.api.test.ts"
+          ],
+          "hidden_failed": [],
+          "hidden_output_tail": "TAP version 13\n# Subtest: DBG-CACHE: repeated dashboard reads are served from the summary cache\nok 1 - DBG-CACHE: repeated dashboard reads are served from the summary cache\n  ---\n  duration_ms: 27.944578\n  type: 'test'\n  ...\n# Subtest: DBG-CACHE: the recipient's summary is recomputed once and then cached again\nok 2 - DBG-CACHE: the recipient's summary is recomputed once and then cached again\n  ---\n  duration_ms: 19.959496\n  type: 'test'\n  ...\n# Subtest: DBG-CACHE: other customers' cached summaries survive a transfer\nok 3 - DBG-CACHE: other customers' cached summaries survive a transfer\n  ---\n  duration_ms: 23.930968\n  type: 'test'\n  ...\n# Subtest: DBG-CACHE: the sender's dashboard is still refreshed\nok 4 - DBG-CACHE: the sender's dashboard is still refreshed\n  ---\n  duration_ms: 9.421791\n  type: 'test'\n  ...\n# Subtest: DBG-CACHE: cached summaries are kept for the configured TTL when nothing changes\nok 5 - DBG-CACHE: cached summaries are kept for the configured TTL when nothing changes\n  ---\n  duration_ms: 21.858453\n  type: 'test'\n  ...\n# Subtest: DBG-CACHE: admin deposits still refresh the dashboard\nok 6 - DBG-CACHE: admin deposits still refresh the dashboard\n  ---\n  duration_ms: 14.713202\n  type: 'test'\n  ...\n# Subtest: DBG-ORIGINAL: refreshes the recipient's dashboard after an incoming transfer\nok 7 - DBG-ORIGINAL: refreshes the recipient's dashboard after an incoming transfer\n  ---\n  duration_ms: 38.179149\n  type: 'test'\n  ...\n# Subtest: DBG-SYMPTOM: recipient's dashboard API reflects an incoming transfer immediately\nok 8 - DBG-SYMPTOM: recipient's dashboard API reflects an incoming transfer immediately\n  ---\n  duration_ms: 35.949366\n  type: 'test'\n  ...\n# Subtest: DBG-SYMPTOM: recipient's currency totals include the incoming transfer\nok 9 - DBG-SYMPTOM: recipient's currency totals include the incoming transfer\n  ---\n  duration_ms: 19.063781\n  type: 'test'\n  ...\n# Subtest: DBG-SYMPTOM: recipient's Overview page shows the new balance\nok 10 - DBG-SYMPTOM: recipient's Overview page shows the new balance\n  ---\n  duration_ms: 17.85453\n  type: 'test'\n  ...\n# Subtest: DBG-SYMPTOM: transfers made through the web form refresh the recipient too\nok 11 - DBG-SYMPTOM: transfers made through the web form refresh the recipient too\n  ---\n  duration_ms: 16.175181\n  type: 'test'\n  ...\n# Subtest: DBG-SYMPTOM: successive incoming transfers are each reflected\nok 12 - DBG-SYMPTOM: successive incoming transfers are each reflected\n  ---\n  duration_ms: 22.968475\n  type: 'test'\n  ...\n# Subtest: DBG-SYMPTOM: works for every currency and recipient\nok 13 - DBG-SYMPTOM: works for every currency and recipient\n  ---\n  duration_ms: 15.628766\n  type: 'test'\n  ...\n1..13\n# tests 13\n# suites 0\n# pass 13\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 256.376443\n",
+          "changed_files": [
+            "packages/transfers/src/transfer-service.ts",
+            "tests/api/dashboard.api.test.ts"
+          ],
+          "unrelated_files": [],
+          "diff_added": 18,
+          "diff_removed": 1,
+          "architecture_checks": {
+            "fix_at_event_source": true,
+            "event_owner_corrected": true,
+            "cache_ttl_and_reads_intact": true,
+            "symptom_site_untouched": true
+          },
+          "imports_ok": true
+        }
+      }
+    }
+  ]
+}

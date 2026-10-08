@@ -1,0 +1,3 @@
+{"id": "smoke", "title": "Collapse repeated dashes in slugify", "category": "debugging", "language": "python",
+ "rubric": "debugging", "timeout_s": 600, "relevant_files": ["textutil/slug.py", "tests/test_slug.py"],
+ "allowed_change_globs": ["textutil/*.py", "tests/*.py"], "reference_diff_lines": 6}

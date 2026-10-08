@@ -1,0 +1,4 @@
+{
+  "storage": { "dataDir": "/srv/kestrel-staging/data" },
+  "features": { "trackingPushIngest": true }
+}

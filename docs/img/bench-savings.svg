@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 428" width="760" role="img" aria-label="Token savings per task versus clean Claude Code">
+<style>
+  .bg{fill:#fcfcfb} .t1{fill:#0b0b0b} .t2{fill:#52514e} .mu{fill:#898781} .grid{stroke:#e1e0d9} .base{stroke:#c3c2b7}
+  .s1{fill:#2a78d6} .s2{fill:#eb6834} .s3{fill:#1baf7a} .o{fill:#eb6834} .l1{stroke:#2a78d6} .l2{stroke:#eb6834} .a1{fill:#2a78d6;fill-opacity:.12} .a2{fill:#eb6834;fill-opacity:.16}
+  @media (prefers-color-scheme: dark){
+    .bg{fill:#1a1a19} .t1{fill:#ffffff} .t2{fill:#c3c2b7} .grid{stroke:#2c2c2a} .base{stroke:#383835}
+    .s1{fill:#3987e5} .s2{fill:#d95926} .s3{fill:#199e70} .o{fill:#f08a5d} .l1{stroke:#3987e5} .l2{stroke:#d95926} .a1{fill:#3987e5} .a2{fill:#d95926}
+  }
+  text{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif}
+</style>
+<rect class="bg" width="760" height="428" rx="6"/>
+<text class="t1" x="24" y="34" font-size="17" font-weight="600">Fewer tokens than clean Claude Code, per task</text>
+<text class="t2" x="24" y="56" font-size="12.5">Total tokens saved (input, cache and output). Same task, repo and model (Opus 5.5); quality scored by hidden tests.</text>
+<rect class="s2" x="230" y="68" width="12" height="12" rx="2"/><text class="t2" x="248" y="78.5" font-size="12.5">tokenforge, lean balanced (default)</text>
+<rect class="s3" x="505" y="68" width="12" height="12" rx="2"/><text class="t2" x="523" y="78.5" font-size="12.5">tokenforge, lean ultra</text>
+<line class="grid" x1="230.0" y1="86" x2="230.0" y2="384" stroke-width="1"/><text class="mu" x="230.0" y="400" font-size="11.5" text-anchor="middle">0%</text>
+<line class="grid" x1="345.0" y1="86" x2="345.0" y2="384" stroke-width="1"/><text class="mu" x="345.0" y="400" font-size="11.5" text-anchor="middle">20%</text>
+<line class="grid" x1="460.0" y1="86" x2="460.0" y2="384" stroke-width="1"/><text class="mu" x="460.0" y="400" font-size="11.5" text-anchor="middle">40%</text>
+<line class="grid" x1="575.0" y1="86" x2="575.0" y2="384" stroke-width="1"/><text class="mu" x="575.0" y="400" font-size="11.5" text-anchor="middle">60%</text>
+<line class="grid" x1="690.0" y1="86" x2="690.0" y2="384" stroke-width="1"/><text class="mu" x="690.0" y="400" font-size="11.5" text-anchor="middle">80%</text>
+<text class="t1" x="218" y="109" font-size="13" text-anchor="end">Rust CLI feature</text>
+<path class="s2" d="M230,92h364.40342666190463a4,4 0 0 1 4,4v4a4,4 0 0 1 -4,4h-364.40342666190463z"><title>Rust CLI feature, lean balanced: 64% fewer tokens (519k vs 1.44M)</title></path><text class="t2" x="604.4" y="102" font-size="11.5">64%</text>
+<path class="s3" d="M230,106h369.7351950597597a4,4 0 0 1 4,4v4a4,4 0 0 1 -4,4h-369.7351950597597z"><title>Rust CLI feature, lean ultra: 65% fewer tokens (506k vs 1.44M)</title></path><text class="t2" x="609.7" y="116" font-size="11.5">65%</text>
+<text class="t1" x="218" y="149" font-size="13" text-anchor="end">Cross-module debug (TS)</text>
+<path class="s2" d="M230,132h333.28152703879823a4,4 0 0 1 4,4v4a4,4 0 0 1 -4,4h-333.28152703879823z"><title>Cross-module debug (TS), lean balanced: 59% fewer tokens (110k vs 265k)</title></path><text class="t2" x="573.3" y="142" font-size="11.5">59%</text>
+<path class="s3" d="M230,146h409.29541126651156a4,4 0 0 1 4,4v4a4,4 0 0 1 -4,4h-409.29541126651156z"><title>Cross-module debug (TS), lean ultra: 72% fewer tokens (75k vs 265k)</title></path><text class="t2" x="649.3" y="156" font-size="11.5">72%</text>
+<text class="t1" x="218" y="189" font-size="13" text-anchor="end">Go REST endpoint</text>
+<path class="s2" d="M230,172h249.53466642896177a4,4 0 0 1 4,4v4a4,4 0 0 1 -4,4h-249.53466642896177z"><title>Go REST endpoint, lean balanced: 44% fewer tokens (383k vs 684k)</title></path><text class="t2" x="489.5" y="182" font-size="11.5">44%</text>
+<path class="s3" d="M230,186h183.35843652549528a4,4 0 0 1 4,4v4a4,4 0 0 1 -4,4h-183.35843652549528z"><title>Go REST endpoint, lean ultra: 33% fewer tokens (461k vs 684k)</title></path><text class="t2" x="423.4" y="196" font-size="11.5">33%</text>
+<text class="t1" x="218" y="229" font-size="13" text-anchor="end">Rust debugging</text>
+<path class="s2" d="M230,212h226.57839841073104a4,4 0 0 1 4,4v4a4,4 0 0 1 -4,4h-226.57839841073104z"><title>Rust debugging, lean balanced: 40% fewer tokens (121k vs 202k)</title></path><text class="t2" x="466.6" y="222" font-size="11.5">40%</text>
+<path class="s3" d="M230,226h229.19584326007953a4,4 0 0 1 4,4v4a4,4 0 0 1 -4,4h-229.19584326007953z"><title>Rust debugging, lean ultra: 41% fewer tokens (120k vs 202k)</title></path><text class="t2" x="469.2" y="236" font-size="11.5">41%</text>
+<text class="t1" x="218" y="269" font-size="13" text-anchor="end">Architecture tracing (TS)</text>
+<path class="s2" d="M230,252h200.16179006623543a4,4 0 0 1 4,4v4a4,4 0 0 1 -4,4h-200.16179006623543z"><title>Architecture tracing (TS), lean balanced: 36% fewer tokens (249k vs 386k)</title></path><text class="t2" x="440.2" y="262" font-size="11.5">36%</text>
+<path class="s3" d="M230,266h248.38938316614792a4,4 0 0 1 4,4v4a4,4 0 0 1 -4,4h-248.38938316614792z"><title>Architecture tracing (TS), lean ultra: 44% fewer tokens (217k vs 386k)</title></path><text class="t2" x="488.4" y="276" font-size="11.5">44%</text>
+<text class="t1" x="218" y="309" font-size="13" text-anchor="end">Scheduled transfers (TS)</text>
+<path class="s2" d="M230,292h194.96165255886422a4,4 0 0 1 4,4v4a4,4 0 0 1 -4,4h-194.96165255886422z"><title>Scheduled transfers (TS), lean balanced: 35% fewer tokens (1.59M vs 2.43M)</title></path><text class="t2" x="435.0" y="302" font-size="11.5">35%</text>
+<path class="s3" d="M230,306h201.3747515021072a4,4 0 0 1 4,4v4a4,4 0 0 1 -4,4h-201.3747515021072z"><title>Scheduled transfers (TS), lean ultra: 36% fewer tokens (1.56M vs 2.43M)</title></path><text class="t2" x="441.4" y="316" font-size="11.5">36%</text>
+<text class="t1" x="218" y="349" font-size="13" text-anchor="end">PR review (Go)</text>
+<path class="s2" d="M230,332h182.93246625250544a4,4 0 0 1 4,4v4a4,4 0 0 1 -4,4h-182.93246625250544z"><title>PR review (Go), lean balanced: 33% fewer tokens (122k vs 181k)</title></path><text class="t2" x="422.9" y="342" font-size="11.5">33%</text>
+<path class="s3" d="M230,346h324.31536604542487a4,4 0 0 1 4,4v4a4,4 0 0 1 -4,4h-324.31536604542487z"><title>PR review (Go), lean ultra: 57% fewer tokens (77k vs 181k)</title></path><text class="t2" x="564.3" y="356" font-size="11.5">57%</text>
+<line class="base" x1="230" y1="86" x2="230" y2="384" stroke-width="1"/>
+<text class="mu" x="24" y="418" font-size="11.5">lean balanced: median 40% · lean ultra: median 44%. One tokenforge run per task vs median of 1–3 native runs; single runs vary ~±20%.</text>
+</svg>

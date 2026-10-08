@@ -1,0 +1,472 @@
+diff --git a/docs/api.md b/docs/api.md
+index 391712e..d703717 100644
+--- a/docs/api.md
++++ b/docs/api.md
+@@ -29,7 +29,7 @@ max 100) and `offset`, and return `{"items", "total", "limit", "offset", "next_o
+ 
+ ## Invoices
+ 
+-Invoice statuses: `draft → open → paid`, and `draft|open → void` while unpaid.
++Invoice statuses: `draft → open → paid → refunded`, and `draft|open → void` while unpaid.
+ 
+ | Method | Path | Auth | Notes |
+ |---|---|---|---|
+@@ -40,6 +40,7 @@ Invoice statuses: `draft → open → paid`, and `draft|open → void` while unp
+ | POST | /v1/invoices/{id}/void | billing_admin | 409 if paid or partially paid |
+ | POST | /v1/invoices/{id}/payments | billing_admin | `{amount_cents, method, reference?}` → 201 payment; 409 unless open; 422 `amount_exceeds_outstanding` |
+ | GET | /v1/invoices/{id}/payments | owner / billing_admin | `{items}` |
++| POST | /v1/invoices/{id}/refunds | billing_admin | `{amount_cents, reason}` → 201 refund; 409 `invoice_not_refundable` unless paid; 422 `amount_exceeds_refundable` |
+ 
+ ## Feature flags & audit
+ 
+diff --git a/internal/app/app.go b/internal/app/app.go
+index b0bfdd7..278e196 100644
+--- a/internal/app/app.go
++++ b/internal/app/app.go
+@@ -56,6 +56,7 @@ type Repositories struct {
+ 	Subscriptions repositories.SubscriptionRepository
+ 	Invoices      repositories.InvoiceRepository
+ 	Payments      repositories.PaymentRepository
++	Refunds       repositories.RefundRepository
+ 	Audit         repositories.AuditRepository
+ 	Flags         repositories.FlagRepository
+ }
+@@ -111,6 +112,7 @@ func New(cfg Config) (*App, error) {
+ 		Subscriptions: repositories.NewMemorySubscriptions(),
+ 		Invoices:      repositories.NewMemoryInvoices(),
+ 		Payments:      repositories.NewMemoryPayments(),
++		Refunds:       repositories.NewMemoryRefunds(),
+ 		Audit:         repositories.NewMemoryAudit(),
+ 		Flags:         repositories.NewMemoryFlags(),
+ 	}
+@@ -127,7 +129,7 @@ func New(cfg Config) (*App, error) {
+ 	a.Audit = services.NewAuditService(repos.Audit, cfg.Clock)
+ 	a.Users = services.NewUserService(repos.Users, a.Audit, notifier, cfg.Clock)
+ 	a.Auth = services.NewAuthService(a.Users, issuer, a.Audit)
+-	a.Billing = services.NewBillingService(repos.Invoices, repos.Payments, repos.Users, a.Audit, notifier, cfg.Clock)
++	a.Billing = services.NewBillingService(repos.Invoices, repos.Payments, repos.Refunds, repos.Users, a.Audit, notifier, cfg.Clock)
+ 	a.Plans = services.NewPlanService(repos.Plans, repos.Subscriptions, a.Billing, a.Audit, cfg.Clock)
+ 	a.Flags = services.NewFlagService(repos.Flags, a.Audit, cfg.Clock)
+ 
+diff --git a/internal/app/app_test.go b/internal/app/app_test.go
+index c7df2fd..be363bd 100644
+--- a/internal/app/app_test.go
++++ b/internal/app/app_test.go
+@@ -430,3 +430,29 @@ func TestConfigFromEnv(t *testing.T) {
+ 		t.Fatal("bad ttl accepted")
+ 	}
+ }
++
++func TestInvoiceRefunds(t *testing.T) {
++	e := newTestEnv(t)
++	custID, custTok := e.user("customer@example.com", "")
++	_, billTok := e.user("billing@example.com", "billing_admin")
++	invID := e.createInvoice(billTok, custID, 5000)
++	e.expect(e.do("POST", "/v1/invoices/"+invID+"/issue", billTok, nil), http.StatusOK)
++	e.expect(e.do("POST", "/v1/invoices/"+invID+"/payments", billTok, map[string]any{"amount_cents": 12000, "method": "card"}), http.StatusCreated)
++
++	path := "/v1/invoices/" + invID + "/refunds"
++	e.expect(e.do("POST", path, custTok, map[string]any{"amount_cents": 100, "reason": "x"}), http.StatusForbidden)
++	ref := e.expect(e.do("POST", path, billTok, map[string]any{"amount_cents": 2000, "reason": "Seat removed"}), http.StatusCreated)
++	if ref.body["invoice_id"] != invID || ref.body["amount_cents"] != float64(2000) {
++		t.Fatalf("refund = %s", ref.raw)
++	}
++	over := e.expect(e.do("POST", path, billTok, map[string]any{"amount_cents": 10001, "reason": "x"}), http.StatusUnprocessableEntity)
++	if errCode(over) != "amount_exceeds_refundable" {
++		t.Fatalf("over = %s", over.raw)
++	}
++	e.expect(e.do("POST", path, billTok, map[string]any{"amount_cents": 10000, "reason": "Cancelled"}), http.StatusCreated)
++	inv := e.expect(e.do("GET", "/v1/invoices/"+invID, custTok, nil), http.StatusOK)
++	if inv.body["status"] != "refunded" || inv.body["refunded_cents"] != float64(12000) {
++		t.Fatalf("invoice = %s", inv.raw)
++	}
++	e.expect(e.do("POST", path, billTok, map[string]any{"amount_cents": 1, "reason": "x"}), http.StatusConflict)
++}
+diff --git a/internal/audit/audit.go b/internal/audit/audit.go
+index 46ecc04..2cbd5e6 100644
+--- a/internal/audit/audit.go
++++ b/internal/audit/audit.go
+@@ -43,5 +43,6 @@ const (
+ 	ActionInvoiceIssued    = "invoice.issued"
+ 	ActionInvoiceVoided    = "invoice.voided"
+ 	ActionPaymentRecorded  = "invoice.payment_recorded"
++	ActionInvoiceRefunded  = "invoice.refunded"
+ 	ActionFeatureFlagSaved = "feature_flag.saved"
+ )
+diff --git a/internal/billing/invoice.go b/internal/billing/invoice.go
+index ebf348f..d78875e 100644
+--- a/internal/billing/invoice.go
++++ b/internal/billing/invoice.go
+@@ -6,13 +6,15 @@ import "time"
+ //
+ //	draft --issue--> open --pay in full--> paid
+ //	draft|open --void--> void
++//	paid --refund in full--> refunded
+ type InvoiceStatus string
+ 
+ const (
+-	InvoiceDraft InvoiceStatus = "draft"
+-	InvoiceOpen  InvoiceStatus = "open"
+-	InvoicePaid  InvoiceStatus = "paid"
+-	InvoiceVoid  InvoiceStatus = "void"
++	InvoiceDraft    InvoiceStatus = "draft"
++	InvoiceOpen     InvoiceStatus = "open"
++	InvoicePaid     InvoiceStatus = "paid"
++	InvoiceVoid     InvoiceStatus = "void"
++	InvoiceRefunded InvoiceStatus = "refunded"
+ )
+ 
+ // Line is a single invoice line item.
+@@ -36,6 +38,7 @@ type Invoice struct {
+ 	TaxCents      int64         `json:"tax_cents"`
+ 	TotalCents    int64         `json:"total_cents"`
+ 	PaidCents     int64         `json:"paid_cents"`
++	RefundedCents int64         `json:"refunded_cents"`
+ 	DueInDays     int           `json:"due_in_days"`
+ 	IssuedAt      *time.Time    `json:"issued_at,omitempty"`
+ 	DueAt         *time.Time    `json:"due_at,omitempty"`
+@@ -62,6 +65,11 @@ func (inv *Invoice) OutstandingCents() int64 {
+ 	return max(inv.TotalCents-inv.PaidCents, 0)
+ }
+ 
++// RefundableCents is the amount of the payments that can still be refunded.
++func (inv *Invoice) RefundableCents() int64 {
++	return max(inv.PaidCents-inv.RefundedCents, 0)
++}
++
+ // Overdue reports whether an open invoice is past its due date at now.
+ func (inv *Invoice) Overdue(now time.Time) bool {
+ 	return inv.Status == InvoiceOpen && inv.DueAt != nil && now.After(*inv.DueAt)
+@@ -104,3 +112,13 @@ type Payment struct {
+ 	RecordedBy  string        `json:"recorded_by"`
+ 	ReceivedAt  time.Time     `json:"received_at"`
+ }
++
++// Refund is money returned to the customer for a paid invoice.
++type Refund struct {
++	ID          string    `json:"id"`
++	InvoiceID   string    `json:"invoice_id"`
++	AmountCents int64     `json:"amount_cents"`
++	Reason      string    `json:"reason"`
++	RefundedBy  string    `json:"refunded_by"`
++	CreatedAt   time.Time `json:"created_at"`
++}
+diff --git a/internal/handlers/billing.go b/internal/handlers/billing.go
+index 6f254c7..77e5992 100644
+--- a/internal/handlers/billing.go
++++ b/internal/handlers/billing.go
+@@ -88,3 +88,16 @@ func (h *billingHandler) listPayments(w http.ResponseWriter, r *http.Request) {
+ 	}
+ 	httpx.WriteJSON(w, http.StatusOK, map[string]any{"items": list})
+ }
++
++func (h *billingHandler) refund(w http.ResponseWriter, r *http.Request) {
++	var in services.RefundInput
++	if !h.decode(w, r, &in) {
++		return
++	}
++	ref, err := h.billing.RefundInvoice(r.Context(), principal(r), r.PathValue("id"), in)
++	if err != nil {
++		h.fail(w, r, err)
++		return
++	}
++	httpx.WriteJSON(w, http.StatusCreated, ref)
++}
+diff --git a/internal/handlers/router.go b/internal/handlers/router.go
+index 792afb8..2d19aac 100644
+--- a/internal/handlers/router.go
++++ b/internal/handlers/router.go
+@@ -70,6 +70,7 @@ func NewRouter(d Deps) http.Handler {
+ 	mux.Handle("POST /v1/invoices/{id}/void", protected(bh.void))
+ 	mux.Handle("POST /v1/invoices/{id}/payments", protected(bh.recordPayment))
+ 	mux.Handle("GET /v1/invoices/{id}/payments", protected(bh.listPayments))
++	mux.Handle("POST /v1/invoices/{id}/refunds", protected(bh.refund))
+ 
+ 	mux.Handle("GET /v1/flags/{key}", protected(adm.evaluateFlag))
+ 
+diff --git a/internal/notifications/templates.go b/internal/notifications/templates.go
+index 19dd698..893c409 100644
+--- a/internal/notifications/templates.go
++++ b/internal/notifications/templates.go
+@@ -13,6 +13,7 @@ const (
+ 	TemplateInvoiceIssued   = "invoice_issued"
+ 	TemplatePaymentReceived = "payment_received"
+ 	TemplateInvoiceVoided   = "invoice_voided"
++	TemplateRefundIssued    = "refund_issued"
+ )
+ 
+ // Each template's first line is the subject; the rest is the body.
+@@ -36,6 +37,11 @@ We received {{.Amount}} for invoice {{.Number}}. Outstanding balance: {{.Outstan
+ Hi {{.Name}},
+ 
+ Invoice {{.Number}} has been voided. No payment is required.
++`,
++	TemplateRefundIssued: `Refund issued for invoice {{.Number}}
++Hi {{.Name}},
++
++We have refunded {{.Amount}} for invoice {{.Number}}. Reason: {{.Reason}}
+ `,
+ }
+ 
+diff --git a/internal/repositories/memory_billing.go b/internal/repositories/memory_billing.go
+index 55cbd46..3dc4b17 100644
+--- a/internal/repositories/memory_billing.go
++++ b/internal/repositories/memory_billing.go
+@@ -231,3 +231,31 @@ func (m *MemoryPayments) ListByInvoice(_ context.Context, invoiceID string) ([]b
+ 	}
+ 	return out, nil
+ }
++
++// MemoryRefunds is an in-memory RefundRepository.
++type MemoryRefunds struct {
++	mu      sync.RWMutex
++	refunds []billing.Refund
++}
++
++// NewMemoryRefunds returns an empty repository.
++func NewMemoryRefunds() *MemoryRefunds { return &MemoryRefunds{} }
++
++func (m *MemoryRefunds) Create(_ context.Context, r billing.Refund) error {
++	m.mu.Lock()
++	defer m.mu.Unlock()
++	m.refunds = append(m.refunds, r)
++	return nil
++}
++
++func (m *MemoryRefunds) ListByInvoice(_ context.Context, invoiceID string) ([]billing.Refund, error) {
++	m.mu.RLock()
++	defer m.mu.RUnlock()
++	var out []billing.Refund
++	for _, r := range m.refunds {
++		if r.InvoiceID == invoiceID {
++			out = append(out, r)
++		}
++	}
++	return out, nil
++}
+diff --git a/internal/repositories/repositories.go b/internal/repositories/repositories.go
+index fda24dc..c0f5379 100644
+--- a/internal/repositories/repositories.go
++++ b/internal/repositories/repositories.go
+@@ -73,6 +73,12 @@ type PaymentRepository interface {
+ 	ListByInvoice(ctx context.Context, invoiceID string) ([]billing.Payment, error)
+ }
+ 
++// RefundRepository stores refunds issued against invoices.
++type RefundRepository interface {
++	Create(ctx context.Context, r billing.Refund) error
++	ListByInvoice(ctx context.Context, invoiceID string) ([]billing.Refund, error)
++}
++
+ // AuditRepository is the append-only audit trail.
+ type AuditRepository interface {
+ 	Append(ctx context.Context, e audit.Event) error
+diff --git a/internal/services/billing.go b/internal/services/billing.go
+index 9c71f8d..be39904 100644
+--- a/internal/services/billing.go
++++ b/internal/services/billing.go
+@@ -27,6 +27,7 @@ const defaultDueInDays = 30
+ type BillingService struct {
+ 	invoices repositories.InvoiceRepository
+ 	payments repositories.PaymentRepository
++	refunds  repositories.RefundRepository
+ 	users    repositories.UserRepository
+ 	audit    *AuditService
+ 	notifier *Notifier
+@@ -34,8 +35,8 @@ type BillingService struct {
+ }
+ 
+ // NewBillingService returns a BillingService.
+-func NewBillingService(invoices repositories.InvoiceRepository, payments repositories.PaymentRepository, usersRepo repositories.UserRepository, auditSvc *AuditService, notifier *Notifier, clk clock.Clock) *BillingService {
+-	return &BillingService{invoices: invoices, payments: payments, users: usersRepo, audit: auditSvc, notifier: notifier, clock: clk}
++func NewBillingService(invoices repositories.InvoiceRepository, payments repositories.PaymentRepository, refunds repositories.RefundRepository, usersRepo repositories.UserRepository, auditSvc *AuditService, notifier *Notifier, clk clock.Clock) *BillingService {
++	return &BillingService{invoices: invoices, payments: payments, refunds: refunds, users: usersRepo, audit: auditSvc, notifier: notifier, clock: clk}
+ }
+ 
+ // loadInvoiceFor returns the invoice if p may see it: its customer and
+@@ -148,7 +149,7 @@ func (s *BillingService) ListInvoices(ctx context.Context, p auth.Principal, in
+ 	f := repositories.InvoiceFilter{CustomerID: in.CustomerID, Status: billing.InvoiceStatus(in.Status)}
+ 	if in.Status != "" {
+ 		v := validation.New()
+-		v.OneOf("status", in.Status, string(billing.InvoiceDraft), string(billing.InvoiceOpen), string(billing.InvoicePaid), string(billing.InvoiceVoid))
++		v.OneOf("status", in.Status, string(billing.InvoiceDraft), string(billing.InvoiceOpen), string(billing.InvoicePaid), string(billing.InvoiceVoid), string(billing.InvoiceRefunded))
+ 		if err := v.Err(); err != nil {
+ 			return pagination.Page[billing.Invoice]{}, err
+ 		}
+@@ -283,6 +284,72 @@ func (s *BillingService) ListPayments(ctx context.Context, p auth.Principal, id
+ 	return list, nil
+ }
+ 
++// RefundInput is the payload for refunding part or all of a paid invoice.
++type RefundInput struct {
++	AmountCents int64  `json:"amount_cents"`
++	Reason      string `json:"reason"`
++}
++
++// RefundInvoice returns money to the customer of a paid invoice. The total
++// refunded can never exceed the amount paid; once everything has been
++// refunded the invoice moves to the refunded status.
++func (s *BillingService) RefundInvoice(ctx context.Context, p auth.Principal, id string, in RefundInput) (billing.Refund, error) {
++	if _, err := s.loadInvoiceFor(ctx, p, id); err != nil {
++		return billing.Refund{}, err
++	}
++	if err := requireRole(p, auth.RoleBillingAdmin); err != nil {
++		return billing.Refund{}, err
++	}
++	v := validation.New()
++	v.Positive("amount_cents", in.AmountCents)
++	v.Required("reason", in.Reason)
++	v.MaxLen("reason", in.Reason, 500)
++	if err := v.Err(); err != nil {
++		return billing.Refund{}, err
++	}
++	now := s.clock.Now()
++	inv, err := s.invoices.Update(ctx, id, func(inv *billing.Invoice) error {
++		if inv.Status != billing.InvoicePaid {
++			return apperr.Conflict("invoice_not_refundable", "only paid invoices can be refunded")
++		}
++		if in.AmountCents > inv.RefundableCents() {
++			return apperr.Invalid("amount_exceeds_refundable", "amount exceeds the refundable balance",
++				map[string]string{"amount_cents": "must not exceed " + strconv.FormatInt(inv.RefundableCents(), 10)})
++		}
++		inv.RefundedCents += in.AmountCents
++		if inv.RefundableCents() == 0 {
++			inv.Status = billing.InvoiceRefunded
++		}
++		inv.UpdatedAt = now
++		return nil
++	})
++	if err != nil {
++		return billing.Refund{}, mapNotFound(err, errInvoiceNotFound)
++	}
++	ref := billing.Refund{
++		ID:          ids.New("ref"),
++		InvoiceID:   inv.ID,
++		AmountCents: in.AmountCents,
++		Reason:      strings.TrimSpace(in.Reason),
++		RefundedBy:  p.UserID,
++		CreatedAt:   now,
++	}
++	if err := s.refunds.Create(ctx, ref); err != nil {
++		return billing.Refund{}, err
++	}
++	if err := s.audit.Record(ctx, p.UserID, audit.ActionInvoiceRefunded, "invoice", inv.ID, map[string]string{
++		"refund_id": ref.ID, "amount_cents": strconv.FormatInt(ref.AmountCents, 10),
++	}); err != nil {
++		return billing.Refund{}, err
++	}
++	s.notifier.NotifyUser(ctx, inv.CustomerID, notifications.TemplateRefundIssued, map[string]string{
++		"Number": inv.Number,
++		"Amount": billing.FormatCents(ref.AmountCents, inv.Currency),
++		"Reason": ref.Reason,
++	})
++	return ref, nil
++}
++
+ // VoidInvoice cancels a draft or open invoice that has no payments.
+ func (s *BillingService) VoidInvoice(ctx context.Context, p auth.Principal, id string) (billing.Invoice, error) {
+ 	if _, err := s.loadInvoiceFor(ctx, p, id); err != nil {
+diff --git a/internal/services/billing_test.go b/internal/services/billing_test.go
+index 6d32e8c..d7b5d8e 100644
+--- a/internal/services/billing_test.go
++++ b/internal/services/billing_test.go
+@@ -37,7 +37,7 @@ func newBillingFixture(t *testing.T) *billingFixture {
+ 	invoices := repositories.NewMemoryInvoices()
+ 	auditSvc := NewAuditService(repositories.NewMemoryAudit(), clk)
+ 	return &billingFixture{
+-		svc:      NewBillingService(invoices, repositories.NewMemoryPayments(), usersRepo, auditSvc, notifier, clk),
++		svc:      NewBillingService(invoices, repositories.NewMemoryPayments(), repositories.NewMemoryRefunds(), usersRepo, auditSvc, notifier, clk),
+ 		invoices: invoices,
+ 		clock:    clk,
+ 		admin:    auth.Principal{UserID: "usr_b", Role: auth.RoleBillingAdmin},
+@@ -137,3 +137,67 @@ func TestInvoicePermissions(t *testing.T) {
+ 		t.Fatalf("admin void: %v", err)
+ 	}
+ }
++
++func TestRefundInvoice(t *testing.T) {
++	tests := []struct {
++		name         string
++		pay          int64 // amount paid before refunding; 0 leaves the invoice open
++		refunds      []int64
++		wantKind     apperr.Kind // for the last refund; KindInternal means success
++		wantStatus   billing.InvoiceStatus
++		wantRefunded int64
++	}{
++		{name: "partial", pay: 1000, refunds: []int64{300}, wantStatus: billing.InvoicePaid, wantRefunded: 300},
++		{name: "full in two steps", pay: 1000, refunds: []int64{300, 700}, wantStatus: billing.InvoiceRefunded, wantRefunded: 1000},
++		{name: "exceeds refundable", pay: 1000, refunds: []int64{600, 401}, wantKind: apperr.KindInvalid, wantStatus: billing.InvoicePaid, wantRefunded: 600},
++		{name: "already refunded", pay: 1000, refunds: []int64{1000, 1}, wantKind: apperr.KindConflict, wantStatus: billing.InvoiceRefunded, wantRefunded: 1000},
++		{name: "open invoice", pay: 0, refunds: []int64{100}, wantKind: apperr.KindConflict, wantStatus: billing.InvoiceOpen},
++		{name: "zero amount", pay: 1000, refunds: []int64{0}, wantKind: apperr.KindInvalid, wantStatus: billing.InvoicePaid},
++	}
++	for _, tt := range tests {
++		t.Run(tt.name, func(t *testing.T) {
++			f := newBillingFixture(t)
++			ctx := context.Background()
++			inv := f.openInvoice(t, 1000)
++			if tt.pay > 0 {
++				if _, err := f.svc.RecordPayment(ctx, f.admin, inv.ID, RecordPaymentInput{AmountCents: tt.pay, Method: "card"}); err != nil {
++					t.Fatal(err)
++				}
++			}
++			var err error
++			for _, a := range tt.refunds {
++				_, err = f.svc.RefundInvoice(ctx, f.admin, inv.ID, RefundInput{AmountCents: a, Reason: "duplicate charge"})
++			}
++			if tt.wantKind == apperr.KindInternal && err != nil {
++				t.Fatalf("unexpected error %v", err)
++			}
++			if tt.wantKind != apperr.KindInternal && apperr.KindOf(err) != tt.wantKind {
++				t.Fatalf("err = %v, want kind %v", err, tt.wantKind)
++			}
++			got, _ := f.invoices.Get(ctx, inv.ID)
++			if got.Status != tt.wantStatus || got.RefundedCents != tt.wantRefunded {
++				t.Fatalf("status=%s refunded=%d", got.Status, got.RefundedCents)
++			}
++		})
++	}
++}
++
++func TestRefundInvoicePermissions(t *testing.T) {
++	f := newBillingFixture(t)
++	ctx := context.Background()
++	inv := f.openInvoice(t, 1000)
++	if _, err := f.svc.RecordPayment(ctx, f.admin, inv.ID, RecordPaymentInput{AmountCents: 1000, Method: "card"}); err != nil {
++		t.Fatal(err)
++	}
++	in := RefundInput{AmountCents: 100, Reason: "goodwill"}
++	if _, err := f.svc.RefundInvoice(ctx, f.customer, inv.ID, in); apperr.KindOf(err) != apperr.KindForbidden {
++		t.Fatalf("owner: %v", err)
++	}
++	stranger := auth.Principal{UserID: "usr_x", Role: auth.RoleUser}
++	if _, err := f.svc.RefundInvoice(ctx, stranger, inv.ID, in); apperr.KindOf(err) != apperr.KindNotFound {
++		t.Fatalf("stranger: %v", err)
++	}
++	if _, err := f.svc.RefundInvoice(ctx, f.admin, "inv_missing", in); apperr.KindOf(err) != apperr.KindNotFound {
++		t.Fatalf("missing: %v", err)
++	}
++}
+diff --git a/migrations/0004_refunds.sql b/migrations/0004_refunds.sql
+new file mode 100644
+index 0000000..78d7f7f
+--- /dev/null
++++ b/migrations/0004_refunds.sql
+@@ -0,0 +1,17 @@
++-- Partial and full refunds of paid invoices.
++
++ALTER TABLE invoices
++    ADD COLUMN refunded_cents BIGINT NOT NULL DEFAULT 0 CHECK (refunded_cents >= 0 AND refunded_cents <= paid_cents),
++    DROP CONSTRAINT invoices_status_check,
++    ADD CONSTRAINT invoices_status_check CHECK (status IN ('draft', 'open', 'paid', 'void', 'refunded'));
++
++CREATE TABLE refunds (
++    id           TEXT PRIMARY KEY,
++    invoice_id   TEXT NOT NULL REFERENCES invoices (id),
++    amount_cents BIGINT NOT NULL CHECK (amount_cents > 0),
++    reason       TEXT NOT NULL,
++    refunded_by  TEXT NOT NULL REFERENCES users (id),
++    created_at   TIMESTAMPTZ NOT NULL
++);
++
++CREATE INDEX refunds_invoice_idx ON refunds (invoice_id);

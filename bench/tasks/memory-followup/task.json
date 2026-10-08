@@ -1,0 +1,14 @@
+{
+  "id": "memory-followup",
+  "title": "Follow-up: budget clear and alerts-only status",
+  "category": "feature",
+  "language": "rust",
+  "rubric": "coding",
+  "timeout_s": 1500,
+  "relevant_files": ["src/commands/budget.rs", "src/cli/mod.rs", "src/cli/parser.rs", "src/cli/help.rs",
+                     "src/report/mod.rs", "src/store/budgets.rs", "src/store/mod.rs", "src/util/text.rs",
+                     "tests/cli_budget.rs", "tests/common/mod.rs", "README.md"],
+  "allowed_change_globs": ["src/**", "tests/**", "README.md", "Cargo.lock"],
+  "reference_diff_lines": 106,
+  "history": {"from_task": "rust-cli"}
+}

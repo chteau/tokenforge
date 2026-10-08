@@ -1,0 +1,39 @@
+{
+  "id": "go-feature",
+  "title": "Scheduled notifications with quiet hours, idempotency and retries",
+  "category": "feature",
+  "language": "go",
+  "rubric": "coding",
+  "timeout_s": 2400,
+  "relevant_files": [
+    "docs/*.md",
+    "internal/app/app.go",
+    "internal/handlers/router.go",
+    "internal/handlers/respond.go",
+    "internal/handlers/users.go",
+    "internal/services/services.go",
+    "internal/services/notifier.go",
+    "internal/services/users.go",
+    "internal/notifications/sender.go",
+    "internal/repositories/repositories.go",
+    "internal/repositories/memory_users.go",
+    "internal/clock/clock.go",
+    "internal/validation/validation.go",
+    "cmd/server/main.go"
+  ],
+  "allowed_change_globs": [
+    "internal/handlers/*",
+    "internal/services/*",
+    "internal/notifications/*",
+    "internal/repositories/*",
+    "internal/users/*",
+    "internal/app/*",
+    "internal/validation/*",
+    "internal/audit/*",
+    "cmd/server/*",
+    "migrations/*",
+    "docs/*",
+    "README.md"
+  ],
+  "reference_diff_lines": 914
+}

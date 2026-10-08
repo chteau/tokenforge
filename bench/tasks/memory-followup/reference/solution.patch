@@ -1,0 +1,276 @@
+diff --git a/README.md b/README.md
+index 313f427..59e3d5f 100644
+--- a/README.md
++++ b/README.md
+@@ -63,7 +63,8 @@ Global options, accepted anywhere on the command line:
+ | `budget set CATEGORY AMOUNT` | Set (or replace) the monthly limit of a category. |
+ | `budget list` | List the budgets. |
+ | `budget remove CATEGORY` | Delete a budget. |
+-| `budget status [--month YYYY-MM]` | Compare each budget with a month's expenses (default: the current month, UTC). |
++| `budget status [--month YYYY-MM] [--alerts]` | Compare each budget with a month's expenses (default: the current month, UTC); `--alerts` keeps only `warning` and `over` rows. |
++| `budget clear --yes` | Delete every budget. |
+ | `config` | Show every configuration key, its value and where it came from. |
+ 
+ ### Values
+@@ -162,7 +163,8 @@ total       $1600.00  $365.00   $1235.00   22.8%
+ 
+ `spent` counts only expenses (not income) dated within the month. A budget
+ is `over` when spending exceeds its limit and `warning` when spending
+-reaches `budget.warn_percent` % of it; otherwise `ok`.
++reaches `budget.warn_percent` % of it; otherwise `ok`. With `--alerts`, only
++the `warning` and `over` rows are shown and the totals cover just those rows.
+ 
+ Budgets live in `budgets.txt`, one `category|limit` line each after a
+ `# tally budgets v1` header, escaped like the ledger and written just as
+diff --git a/src/cli/help.rs b/src/cli/help.rs
+index 2c75990..678ffac 100644
+--- a/src/cli/help.rs
++++ b/src/cli/help.rs
+@@ -15,7 +15,8 @@ commands:
+   report categories [selection]       spending breakdown by category
+   import FILE [--category C] [--dry-run]
+                                       import a bank CSV export
+-  budget set|list|remove|status       monthly spending limits per category
++  budget set|list|remove|status|clear
++                                      monthly spending limits per category
+   config                              show the effective configuration
+   help [COMMAND]                      show help
+ 
+@@ -64,10 +65,13 @@ FILE is a bank CSV export with Date (DD/MM/YYYY), Description and Amount columns
+ usage: tally budget set CATEGORY AMOUNT
+        tally budget list
+        tally budget remove CATEGORY
+-       tally budget status [--month YYYY-MM]
++       tally budget status [--month YYYY-MM] [--alerts]
++       tally budget clear [--yes]
+ 
+ `status` compares each budget with the month's expenses (default: the
+ current month, UTC). Categories reach `warning` at budget.warn_percent %.
++--alerts shows only the categories at `warning` or `over`.
++`clear` deletes every budget; it asks for --yes first.
+ "
+         }
+         "remove" => "usage: tally remove ID\n",
+diff --git a/src/cli/mod.rs b/src/cli/mod.rs
+index 97728b9..ec9f7a8 100644
+--- a/src/cli/mod.rs
++++ b/src/cli/mod.rs
+@@ -129,5 +129,10 @@ pub enum BudgetArgs {
+     /// `None` means the current month.
+     Status {
+         month: Option<YearMonth>,
++        /// Only categories at `warning` or `over`.
++        alerts: bool,
++    },
++    Clear {
++        yes: bool,
+     },
+ }
+diff --git a/src/cli/parser.rs b/src/cli/parser.rs
+index 66f2b47..8f4da79 100644
+--- a/src/cli/parser.rs
++++ b/src/cli/parser.rs
+@@ -414,7 +414,7 @@ fn parse_report(rest: &[String]) -> Result<Command> {
+ fn parse_budget(rest: &[String]) -> Result<Command> {
+     let Some(action) = rest.first() else {
+         return Err(Error::usage(
+-            "'budget' needs an action: set, list, remove or status",
++            "'budget' needs an action: set, list, remove, status or clear",
+         ));
+     };
+     let args = match action.as_str() {
+@@ -438,15 +438,25 @@ fn parse_budget(rest: &[String]) -> Result<Command> {
+             }
+         }
+         "status" => {
+-            let a = Args::split("budget status", &rest[1..], &[("month", true)])?;
++            let a = Args::split(
++                "budget status",
++                &rest[1..],
++                &[("month", true), ("alerts", false)],
++            )?;
+             a.expect_positionals(&[])?;
+             BudgetArgs::Status {
+                 month: a.typed::<YearMonth>("month")?,
++                alerts: a.flag("alerts"),
+             }
+         }
++        "clear" => {
++            let a = Args::split("budget clear", &rest[1..], &[("yes", false)])?;
++            a.expect_positionals(&[])?;
++            BudgetArgs::Clear { yes: a.flag("yes") }
++        }
+         other => {
+             return Err(Error::usage(format!(
+-                "unknown budget action '{other}' (expected set, list, remove or status)"
++                "unknown budget action '{other}' (expected set, list, remove, status or clear)"
+             )))
+         }
+     };
+@@ -512,9 +522,20 @@ mod tests {
+         assert_eq!(
+             inv.command,
+             Command::Budget(BudgetArgs::Status {
+-                month: YearMonth::new(2026, 3)
++                month: YearMonth::new(2026, 3),
++                alerts: false,
+             })
+         );
++        let inv = parse(&argv("budget status --alerts")).unwrap();
++        assert!(matches!(
++            inv.command,
++            Command::Budget(BudgetArgs::Status { alerts: true, .. })
++        ));
++        let inv = parse(&argv("budget clear --yes")).unwrap();
++        assert_eq!(
++            inv.command,
++            Command::Budget(BudgetArgs::Clear { yes: true })
++        );
+         for bad in [
+             "budget",
+             "budget show",
+@@ -524,6 +545,8 @@ mod tests {
+             "budget remove",
+             "budget remove a b",
+             "budget status --month 2026-13",
++            "budget status --alerts=yes",
++            "budget clear all",
+         ] {
+             assert!(matches!(parse(&argv(bad)), Err(Error::Usage(_))), "{bad}");
+         }
+diff --git a/src/commands/budget.rs b/src/commands/budget.rs
+index 97dab67..8e72abb 100644
+--- a/src/commands/budget.rs
++++ b/src/commands/budget.rs
+@@ -4,6 +4,7 @@ use crate::error::{Error, Result};
+ use crate::model::validate;
+ use crate::output::{Cell, Column, Table};
+ use crate::report;
++use crate::util::text::plural;
+ use crate::util::Date;
+ 
+ pub fn run(ctx: &mut Context, args: BudgetArgs) -> Result<()> {
+@@ -38,12 +39,28 @@ pub fn run(ctx: &mut Context, args: BudgetArgs) -> Result<()> {
+             store.save_budgets(&budgets)?;
+             ctx.say(&format!("removed budget for '{category}'"))
+         }
+-        BudgetArgs::Status { month } => {
++        BudgetArgs::Clear { yes } => {
++            let mut budgets = store.load_budgets()?;
++            if budgets.is_empty() {
++                return ctx.say("no budgets to clear");
++            }
++            let count = plural(budgets.len(), "budget", "budgets");
++            if !yes {
++                return Err(Error::invalid(format!(
++                    "this would remove {count}; re-run with --yes to confirm"
++                )));
++            }
++            budgets.clear();
++            store.save_budgets(&budgets)?;
++            ctx.say(&format!("cleared {count}"))
++        }
++        BudgetArgs::Status { month, alerts } => {
+             let month = month.unwrap_or_else(|| Date::today_utc().year_month());
+             let budgets = store.load_budgets()?;
+             let ledger = store.load()?;
+             let warn_percent = ctx.config.get_count("budget.warn_percent");
+-            let table = report::budget_status(&budgets, &ledger.entries, month, warn_percent);
++            let table =
++                report::budget_status(&budgets, &ledger.entries, month, warn_percent, alerts);
+             ctx.render(&table)
+         }
+     }
+diff --git a/src/report/mod.rs b/src/report/mod.rs
+index 2f070c2..ce20cf8 100644
+--- a/src/report/mod.rs
++++ b/src/report/mod.rs
+@@ -114,11 +114,13 @@ pub fn category_breakdown(entries: &[&Entry]) -> Table {
+ 
+ /// Each budget compared with the expenses of `month`, with a totals footer.
+ /// A category is `warning` once spending reaches `warn_percent` % of its limit.
++/// With `alerts_only`, `ok` categories are left out of the rows and the totals.
+ pub fn budget_status(
+     budgets: &Budgets,
+     entries: &[Entry],
+     month: YearMonth,
+     warn_percent: usize,
++    alerts_only: bool,
+ ) -> Table {
+     let mut spent: BTreeMap<&str, Money> = BTreeMap::new();
+     for e in entries {
+@@ -147,6 +149,9 @@ pub fn budget_status(
+         } else {
+             "ok"
+         };
++        if alerts_only && status == "ok" {
++            continue;
++        }
+         table.push(vec![
+             Cell::text(category.clone()),
+             Cell::Money(limit),
+@@ -214,7 +219,7 @@ mod tests {
+             e("rent", Kind::Expense, 100_000, "2026-03-05"),
+         ];
+         let month = YearMonth::new(2026, 3).unwrap();
+-        let t = budget_status(&budgets, &entries, month, 80);
++        let t = budget_status(&budgets, &entries, month, 80, false);
+         let status: Vec<_> = t.rows.iter().map(|r| r[5].clone()).collect();
+         // 79.99 % rounds to 80.0 % but is still below the warning threshold.
+         assert_eq!(t.rows[0][4], Cell::Percent(800));
+@@ -227,8 +232,12 @@ mod tests {
+             ]
+         );
+         assert_eq!(t.rows[0][3], Cell::Money(Money(2_001)));
+-        let t = budget_status(&budgets, &entries, month, 0);
++        let t = budget_status(&budgets, &entries, month, 0, false);
+         assert_eq!(t.rows[0][5], Cell::text("warning"));
++        let t = budget_status(&budgets, &entries, month, 80, true);
++        assert_eq!(t.rows.len(), 2);
++        assert_eq!(t.rows[0][0], Cell::text("fun"));
++        assert_eq!(t.footer.unwrap()[1], Cell::Money(Money(105_000)));
+     }
+ 
+     #[test]
+diff --git a/tests/cli_budget.rs b/tests/cli_budget.rs
+index 217421d..28ec80b 100644
+--- a/tests/cli_budget.rs
++++ b/tests/cli_budget.rs
+@@ -207,3 +207,37 @@ fn usage_and_init_errors() {
+     }
+     assert!(!bare.dir.join("budgets.txt").exists());
+ }
++
++#[test]
++fn status_alerts_only() {
++    let t = sample();
++    let expected = "\
++CATEGORY      LIMIT    SPENT  REMAINING    USED  STATUS
++eating-out  $100.00  $125.00    -$25.00  125.0%  over
++groceries   $300.00  $240.00     $60.00   80.0%  warning
++--------------------------------------------------------
++total       $400.00  $365.00     $35.00   91.3%
++";
++    assert_eq!(
++        t.ok(&["budget", "status", "--month", "2026-03", "--alerts"]),
++        expected
++    );
++    assert_eq!(
++        t.ok(&["budget", "status", "--month", "2026-01", "--alerts"]),
++        "(no rows)\n"
++    );
++}
++
++#[test]
++fn clear_needs_confirmation() {
++    let t = sample();
++    let (code, err) = t.fail(&["budget", "clear"]);
++    assert_eq!(code, 1);
++    assert!(err.contains("this would remove 3 budgets"), "{err}");
++    assert_eq!(t.ok(&["budget", "clear", "--yes"]), "cleared 3 budgets\n");
++    assert_eq!(
++        t.ok(&["budget", "list", "--format", "csv"]),
++        "category,limit\n"
++    );
++    assert_eq!(t.ok(&["budget", "clear"]), "no budgets to clear\n");
++}

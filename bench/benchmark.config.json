@@ -1,0 +1,44 @@
+{
+  "benchmark_version": "1.0.0",
+  "model": "claude-opus-5-5",
+  "claude_bin": "claude",
+  "permission_args": [
+    "--permission-mode",
+    "bypassPermissions"
+  ],
+  "timeout_s": 1800,
+  "max_tokens": 6000000,
+  "warn_tokens": 3000000,
+  "max_budget_usd": 8.0,
+  "work_root": "/var/tmp/cc-sandbox",
+  "token_forge": {
+    "plugin_source": "..",
+    "tmap_binary": "auto",
+    "lean": "balanced",
+    "equivalent_builds": {}
+  },
+  "toolchain_env": {
+    "CARGO_HOME": "~/.cargo",
+    "RUSTUP_HOME": "~/.rustup",
+    "GOPATH": "~/go",
+    "GOMODCACHE": "~/go/pkg/mod",
+    "GOCACHE": "~/.cache/go-build",
+    "GOTOOLCHAIN": "local",
+    "GOPROXY": "off",
+    "DOTNET_ROOT": "~/.dotnet",
+    "DOTNET_CLI_TELEMETRY_OPTOUT": "1",
+    "DOTNET_NOLOGO": "1",
+    "DOTNET_SKIP_FIRST_TIME_EXPERIENCE": "1",
+    "NUGET_PACKAGES": "~/.nuget/packages"
+  },
+  "path": [
+    "~/.cargo/bin",
+    "~/.local/toolchains/go/bin",
+    "~/.local/bin",
+    "~/.dotnet",
+    "/home/linuxbrew/.linuxbrew/bin",
+    "/usr/local/bin",
+    "/usr/bin",
+    "/bin"
+  ]
+}

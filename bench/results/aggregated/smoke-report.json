@@ -1,0 +1,481 @@
+{
+  "aggregate": {
+    "tasks_paired": 1,
+    "runs_executed": 2,
+    "runs_not_executed": 0,
+    "token_savings_percent": {
+      "n": 1,
+      "mean": -117.81,
+      "median": -117.81,
+      "min": -117.81,
+      "max": -117.81,
+      "stdev": null,
+      "p10": -117.81,
+      "p25": -117.81,
+      "p75": -117.81,
+      "p90": -117.81
+    },
+    "input_savings_percent": {
+      "n": 1,
+      "mean": -118.83,
+      "median": -118.83,
+      "min": -118.83,
+      "max": -118.83,
+      "stdev": null,
+      "p10": -118.83,
+      "p25": -118.83,
+      "p75": -118.83,
+      "p90": -118.83
+    },
+    "output_savings_percent": {
+      "n": 1,
+      "mean": -53.85,
+      "median": -53.85,
+      "min": -53.85,
+      "max": -53.85,
+      "stdev": null,
+      "p10": -53.85,
+      "p25": -53.85,
+      "p75": -53.85,
+      "p90": -53.85
+    },
+    "uncached_input_savings_percent": {
+      "n": 1,
+      "mean": -29.73,
+      "median": -29.73,
+      "min": -29.73,
+      "max": -29.73,
+      "stdev": null,
+      "p10": -29.73,
+      "p25": -29.73,
+      "p75": -29.73,
+      "p90": -29.73
+    },
+    "input_equivalent_savings_percent": {
+      "n": 1,
+      "mean": -61.01,
+      "median": -61.01,
+      "min": -61.01,
+      "max": -61.01,
+      "stdev": null,
+      "p10": -61.01,
+      "p25": -61.01,
+      "p75": -61.01,
+      "p90": -61.01
+    },
+    "cost_savings_percent": {
+      "n": 1,
+      "mean": -45.18,
+      "median": -45.18,
+      "min": -45.18,
+      "max": -45.18,
+      "stdev": null,
+      "p10": -45.18,
+      "p25": -45.18,
+      "p75": -45.18,
+      "p90": -45.18
+    },
+    "quality_diff": {
+      "n": 1,
+      "mean": 0.0,
+      "median": 0.0,
+      "min": 0.0,
+      "max": 0.0,
+      "stdev": null,
+      "p10": 0.0,
+      "p25": 0.0,
+      "p75": 0.0,
+      "p90": 0.0
+    },
+    "tool_call_reduction_percent": {
+      "n": 1,
+      "mean": -150.0,
+      "median": -150.0,
+      "min": -150.0,
+      "max": -150.0,
+      "stdev": null,
+      "p10": -150.0,
+      "p25": -150.0,
+      "p75": -150.0,
+      "p90": -150.0
+    },
+    "files_read_reduction_percent": {
+      "n": 1,
+      "mean": -100.0,
+      "median": -100.0,
+      "min": -100.0,
+      "max": -100.0,
+      "stdev": null,
+      "p10": -100.0,
+      "p25": -100.0,
+      "p75": -100.0,
+      "p90": -100.0
+    },
+    "first_request_overhead_tokens": {
+      "n": 1,
+      "mean": 1000,
+      "median": 1000,
+      "min": 1000,
+      "max": 1000,
+      "stdev": null,
+      "p10": 1000,
+      "p25": 1000,
+      "p75": 1000,
+      "p90": 1000
+    },
+    "pooled_token_savings_percent": -117.81,
+    "sign_test": {
+      "tasks_tf_cheaper": 0,
+      "tasks_tf_costlier": 1,
+      "p_value_two_sided": 1.0
+    }
+  },
+  "per_agent": {
+    "native": {
+      "total_tokens": {
+        "n": 1,
+        "mean": 51673,
+        "median": 51673,
+        "min": 51673,
+        "max": 51673,
+        "stdev": null,
+        "p10": 51673,
+        "p25": 51673,
+        "p75": 51673,
+        "p90": 51673
+      },
+      "input_tokens": {
+        "n": 1,
+        "mean": 50867,
+        "median": 50867,
+        "min": 50867,
+        "max": 50867,
+        "stdev": null,
+        "p10": 50867,
+        "p25": 50867,
+        "p75": 50867,
+        "p90": 50867
+      },
+      "output_tokens": {
+        "n": 1,
+        "mean": 806,
+        "median": 806,
+        "min": 806,
+        "max": 806,
+        "stdev": null,
+        "p10": 806,
+        "p25": 806,
+        "p75": 806,
+        "p90": 806
+      },
+      "cached_input_tokens": {
+        "n": 1,
+        "mean": 43498,
+        "median": 43498,
+        "min": 43498,
+        "max": 43498,
+        "stdev": null,
+        "p10": 43498,
+        "p25": 43498,
+        "p75": 43498,
+        "p90": 43498
+      },
+      "uncached_input_tokens": {
+        "n": 1,
+        "mean": 7369,
+        "median": 7369,
+        "min": 7369,
+        "max": 7369,
+        "stdev": null,
+        "p10": 7369,
+        "p25": 7369,
+        "p75": 7369,
+        "p90": 7369
+      },
+      "input_equivalent_tokens": {
+        "n": 1,
+        "mean": 17590,
+        "median": 17590,
+        "min": 17590,
+        "max": 17590,
+        "stdev": null,
+        "p10": 17590,
+        "p25": 17590,
+        "p75": 17590,
+        "p90": 17590
+      },
+      "total_cost_usd_reported": {
+        "n": 1,
+        "mean": 0.08,
+        "median": 0.08,
+        "min": 0.0837476,
+        "max": 0.0837476,
+        "stdev": null,
+        "p10": 0.08,
+        "p25": 0.08,
+        "p75": 0.08,
+        "p90": 0.08
+      },
+      "tool_calls": {
+        "n": 1,
+        "mean": 2,
+        "median": 2,
+        "min": 2,
+        "max": 2,
+        "stdev": null,
+        "p10": 2,
+        "p25": 2,
+        "p75": 2,
+        "p90": 2
+      },
+      "duration_seconds": {
+        "n": 1,
+        "mean": 10.0,
+        "median": 10.0,
+        "min": 10.0,
+        "max": 10.0,
+        "stdev": null,
+        "p10": 10.0,
+        "p25": 10.0,
+        "p75": 10.0,
+        "p90": 10.0
+      },
+      "quality_score": {
+        "n": 1,
+        "mean": 96.0,
+        "median": 96.0,
+        "min": 96.0,
+        "max": 96.0,
+        "stdev": null,
+        "p10": 96.0,
+        "p25": 96.0,
+        "p75": 96.0,
+        "p90": 96.0
+      },
+      "completion_rate": 1.0,
+      "runs": 1
+    },
+    "token-forge": {
+      "total_tokens": {
+        "n": 1,
+        "mean": 112551,
+        "median": 112551,
+        "min": 112551,
+        "max": 112551,
+        "stdev": null,
+        "p10": 112551,
+        "p25": 112551,
+        "p75": 112551,
+        "p90": 112551
+      },
+      "input_tokens": {
+        "n": 1,
+        "mean": 111311,
+        "median": 111311,
+        "min": 111311,
+        "max": 111311,
+        "stdev": null,
+        "p10": 111311,
+        "p25": 111311,
+        "p75": 111311,
+        "p90": 111311
+      },
+      "output_tokens": {
+        "n": 1,
+        "mean": 1240,
+        "median": 1240,
+        "min": 1240,
+        "max": 1240,
+        "stdev": null,
+        "p10": 1240,
+        "p25": 1240,
+        "p75": 1240,
+        "p90": 1240
+      },
+      "cached_input_tokens": {
+        "n": 1,
+        "mean": 101751,
+        "median": 101751,
+        "min": 101751,
+        "max": 101751,
+        "stdev": null,
+        "p10": 101751,
+        "p25": 101751,
+        "p75": 101751,
+        "p90": 101751
+      },
+      "uncached_input_tokens": {
+        "n": 1,
+        "mean": 9560,
+        "median": 9560,
+        "min": 9560,
+        "max": 9560,
+        "stdev": null,
+        "p10": 9560,
+        "p25": 9560,
+        "p75": 9560,
+        "p90": 9560
+      },
+      "input_equivalent_tokens": {
+        "n": 1,
+        "mean": 28322,
+        "median": 28322,
+        "min": 28322,
+        "max": 28322,
+        "stdev": null,
+        "p10": 28322,
+        "p25": 28322,
+        "p75": 28322,
+        "p90": 28322
+      },
+      "total_cost_usd_reported": {
+        "n": 1,
+        "mean": 0.12,
+        "median": 0.12,
+        "min": 0.1215822,
+        "max": 0.1215822,
+        "stdev": null,
+        "p10": 0.12,
+        "p25": 0.12,
+        "p75": 0.12,
+        "p90": 0.12
+      },
+      "tool_calls": {
+        "n": 1,
+        "mean": 5,
+        "median": 5,
+        "min": 5,
+        "max": 5,
+        "stdev": null,
+        "p10": 5,
+        "p25": 5,
+        "p75": 5,
+        "p90": 5
+      },
+      "duration_seconds": {
+        "n": 1,
+        "mean": 20.0,
+        "median": 20.0,
+        "min": 20.0,
+        "max": 20.0,
+        "stdev": null,
+        "p10": 20.0,
+        "p25": 20.0,
+        "p75": 20.0,
+        "p90": 20.0
+      },
+      "quality_score": {
+        "n": 1,
+        "mean": 96.0,
+        "median": 96.0,
+        "min": 96.0,
+        "max": 96.0,
+        "stdev": null,
+        "p10": 96.0,
+        "p25": 96.0,
+        "p75": 96.0,
+        "p90": 96.0
+      },
+      "completion_rate": 1.0,
+      "runs": 1
+    }
+  },
+  "per_category": {
+    "debugging": {
+      "tasks": [
+        "smoke"
+      ],
+      "median_token_savings_percent": -117.81,
+      "median_quality_diff": 0.0,
+      "verdict": "worse (all tasks costlier by >5%)"
+    }
+  },
+  "per_task": [
+    {
+      "task": "smoke",
+      "category": "debugging",
+      "runs": {
+        "native": 1,
+        "token-forge": 1
+      },
+      "native": {
+        "total_tokens": 51673,
+        "input_tokens": 50867,
+        "output_tokens": 806,
+        "cached_input_tokens": 43498,
+        "uncached_input_tokens": 7369,
+        "input_equivalent_tokens": 17590,
+        "total_cost_usd_reported": 0.0837476,
+        "tool_calls": 2,
+        "duration_seconds": 10.0,
+        "quality_score": 96.0,
+        "files_read": 0,
+        "lines_read": 32,
+        "bytes_read": 1084,
+        "first_request_context_tokens": 16350,
+        "api_requests": 3,
+        "redundant_reads": 0,
+        "tool_result_bytes": 1656,
+        "files_read_incl_bash": 2,
+        "context_precision_approx": 0.5,
+        "subagent_calls": 0,
+        "completion_rate": 1.0,
+        "statuses": [
+          "completed"
+        ],
+        "tests_passed": [
+          true
+        ],
+        "tokens_per_quality_point": 538.3,
+        "quality_per_million_tokens": 1857.84,
+        "nested_session_tokens": 0
+      },
+      "token-forge": {
+        "total_tokens": 112551,
+        "input_tokens": 111311,
+        "output_tokens": 1240,
+        "cached_input_tokens": 101751,
+        "uncached_input_tokens": 9560,
+        "input_equivalent_tokens": 28322,
+        "total_cost_usd_reported": 0.1215822,
+        "tool_calls": 5,
+        "duration_seconds": 20.0,
+        "quality_score": 96.0,
+        "files_read": 0,
+        "lines_read": 49,
+        "bytes_read": 1428,
+        "first_request_context_tokens": 17350,
+        "api_requests": 6,
+        "redundant_reads": 2,
+        "tool_result_bytes": 2480,
+        "files_read_incl_bash": 4,
+        "context_precision_approx": 0.5,
+        "subagent_calls": 0,
+        "completion_rate": 1.0,
+        "statuses": [
+          "completed"
+        ],
+        "tests_passed": [
+          true
+        ],
+        "tokens_per_quality_point": 1172.4,
+        "quality_per_million_tokens": 852.95,
+        "nested_session_tokens": 0
+      },
+      "diff": {
+        "total_tokens_abs": -60878,
+        "token_savings_percent": -117.81,
+        "input_savings_percent": -118.83,
+        "output_savings_percent": -53.85,
+        "uncached_input_savings_percent": -29.73,
+        "input_equivalent_savings_percent": -61.01,
+        "cost_savings_percent": -45.18,
+        "quality_diff": 0.0,
+        "tool_call_diff_percent": -150.0,
+        "files_read_diff_percent": -100.0,
+        "lines_read_diff_percent": -53.12,
+        "first_request_overhead_tokens": 1000
+      }
+    }
+  ]
+}

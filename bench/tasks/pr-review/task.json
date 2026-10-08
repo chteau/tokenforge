@@ -1,0 +1,21 @@
+{
+  "id": "pr-review",
+  "title": "Review the invoice CSV export pull request",
+  "category": "review",
+  "language": "go",
+  "rubric": "review",
+  "timeout_s": 1200,
+  "relevant_files": [
+    "internal/services/exports.go",
+    "internal/handlers/exports.go",
+    "internal/handlers/router.go",
+    "internal/handlers/respond.go",
+    "internal/exports/exports.go",
+    "internal/app/app.go",
+    "internal/app/env.go",
+    "internal/services/billing.go",
+    "docs/*.md"
+  ],
+  "allowed_change_globs": ["review.json"],
+  "reference_diff_lines": 51
+}

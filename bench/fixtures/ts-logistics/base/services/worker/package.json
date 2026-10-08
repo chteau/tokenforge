@@ -1,0 +1,7 @@
+{
+  "name": "@kestrel/worker",
+  "version": "4.12.0",
+  "private": true,
+  "type": "module",
+  "main": "main.ts"
+}

@@ -1,0 +1,11 @@
+{
+  "id": "rust-tui",
+  "title": "Build a terminal kanban board with a headless script mode",
+  "category": "greenfield",
+  "language": "rust",
+  "rubric": "coding",
+  "timeout_s": 2400,
+  "relevant_files": [],
+  "allowed_change_globs": ["**"],
+  "reference_diff_lines": 2414
+}

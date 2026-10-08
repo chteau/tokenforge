@@ -1,0 +1,42 @@
+{
+  "id": "banking-transfers",
+  "title": "Scheduled transfers across web, API, service, executor and persistence",
+  "category": "feature",
+  "language": "typescript",
+  "rubric": "coding",
+  "timeout_s": 2400,
+  "relevant_files": [
+    "packages/transfers/src/**",
+    "packages/shared/src/dates.ts",
+    "packages/shared/src/validation.ts",
+    "packages/shared/src/errors.ts",
+    "packages/notifications/src/types.ts",
+    "packages/auth/src/types.ts",
+    "server/deps.ts",
+    "server/app.ts",
+    "server/routes/transfer-routes.ts",
+    "server/routes/web-routes.ts",
+    "server/routes/presenters.ts",
+    "server/routes/helpers.ts",
+    "server/repositories/memory/transfers.ts",
+    "server/repositories/memory/table.ts",
+    "server/repositories/json-file-store.ts",
+    "apps/web/views/transfer-form.ts",
+    "apps/web/views/transfers.ts",
+    "tests/support/harness.ts",
+    "tests/api/transfers.api.test.ts"
+  ],
+  "allowed_change_globs": [
+    "packages/transfers/**",
+    "packages/shared/**",
+    "packages/notifications/**",
+    "packages/accounts/**",
+    "packages/auth/**",
+    "server/**",
+    "apps/web/**",
+    "tests/**",
+    "docs/**",
+    "README.md"
+  ],
+  "reference_diff_lines": 579
+}

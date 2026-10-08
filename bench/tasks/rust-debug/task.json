@@ -1,0 +1,12 @@
+{
+  "id": "rust-debug",
+  "title": "Category and monthly totals stay stale after some edits",
+  "category": "debugging",
+  "language": "rust",
+  "rubric": "debugging",
+  "timeout_s": 1500,
+  "relevant_files": ["src/cache.rs", "src/commands/categories.rs", "src/commands/report.rs", "src/commands/edit.rs",
+                     "src/store/mod.rs", "tests/cli_reports.rs", "tests/common/mod.rs"],
+  "allowed_change_globs": ["src/**", "tests/**", "Cargo.lock"],
+  "reference_diff_lines": 30
+}

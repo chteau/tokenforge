@@ -1,0 +1,6 @@
+{
+  "http": { "port": 80 },
+  "storage": { "dataDir": "/srv/kestrel/data" },
+  "features": { "asyncInvoices": true },
+  "rates": { "fuelIndexBps": 1210 }
+}

@@ -1,0 +1,7 @@
+{
+  "name": "@kestrel/core",
+  "version": "4.12.0",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/index.ts" }
+}

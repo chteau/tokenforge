@@ -1,0 +1,51 @@
+{
+  "tenants": [
+    {
+      "id": "tn_acme",
+      "name": "Acme Outdoor Ltd",
+      "market": "GB",
+      "currency": "GBP",
+      "pricingProfile": "standard",
+      "apiKeys": ["kf_live_acme_7f3e"],
+      "scopes": ["quotes:write", "quotes:read", "shipments:write", "shipments:read", "tracking:read"]
+    },
+    {
+      "id": "tn_fjord",
+      "name": "Fjordline Trading",
+      "market": "GB",
+      "currency": "GBP",
+      "pricingProfile": "contract",
+      "contractDiscountBps": 800,
+      "apiKeys": ["kf_live_fjord_19aa"],
+      "scopes": ["quotes:write", "quotes:read", "shipments:write", "shipments:read"]
+    },
+    {
+      "id": "tn_lumen",
+      "name": "Lumen Maison SARL",
+      "market": "FR",
+      "currency": "EUR",
+      "pricingProfile": "standard",
+      "apiKeys": ["kf_live_lumen_c210"],
+      "scopes": ["quotes:write", "quotes:read", "shipments:read", "tracking:read"]
+    },
+    {
+      "id": "tn_polder",
+      "name": "Polder Goods BV",
+      "market": "NL",
+      "currency": "EUR",
+      "pricingProfile": "marketplace",
+      "apiKeys": ["kf_live_polder_88b0"],
+      "scopes": ["quotes:write", "quotes:read", "shipments:write", "shipments:read", "tracking:read"]
+    },
+    {
+      "id": "tn_ops",
+      "name": "Kestrel Operations",
+      "market": "GB",
+      "currency": "GBP",
+      "pricingProfile": "internal",
+      "internal": true,
+      "apiKeys": ["kf_internal_ops_0001"],
+      "scopes": ["*"]
+    }
+  ]
+}

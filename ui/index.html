@@ -3,7 +3,9 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>tokenforge</title>
+  <title>tokenforge · dashboard</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <meta name="theme-color" content="#141413">
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
@@ -15,7 +17,11 @@
         <button role="tab" data-view="overview"><span class="ico"><svg viewBox="0 0 16 16" fill="currentColor"><path d="M1 1h6v6H1zM9 1h6v6H9zM1 9h6v6H1zM9 9h6v6H9z"/></svg></span>Overview</button>
         <button role="tab" data-view="projects"><span class="ico"><svg viewBox="0 0 16 16" fill="currentColor"><path d="M1 3h5l1.5 2H15v9H1z"/></svg></span>Projects</button>
         <button role="tab" data-view="map"><span class="ico"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="3.5" cy="4" r="2" fill="currentColor"/><circle cx="12.5" cy="3.5" r="2" fill="currentColor"/><circle cx="8" cy="12" r="2.3" fill="currentColor"/><path d="M3.5 4L8 12M12.5 3.5L8 12M3.5 4h9"/></svg></span>Code graph</button>
+        <button role="tab" data-view="snapshots"><span class="ico"><svg viewBox="0 0 16 16" fill="currentColor"><path d="M2 2h12v3H2zM2 6.5h12v3H2zM2 11h12v3H2z" opacity=".9"/></svg></span>Checkpoints</button>
+        <button role="tab" data-view="memory"><span class="ico"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="8" cy="8" r="2.2" fill="currentColor"/><circle cx="2.8" cy="3.5" r="1.5"/><circle cx="13.2" cy="4" r="1.5"/><circle cx="3.5" cy="12.8" r="1.5"/><circle cx="12.5" cy="12.5" r="1.5"/><path d="M4 4.4l2.4 2.2M12 4.8 9.7 6.8M4.6 11.8l2-2.2M11.4 11.6 9.6 9.6"/></svg></span>Memory</button>
+        <button role="tab" data-view="settings"><span class="ico"><svg viewBox="0 0 16 16" fill="currentColor"><path d="M6.6 1h2.8l.4 2 1.4.8 1.9-.7 1.4 2.4-1.5 1.3v1.6l1.5 1.3-1.4 2.4-1.9-.7-1.4.8-.4 2H6.6l-.4-2-1.4-.8-1.9.7L1.5 10l1.5-1.3V7.2L1.5 5.9l1.4-2.4 1.9.7 1.4-.8zM8 5.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5z"/></svg></span>Settings</button>
       </nav>
+      <div class="side-snaps" id="side-snaps"></div>
       <div class="side-card" id="side-card"><b>Exact limits</b>Record your real 5-hour and weekly usage and reset times.<code>tforge statusline --setup</code></div>
     </aside>
     <div class="main">

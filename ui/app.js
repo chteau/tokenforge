@@ -1,5 +1,6 @@
 // tokenforge dashboard. Plain ES modules, no dependencies, no network beyond this local server.
 import { LANG, renderGraph } from './graph.js';
+import { MEM_TYPES, renderMemGraph } from './memgraph.js';
 
 const $ = (sel, el = document) => el.querySelector(sel);
 const view = $('#view');
@@ -30,7 +31,7 @@ function ago(sec) {
   return `${Math.round(d / 86400)} days ago`;
 }
 const shortPath = (p) => String(p).replace(/^\/home\/[^/]+/, '~');
-const baseName = (p) => String(p).split('/').filter(Boolean).pop() || p;
+const baseName = (p) => String(p).split(/[\\/]/).filter(Boolean).pop() || p;
 
 async function api(path) {
   const r = await fetch(path);
@@ -274,6 +275,7 @@ const weighted = (r) => ({ ...r, wInput: r.input, wCw: r.cw * 1.25, wCr: r.cr * 
 function header(crumbs, title) {
   $('#crumb').innerHTML = crumbs.map((c) => (c.href ? `<a href="${c.href}">${esc(c.label)}</a>` : esc(c.label))).join(' / ');
   $('#title').textContent = title;
+  document.title = `${title} · tokenforge`;
 }
 const kpiCard = (label, value, extra, icon) =>
   `<div class="card kpi"><div class="txt"><div class="label">${esc(label)}</div><div class="value">${value}<small>${extra || ''}</small></div></div>${icon ? `<div class="badge">${ICON[icon]}</div>` : ''}</div>`;
@@ -299,13 +301,16 @@ function windowGauge(b) {
 
 async function overviewView() {
   header([{ label: 'Pages' }, { label: 'Overview' }], 'Overview');
-  const o = await api('/api/overview');
+  // Savings are optional: an older server without the route must not break the overview.
+  const noSavings = { totals: Object.fromEntries(['today', 'd7', 'd30', 'all'].map((k) => [k, { calls: 0, raw: 0, out: 0, saved: 0 }])), tools: [], daily: [] };
+  const [o, sv] = await Promise.all([api('/api/overview'), api('/api/savings').catch(() => noSavings)]);
   const cur = o.limits.current;
   const fresh = cur && Date.now() - cur.at < 6 * 3600e3 && (cur.fiveHour || cur.sevenDay);
   $('#side-card').hidden = Boolean(fresh);
   const b = o.activeBlock;
   const gauges = fresh ? `${cur.fiveHour ? limitGauge('5-hour limit', cur.fiveHour) : ''}${cur.sevenDay ? limitGauge('Weekly limit', cur.sevenDay) : ''}` : windowGauge(b);
   view.innerHTML = `
+    <div id="health-banner"></div>
     <div class="grid cols-4">
       ${kpiCard('Today', compact(o.totals.today.weq), `${comma(o.totals.today.calls)} calls`, 'bolt')}
       ${kpiCard('Last 7 days', compact(o.totals.d7.weq), `${comma(o.totals.d7.calls)} calls`, 'week')}
@@ -321,7 +326,29 @@ async function overviewView() {
       <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(220px,1fr))">${gauges}</div>
     </div>
     <div class="grid cols-3-1" style="margin-top:18px"><div class="card" id="daily"></div><div class="card" id="blocks"></div></div>
+    <div class="grid cols-3-1" style="margin-top:18px"><div class="card" id="saved"></div><div class="card" id="savedTools"></div></div>
     <div class="grid cols-3-1" style="margin-top:18px"><div class="card" id="hourly"></div><div class="card" id="models"></div></div>`;
+  healthBanner($('#health-banner'));
+  const st = sv.totals;
+  const pct = (t) => (t.raw ? ` · ${Math.round((100 * t.saved) / t.raw)}% of raw` : '');
+  const drawSaved = chartCard($('#saved'), {
+    title: 'Tokens saved by tkit',
+    sub: `Today ${compact(st.today.saved)} · 7 days ${compact(st.d7.saved)} · 30 days ${compact(st.d30.saved)}${pct(st.d30)} · all time ${compact(st.all.saved)}. Raw output the tools read for the model minus what they printed, at about 4 bytes per token. Not counted: fewer turns, terse replies.`,
+    render: (bd) =>
+      st.all.calls
+        ? sticks(bd, { items: sv.daily, value: (d) => d.saved, xLabel: (d) => d.day.slice(5), tipHtml: (d) => `<b>${new Date(d.day + 'T12:00').toDateString()}</b><br>${compact(d.saved)} tokens saved · ${comma(d.calls)} tkit calls` })
+        : (bd.innerHTML = '<p class="sub">No tkit calls recorded yet. Savings appear after the first <code>tkit check</code>, <code>tkit test</code>, <code>tkit diff</code>, ...</p>'),
+    tableHtml: () => table([{ key: 'day', label: 'Day' }, { key: 'calls', label: 'tkit calls', num: true, fmt: comma }, { key: 'saved', label: 'Saved', num: true, fmt: compact }], sv.daily.filter((d) => d.calls).reverse()),
+  });
+  const maxT = Math.max(1, ...sv.tools.map((x) => x.saved));
+  $('#savedTools').innerHTML = `<h2>By tool</h2><p class="sub">Last 30 days</p>${table(
+    [
+      { key: 'tool', label: 'Tool' },
+      { key: 'calls', label: 'Calls', num: true, fmt: comma },
+      { key: 'saved', label: 'Saved', num: true, html: (v) => `${compact(v)}<span class="pbar"><span style="width:${(100 * v) / maxT}%"></span></span>` },
+    ],
+    sv.tools,
+  )}`;
   const daily = o.daily.map(weighted);
   const drawDaily = chartCard($('#daily'), {
     title: 'Daily usage',
@@ -361,11 +388,63 @@ async function overviewView() {
   return () => {
     drawDaily();
     drawBlocks();
+    drawSaved();
     drawHourly();
   };
 }
 
 // ---------- projects ----------
+// One line on the overview when something needs attention; details and switches live in Settings.
+async function healthBanner(slot) {
+  try {
+    const h = await api('/api/health');
+    const warn = h.issues.filter((i) => i.level === 'warn');
+    if (warn.length) slot.innerHTML = `<a class="banner" href="#/settings"><b>${warn.length} issue${warn.length > 1 ? 's' : ''}</b> ${esc(warn[0].text.split(':')[0])}. Open Settings</a>`;
+  } catch {}
+}
+
+// Measured fixed context per request (Claude Code 2.1.293) and what each level removes.
+const LEAN = [
+  { id: 'off', ctx: '16.9k', what: 'Claude Code as installed.' },
+  { id: 'on', ctx: '11.9k', what: 'Hides agent-orchestration tools: Workflow, Monitor, Cron, RemoteTrigger, SendMessage, worktrees, NotebookEdit.' },
+  { id: 'balanced', ctx: '9.7k', what: 'Default. Also hides Claude Code\'s built-in skills from Claude; you can still type them. Your own skills, subagents and web stay.' },
+  { id: 'max', ctx: '5.8k', what: 'Also hides the Skill tool, subagents, web tools and Claude Code\'s git instructions. Slash commands you type still work.' },
+  { id: 'ultra', ctx: '4.4k', what: 'Also hides Read/Edit/Write; Claude reads and edits files with Bash. No image or PDF viewing.' },
+];
+
+async function settingsView() {
+  header([{ label: 'Pages' }, { label: 'Settings' }], 'Settings');
+  const h = await api('/api/health');
+  const on = h.sessions.filter((s) => s.tokenforge).length;
+  const color = { warn: '--warning', info: '--s2', tip: '--muted' };
+  view.innerHTML = `
+    <div class="card"><h2>Health</h2>
+      <p class="sub">tokenforge ${esc(h.pluginVersion)} · ${on}/${h.sessions.length} sessions in the last 24 h loaded it · Claude Code ${esc(h.claudeCodeVersions.join(', ') || '?')}</p>
+      ${h.issues.length ? `<ul class="issues">${h.issues.map((i) => `<li style="border-left:3px solid var(${color[i.level] || '--muted'})">${esc(i.text)}</li>`).join('')}</ul>` : (h.sessions.length ? '<p class="sub">All recent sessions run tokenforge; no stale hooks.</p>' : '<p class="sub">No Claude Code sessions in the last 24 h yet.</p>')}
+    </div>
+    <div class="card" style="margin-top:18px"><h2>Lean tools</h2>
+      <p class="sub">Every request re-sends the definition of every enabled tool. Fewer tools, less fixed context on every call. Applies to sessions started afterwards. Writes only tokenforge's own deny entries in your Claude Code settings.</p>
+      <div class="levels">${LEAN.map((l) => `<button class="level ${l.id === h.lean.level ? 'active' : ''}" data-lean="${l.id}"><span class="lv-name">${l.id}</span><span class="lv-ctx">${l.ctx}<small> per request</small></span><span class="lv-what">${esc(l.what)}</span></button>`).join('')}</div>
+    </div>
+    ${h.lean.level === 'balanced' ? `<div class="card" style="margin-top:18px"><h2>Built-in skills Claude may use on its own</h2>
+      <p class="sub">Under Balanced, Claude Code's built-in skills are hidden from Claude (about 115 tokens each, per request) but stay available as slash commands you type. Tick the ones Claude should still pick up by itself. Your own and plugin skills are never hidden.</p>
+      <div class="skills">${h.builtinSkills.map((s) => `<label><input type="checkbox" data-skill="${esc(s)}" ${h.lean.skillsKeep.includes(s) ? 'checked' : ''}> ${esc(s)}</label>`).join('')}</div>
+    </div>` : ''}
+    <div class="card" style="margin-top:18px"><h2>Terse replies</h2>
+      <p class="sub">Shorter prose between tool calls and in final answers. Code and anything written to files keep their normal style.</p>
+      <div class="levels small">${[['full', 'Status lines and 1–3 line answers.'], ['lite', 'Short full sentences.'], ['off', 'Claude\'s normal style.']].map(([id, what]) => `<button class="level ${id === h.terse ? 'active' : ''}" data-terse="${id}"><span class="lv-name">${id}</span><span class="lv-what">${what}</span></button>`).join('')}</div>
+    </div>`;
+  const post = async (body) => {
+    await fetch('/api/settings', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    settingsView();
+  };
+  view.querySelectorAll('[data-lean]').forEach((b) => b.addEventListener('click', () => post({ lean: b.dataset.lean })));
+  view.querySelectorAll('[data-terse]').forEach((b) => b.addEventListener('click', () => post({ terse: b.dataset.terse })));
+  view.querySelectorAll('[data-skill]').forEach((c) =>
+    c.addEventListener('change', () => post({ skillsKeep: [...view.querySelectorAll('[data-skill]:checked')].map((x) => x.dataset.skill) })),
+  );
+}
+
 async function projectsView() {
   header([{ label: 'Pages' }, { label: 'Projects' }], 'Projects');
   const ps = await api('/api/projects');
@@ -386,7 +465,9 @@ async function projectView(project) {
   const sub = ss.reduce((a, s) => a + s.subWeq, 0);
   view.innerHTML = `<div class="grid cols-4">${kpiCard('Sessions', comma(ss.length))}${kpiCard('Input-equiv', compact(weq))}${kpiCard('Subagent share', `${weq ? Math.round((100 * sub) / weq) : 0}%`)}<a class="card kpi" href="#/map/${encodeURIComponent(project)}" style="text-decoration:none"><div class="txt"><div class="label">Code graph</div><div class="value">Open →</div></div></a></div>
     <div class="card" style="margin-top:18px"><h2>Sessions</h2><p class="sub">Average context is what each call re-reads. A high average means the session should have been split. Click a row for its context curve.</p><div id="stable"></div></div>
+    <div class="card" id="snaps" style="margin-top:18px"></div>
     <div class="card" id="forge" style="margin-top:18px"></div>`;
+  snapshotsCard($('#snaps'), project).catch((e) => ($('#snaps').innerHTML = `<h2>Snapshots</h2><p class="sub">Could not load: ${esc(e.message)}</p>`));
   $('#stable').innerHTML = `<div class="scroll"><table><thead><tr><th>Started</th><th class="num">Calls</th><th class="num">Avg context</th><th class="num">Peak</th><th class="num">Subagents</th><th class="num">Input-equiv</th></tr></thead><tbody>${ss
     .map((s) => `<tr class="click" data-s="${esc(s.session)}"><td>${dateTime(s.start * 1000)}</td><td class="num">${comma(s.calls)}</td><td class="num">${compact(s.avgCtx)}</td><td class="num">${compact(s.peakCtx)}</td><td class="num">${s.subagents}</td><td class="num">${compact(s.weq)}</td></tr>`)
     .join('')}</tbody></table></div>`;
@@ -402,13 +483,40 @@ async function projectView(project) {
   }
 }
 
+// Session snapshots (.forge/snapshots/): one row per chunk, newest first; the top two are what /clear reloads.
+async function snapshotsCard(card, project) {
+  const q = `project=${encodeURIComponent(project)}`;
+  const list = await api(`/api/snapshots?${q}`);
+  if (!list.length) {
+    card.innerHTML = `<h2>Snapshots</h2><p class="sub">None yet. After every reply the checkpoint hook saves the session in chunks to <code>.forge/snapshots/</code>; <code>/clear</code> reloads the newest two.</p>`;
+    return;
+  }
+  const when = (iso) => (iso ? dateTime(Date.parse(iso)) : '?');
+  card.innerHTML = `<h2>Snapshots</h2><p class="sub"><b>${list.length}</b> chunks, newest first. The two marked <b>reload</b> are injected after <code>/clear</code>. Click a row to read it.</p>
+  <div class="scroll"><table><thead><tr><th>Chunk</th><th>Session</th><th>From</th><th>To</th><th class="num">Requests</th><th class="num">Files</th><th class="num">Context</th></tr></thead><tbody>${list
+    .map(
+      (s, i) =>
+        `<tr class="click" data-f="${esc(s.file)}"><td>#${esc(s.n ?? '?')}${i < 2 ? ' <span class="pill">reload</span>' : ''}</td><td class="muted">${esc(String(s.sid || '').slice(0, 8))}</td><td>${when(s.start)}</td><td>${when(s.end)}</td><td class="num">${comma(s.prompts || 0)}</td><td class="num">${comma(s.files || 0)}</td><td class="num">${compact(s.ctx || 0)}</td></tr><tr class="snap-body" hidden><td colspan="7"><pre></pre></td></tr>`,
+    )
+    .join('')}</tbody></table></div>`;
+  card.querySelectorAll('tr[data-f]').forEach((tr) =>
+    tr.addEventListener('click', async () => {
+      const row = tr.nextElementSibling;
+      row.hidden = !row.hidden;
+      const pre = $('pre', row);
+      if (!row.hidden && !pre.textContent) pre.textContent = (await api(`/api/snapshot?${q}&file=${encodeURIComponent(tr.dataset.f)}`)).body || '(empty)';
+    }),
+  );
+}
+
 async function sessionView(id) {
   const s = await api(`/api/session?id=${encodeURIComponent(id)}`);
   header([{ label: 'Projects', href: '#/projects' }, { label: `Session ${id.slice(0, 8)}` }], `Session ${id.slice(0, 8)}`);
   const pts = s.main.map((p, i) => ({ ...p, i: i + 1 }));
   const peak = pts.reduce((b, p, i) => (p.ctx > (pts[b]?.ctx ?? -1) ? i : b), 0);
   view.innerHTML = `<div class="grid cols-4">${kpiCard('Main-thread calls', comma(pts.length))}${kpiCard('Peak context', compact(pts[peak]?.ctx || 0))}${kpiCard('Subagents', s.subagents.length, compact(s.subagents.reduce((a, x) => a + x.weq, 0)) + ' input-equiv')}${kpiCard('Started', pts[0] ? dateTime(pts[0].ts * 1000) : '-')}</div>
-    <div class="card" id="curve" style="margin-top:18px"></div><div class="card" id="subs" style="margin-top:18px"></div>`;
+    <div class="card" id="curve" style="margin-top:18px"></div><div class="card" id="cost" style="margin-top:18px"><h2>Where the tokens went</h2><p class="sub">Reading the transcript…</p></div><div class="card" id="subs" style="margin-top:18px"></div>`;
+  costCard($('#cost'), id);
   const redraw = chartCard($('#curve'), {
     title: 'Context per call',
     sub: 'Tokens each main-thread call re-read. The area under this curve is the cost; drops are compactions or clears.',
@@ -419,6 +527,99 @@ async function sessionView(id) {
     ? `<h2>Subagents</h2><p class="sub">Each subagent re-reads its own growing context on every call.</p>${table([{ key: 'calls', label: 'Calls', num: true, fmt: comma }, { key: 'avgCtx', label: 'Avg context', num: true, fmt: compact }, { key: 'peakCtx', label: 'Peak', num: true, fmt: compact }, { key: 'out', label: 'Output', num: true, fmt: compact }, { key: 'weq', label: 'Input-equiv', num: true, fmt: compact }], s.subagents)}`
     : `<h2>Subagents</h2><p class="sub">None in this session.</p>`;
   return redraw;
+}
+
+// Tool results ranked by what they cost: every later call re-reads them.
+async function costCard(card, id) {
+  let c;
+  try {
+    c = await api(`/api/session-cost?id=${encodeURIComponent(id)}`);
+  } catch {
+    card.hidden = true;
+    return;
+  }
+  if (c.error || !c.top?.length) {
+    card.innerHTML = `<h2>Where the tokens went</h2><p class="sub">${esc(c.error || 'No tool results in this session.')}</p>`;
+    return;
+  }
+  const top3 = c.top.slice(0, 3).reduce((n, t) => n + t.share, 0);
+  card.innerHTML = `<h2>Where the tokens went</h2>
+    <p class="sub">Each tool result stays in context and is re-read by every later call. ${c.toolResults} results over ${c.requests} calls cost about ${compact(c.estTokensFromResults)} tokens; the top 3 are ${Math.round(top3)}% of that. Read narrowly early in a session: an early 20k-char dump is paid for on every call after it. (Estimate: characters / 4 × later calls.)</p>
+    ${table([
+      { key: 'req', label: 'Call', num: true },
+      { key: 'tool', label: 'Tool' },
+      { key: 'what', label: 'Command / file', html: (v) => `<code>${esc(shortPath(v))}</code>` },
+      { key: 'chars', label: 'Size', num: true, fmt: (v) => `${compact(v)} ch` },
+      { key: 'rereads', label: 'Re-read by', num: true, fmt: (v) => `${v} calls` },
+      { key: 'estTokens', label: '≈ Tokens', num: true, fmt: compact },
+      { key: 'share', label: 'Share', num: true, fmt: (v) => `${v}%` },
+    ], c.top)}`;
+}
+
+// ---------- memory ----------
+// Past sessions of a project as a graph (sessions, files edited, keywords) plus the same search Claude gets
+// through `tforge recall`.
+async function memoryView(project) {
+  const ps = await api('/api/projects');
+  const onDisk = ps.filter((p) => p.project && p.project !== '(unknown)' && !p.project.startsWith('/tmp/') && !p.project.startsWith('/var/tmp/'));
+  if (!project && onDisk.length) project = onDisk[0].project;
+  header([{ label: 'Pages' }, { label: 'Memory' }], project ? baseName(project) : 'Memory');
+  view.innerHTML = `<div class="card graph-card"><canvas id="cv"></canvas>
+    <div class="g-controls">
+      <div class="g-panel">
+        <select id="proj">${onDisk.map((p) => `<option value="${esc(p.project)}" ${p.project === project ? 'selected' : ''}>${esc(baseName(p.project))} · ${esc(shortPath(p.project))}</option>`).join('')}</select>
+        <input id="q" placeholder="Search past work: feature, file, bug…" style="margin-top:8px" autocomplete="off">
+      </div>
+      <div class="g-panel"><div class="g-legend">${Object.values(MEM_TYPES).map((t) => `<span><i style="background:var(${t.color})"></i>${t.label}</span>`).join('')}</div><div class="g-stats" id="gstats" style="margin-top:8px">Reading sessions…</div></div>
+    </div>
+    <div class="g-panel g-detail" id="detail" hidden></div>
+    <div class="g-hint">Claude searches this with <code>tforge recall &lt;words&gt;</code> · scroll to zoom · drag to pan · click for details</div></div>`;
+  $('#proj').addEventListener('change', (e) => (location.hash = `#/memory/${encodeURIComponent(e.target.value)}`));
+  if (!project) return;
+  const g = await api(`/api/memory-graph?project=${encodeURIComponent(project)}`);
+  if (g.error || !g.nodes.length) {
+    $('#gstats').textContent = g.error || 'No sessions with prompts or edits in this project yet.';
+    return;
+  }
+  graphHandle?.destroy();
+  const detail = $('#detail');
+  const q = encodeURIComponent(project);
+  const showDetail = async (n) => {
+    if (!n) return void (detail.hidden = true);
+    detail.hidden = false;
+    const nb = graphHandle.neighborsOf(n);
+    const list = (type) => nb.filter((m) => m.type === type).slice(0, 10).map((m) => `<tr><td class="path">${esc(m.label)}</td></tr>`).join('');
+    detail.innerHTML = `<button class="x" title="Close">×</button><h3>${esc(n.type === 'session' ? `Session ${n.id.slice(2, 10)}` : n.label)}</h3>
+      <div class="meta">${n.type === 'session' ? `${dateTime(Date.parse(n.start))} · ${n.prompts} prompts · ${n.edited} files edited` : n.type === 'file' ? `edited in ${n.edits} session${n.edits > 1 ? 's' : ''}` : `in ${n.sessions} sessions`}</div>
+      ${n.type !== 'session' && list('session') ? `<table><thead><tr><th>Sessions</th></tr></thead><tbody>${list('session')}</tbody></table>` : ''}
+      ${n.type === 'session' ? '<pre id="sess">Loading…</pre>' : ''}`;
+    $('.x', detail).addEventListener('click', () => ((detail.hidden = true), graphHandle.select(null)));
+    if (n.type === 'session') {
+      const r = await api(`/api/memory-session?project=${q}&id=${encodeURIComponent(n.id.slice(2))}`);
+      const pre = $('#sess', detail);
+      if (pre) pre.textContent = r.text || r.error || '';
+    }
+  };
+  graphHandle = renderMemGraph($('#cv'), g, {
+    onSelect: showDetail,
+    onHover: (n, ev) => (n ? showTip(`<b>${esc(n.label)}</b><br>${esc(MEM_TYPES[n.type].label)}`, ev) : hideTip()),
+  });
+  const counts = (t) => g.nodes.filter((n) => n.type === t).length;
+  $('#gstats').textContent = `${comma(counts('session'))} sessions · ${comma(counts('file'))} files edited · ${comma(counts('keyword'))} keywords`;
+  let qt;
+  $('#q').addEventListener('input', (e) => {
+    clearTimeout(qt);
+    qt = setTimeout(async () => {
+      const text = e.target.value.trim();
+      if (!text) return graphHandle.setFilter(null);
+      const r = await api(`/api/memory-recall?project=${q}&q=${encodeURIComponent(text)}`);
+      const hit = new Set([...r.sessions.map((s) => `s:${s.id}`), ...r.files.map((f) => `f:${f}`)]);
+      const words = r.query || [];
+      graphHandle.setFilter((n) => hit.has(n.id) || (n.type === 'keyword' && words.includes(n.label)));
+      $('#gstats').textContent = r.sessions.length ? `${r.sessions.length} matching sessions · ${r.files.length} files` : 'No match';
+    }, 250);
+  });
+  return () => graphHandle && graphHandle.select(null);
 }
 
 // ---------- code graph ----------
@@ -494,6 +695,43 @@ async function mapView(project) {
 
 // ---------- router ----------
 let redraw = null;
+// ---------- checkpoints ----------
+// All projects with snapshots, or one project's (#/snapshots/<project>).
+async function snapshotsView(project) {
+  const list = await api('/api/snapshot-projects');
+  const shown = project ? list.filter((p) => p.project === project) : list;
+  header([{ label: 'Checkpoints', href: '#/snapshots' }, ...(project ? [{ label: baseName(project) }] : [])], project ? baseName(project) : 'Checkpoints');
+  if (!shown.length) {
+    view.innerHTML = `<div class="card"><h2>Checkpoints</h2><p class="sub">${project ? 'No snapshots for this project yet.' : 'No project has snapshots yet.'} After every reply the checkpoint hook saves the session in chunks to <code>.forge/snapshots/</code>; <code>/clear</code> reloads the newest two.</p></div>`;
+    return;
+  }
+  view.innerHTML = shown.map((p, i) => `<div class="card" id="snap-${i}" ${i ? 'style="margin-top:18px"' : ''}></div>`).join('');
+  await Promise.all(
+    shown.map(async (p, i) => {
+      const card = $(`#snap-${i}`);
+      await snapshotsCard(card, p.project).catch((e) => (card.innerHTML = `<p class="sub">Could not load: ${esc(e.message)}</p>`));
+      // Name the project: the shared card only says "Snapshots".
+      const h = $('h2', card);
+      if (h) h.innerHTML = `<a href="#/project/${encodeURIComponent(p.project)}">${esc(baseName(p.project))}</a> <span class="muted">${esc(shortPath(p.project))}</span>`;
+    }),
+  );
+}
+
+// Sidebar: projects with snapshots, one click to their checkpoints.
+async function sideSnapshots() {
+  const box = $('#side-snaps');
+  try {
+    const list = await api('/api/snapshot-projects');
+    const cur = decodeURIComponent((location.hash.match(/^#\/snapshots\/(.+)$/) || [])[1] || '');
+    box.innerHTML = list
+      .slice(0, 12)
+      .map((p) => `<a href="#/snapshots/${encodeURIComponent(p.project)}" class="${p.project === cur ? 'on' : ''}" title="${esc(p.project)}"><span>${esc(baseName(p.project))}</span><small>${p.count}</small></a>`)
+      .join('');
+  } catch {
+    box.innerHTML = '';
+  }
+}
+
 async function route() {
   hideTip();
   if (graphHandle) {
@@ -502,10 +740,11 @@ async function route() {
   }
   const [, kind, arg] = (location.hash || '#/overview').split('/');
   const param = arg ? decodeURIComponent(arg) : undefined;
-  const tab = { overview: 'overview', projects: 'projects', project: 'projects', session: 'projects', map: 'map' }[kind] || 'overview';
+  const tab = { overview: 'overview', projects: 'projects', project: 'projects', session: 'projects', map: 'map', snapshots: 'snapshots', settings: 'settings', memory: 'memory' }[kind] || 'overview';
+  sideSnapshots();
   document.querySelectorAll('.nav button').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.view === tab)));
   try {
-    redraw = await ({ overview: overviewView, projects: projectsView, project: () => projectView(param), session: () => sessionView(param), map: () => mapView(param) }[kind] || overviewView)();
+    redraw = await ({ overview: overviewView, projects: projectsView, project: () => projectView(param), session: () => sessionView(param), map: () => mapView(param), snapshots: () => snapshotsView(param), settings: settingsView, memory: () => memoryView(param) }[kind] || overviewView)();
   } catch (e) {
     view.innerHTML = `<div class="card"><h2>Could not load</h2><p class="sub">${esc(e.message)}</p></div>`;
   }

@@ -1,0 +1,11 @@
+{
+  "id": "cpp-cli",
+  "title": "Build the kvdb write-ahead-log key-value store in C++",
+  "category": "greenfield",
+  "language": "cpp",
+  "rubric": "coding",
+  "timeout_s": 2400,
+  "relevant_files": [],
+  "allowed_change_globs": ["**"],
+  "reference_diff_lines": 785
+}

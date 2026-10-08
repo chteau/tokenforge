@@ -1,0 +1,11 @@
+#!/usr/bin/env node
+// Read several pieces of code in one call (see lib/read.mjs): tread NAME Type.method path:40-80 path:/regex/ path
+import { read } from '../lib/read.mjs';
+
+const args = process.argv.slice(2);
+if (!args.length || args[0] === '-h' || args[0] === '--help') {
+  process.stdout.write('tread SPEC...   one call, any mix:\n  NAME | Type.method   definition(s) by name (code index)\n  path:40-80 | path:40 lines (one line: 5 around it)\n  path:/regex/         definition enclosing each match\n  path                 whole file (long bodies folded when large)\n');
+  process.exit(args.length ? 0 : 1);
+}
+process.stdout.on('error', (e) => (e.code === 'EPIPE' ? process.exit(0) : (() => { throw e; })()));
+process.stdout.write(read(args, process.cwd()));

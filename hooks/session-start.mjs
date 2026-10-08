@@ -1,34 +1,88 @@
 // SessionStart: inject the terse reply rule (re-injected after compaction, which drops it),
-// and on startup or /clear reload .forge/HANDOFF.md so a fresh session continues where the last one stopped.
+// and on startup or /clear reload .forge/HANDOFF.md and the two newest automatic snapshots
+// (.forge/snapshots/, written by checkpoint.mjs) so a fresh session continues where the last one stopped.
+// Also adds the short tkit policy; as a SubagentStart hook it injects only that policy.
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { TERSE_RULES, terseLevel } from '../lib/config.mjs';
 import { uiState } from '../lib/ui-control.mjs';
+import { SNAP_DIR, listSnapshots, parseSnapshot } from './checkpoint.mjs';
+import { isMain, kitHookOff } from '../lib/hookutil.mjs';
+import { applyDefaultOnce } from '../lib/lean.mjs';
+import { memoryHint } from '../lib/memory.mjs';
 
 const MAX_AGE_H = Number(process.env.TFORGE_HANDOFF_MAX_AGE_H) || 72;
 const MAX_CHARS = 8000;
+const SNAP_CHARS = 4000;
+const SNAPS_LOADED = 2;
+// On a plain startup (not /clear) only recent snapshots are likely to be the same piece of work.
+const SESSION_STARTUP_MAX_H = 12;
 const MAP_HINT =
   'Code search (tokenforge tmap): `tmap find <words>` gives ranked `path:start-end signature` lines; `tmap tree [dir|file]` gives a map or outline; ' +
   '`tmap sym|callers|callees <name>`. Use it before Grep or whole-file reads, then Read only the returned line ranges.';
 
-function handoff(cwd) {
-  const file = path.join(cwd, '.forge', 'HANDOFF.md');
+// Always-on efficiency policy. Paid on every call, so it stays short (~150 tokens). Measured in bench/:
+// tool results are 80-95% of context growth, and every result is re-read on every later call, so the
+// rules target result size and call count. Off: TFORGE_KIT_HOOKS=0 or TFORGE_KIT_POLICY=0.
+export function kitPolicy() {
+  if (kitHookOff('TFORGE_KIT_POLICY')) return null;
+  return [
+    'tokenforge: tool results are re-read on every later call: keep them small, calls few. Read code in ONE call, not grep then sed: `tread NAME Type.method path:40-80 "path:/regex/"` prints definitions by name, line ranges, or the definition around each match, across files. Batch reads; edit each file in one call; create new files several per call (one Bash call with several heredocs).',
+    'Build/test output is compacted (tkit test [FILTER], tkit check). Changed code: run relevant checks once at the end. Read-only work: no checks. Never re-read or re-run to double-check.',
+    // "Lazy, not negligent" (adapted from ponytail without its challenge-the-requirement mode, which skips
+    // requirements under hidden tests): full scope, nothing extra, concise but readable code. In bench/ runs Token
+    // Forge already wrote 10-35% less code than plain Claude Code; references are ~half again. Off: TFORGE_LAZY=0.
+    ...(process.env.TFORGE_LAZY !== '0'
+      ? ['Scope: do every stated requirement, nothing extra (no unasked features, docs, refactors, deps or abstractions); reuse existing helpers/patterns. Write concise, readable code: no boilerplate, dead code or comments that restate it. Bug: fix the shared function all callers use, once. Infer, don\'t ask. Once relevant checks pass, stop and answer.']
+      : []),
+  ].join('\n');
+}
+
+function readFresh(file, maxH, maxChars) {
   let st;
   try {
     st = fs.statSync(file);
   } catch {
     return null;
   }
-  if ((Date.now() - st.mtimeMs) / 3.6e6 > MAX_AGE_H) return null;
+  if ((Date.now() - st.mtimeMs) / 3.6e6 > maxH) return null;
   let body = fs.readFileSync(file, 'utf8');
-  if (body.length > MAX_CHARS) body = body.slice(0, MAX_CHARS) + '\n[handoff truncated]';
-  const when = new Date(st.mtimeMs).toISOString().slice(0, 16).replace('T', ' ');
-  return (
-    `tokenforge handoff (.forge/HANDOFF.md, written ${when}). Continue from it. ` +
-    `Trust its file map and decisions; read files only when the next step needs them.\n\n${body}`
-  );
+  if (body.length > maxChars) body = body.slice(0, maxChars) + '\n[truncated]';
+  return { body, mtime: st.mtimeMs, when: new Date(st.mtimeMs).toISOString().slice(0, 16).replace('T', ' ') };
+}
+
+// HANDOFF.md is a deliberate "continue from here", so it is loaded. Snapshots are loaded only with
+// TFORGE_RECALL=inject: by default a one-line memory hint points Claude to `tforge recall`, so past work
+// costs tokens only when the task needs it, instead of ~2k re-read on every call of every new session.
+function handoff(cwd, source, sessionId) {
+  const parts = [];
+  const h = readFresh(path.join(cwd, '.forge', 'HANDOFF.md'), MAX_AGE_H, MAX_CHARS);
+  if (h)
+    parts.push(
+      `tokenforge handoff (.forge/HANDOFF.md, written ${h.when}). Continue from it. ` +
+        `Trust its file map and decisions; read files only when the next step needs them.\n\n${h.body}`,
+    );
+  if (process.env.TFORGE_RECALL === 'inject') {
+    const maxH = source === 'clear' ? MAX_AGE_H : SESSION_STARTUP_MAX_H;
+    const snaps = listSnapshots(cwd)
+      .slice(-SNAPS_LOADED)
+      .map((f) => readFresh(path.join(cwd, '.forge', SNAP_DIR, f), maxH, SNAP_CHARS))
+      .filter((s) => s && (!h || s.mtime > h.mtime))
+      .map((s) => parseSnapshot(s.body).body.trim());
+    if (snaps.length)
+      parts.push(
+        `tokenforge snapshots of the previous session (.forge/${SNAP_DIR}/, newest ${snaps.length}, oldest first${h ? ', newer than the handoff' : ''}). ` +
+          `Continue from the last request; don't re-read files unless the next step needs them.\n\n${snaps.join('\n\n')}`,
+      );
+  } else if (process.env.TFORGE_RECALL !== '0') {
+    try {
+      const hint = memoryHint(cwd, sessionId);
+      if (hint) parts.push(hint);
+    } catch {}
+  }
+  return parts.length ? parts.join('\n\n') : null;
 }
 
 // Start the local dashboard once per machine boot (or after it was stopped). Costs no context tokens.
@@ -44,19 +98,47 @@ function ensureDashboard() {
   }
 }
 
+// Shown to the user only (systemMessage), never added to Claude's context.
+function leanDefault() {
+  let applied;
+  try {
+    applied = applyDefaultOnce();
+  } catch {
+    return null;
+  }
+  return applied
+    ? `tokenforge: turned on lean tools ("${applied}") in your Claude Code settings: skills, subagents, web tools and agent-orchestration tools are hidden from Claude, for about 40% fewer tokens (measured). Takes effect in your next session. Change or undo: /tokenforge:lean on|off, or the dashboard's Settings page.`
+    : null;
+}
+
 function main() {
   let input = {};
   try {
     input = JSON.parse(fs.readFileSync(0, 'utf8'));
   } catch {}
-  const notice = input.source === 'startup' ? ensureDashboard() : null;
+  // Subagents get neither SessionStart nor UserPromptSubmit: the tkit policy is all they receive.
+  if (input.hook_event_name === 'SubagentStart') {
+    const k = kitPolicy();
+    if (k) process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: 'SubagentStart', additionalContext: k } }));
+    return;
+  }
+  const notices = [];
+  if (input.source === 'startup') {
+    const d = ensureDashboard();
+    if (d) notices.push(d);
+    const lean = leanDefault();
+    if (lean) notices.push(lean);
+  }
+  const notice = notices.join('\n') || null;
   const parts = [];
   const level = terseLevel();
   if (level !== 'off') parts.push(TERSE_RULES[level]);
   // Opt-in: in A/B runs the hint alone never got tmap used and slightly raised token use.
   if (process.env.TFORGE_MAP === '1') parts.push(MAP_HINT);
+  const kit = kitPolicy();
+  if (kit) parts.push(kit);
   if (input.source !== 'compact' && input.source !== 'resume') {
-    const h = handoff(input.cwd || process.cwd());
+    const h = handoff(input.cwd || process.cwd(), input.source, input.session_id);
     if (h) parts.push(h);
   }
   if (!parts.length && !notice) return;
@@ -66,4 +148,4 @@ function main() {
   process.stdout.write(JSON.stringify(out));
 }
 
-main();
+if (isMain(import.meta.url)) main();

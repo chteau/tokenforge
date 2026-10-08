@@ -9,6 +9,8 @@ import { formatLedger, formatSessions, listTranscripts, meterLedger, meterSessio
 import { FORGE_DIR, fmtUsd, readJson } from '../lib/util.mjs';
 import { TERSE_LEVELS, configFile, terseLevel, writeConfig } from '../lib/config.mjs';
 import { setupShim, statuslineSnippet } from '../lib/limits.mjs';
+import { LEAN_DENY, leanOff, leanOn, leanStatus } from '../lib/lean.mjs';
+import { buildIndex, formatRecall, recall, sessionDetail } from '../lib/memory.mjs';
 import { uiStart, uiState, uiStop } from '../lib/ui-control.mjs';
 
 const VERSION = JSON.parse(fs.readFileSync(new URL('../.claude-plugin/plugin.json', import.meta.url), 'utf8')).version;
@@ -35,6 +37,11 @@ Usage: tforge <command> [options]
       --json             machine-readable output
 
   terse [full|lite|off|status]  reply style injected at session start (saved in ~/.config/tokenforge)
+  recall <words> [-n N] [--json]  search this project's past sessions (prompts, commits, files touched); --session ID for one
+  lean [off|on|balanced|max|ultra|status]   fixed context per request, measured: off 16.9k, on 11.9k (no agent-
+                                orchestration tools), balanced ~9.8k (also unused built-in skills; the default),
+                                max 5.8k (no skills, subagents, web, git instructions), ultra 4.4k (also no Read/Edit/Write).
+                                Edits only tokenforge's own entries in your Claude Code settings
   ui [--port N] [--detach | --stop | --status]
                        local dashboard: token usage, limits and resets, sessions, code map (127.0.0.1 only)
   statusline --setup   install the limits recorder and print the statusLine snippet to add to your settings
@@ -66,6 +73,9 @@ function parseArgs(argv) {
     else if (a === '--stop') o.stop = true;
     else if (a === '--status') o.status = true;
     else if (a === '--setup') o.setup = true;
+    else if (a === '--session') o.session = val();
+    else if (a === '--refresh') o.refresh = true;
+    else if (a === '-n') o.n = Number(val());
     else if (a === '-h' || a === '--help') o.help = true;
     else if (a === '-v' || a === '--version') o.version = true;
     else if (a.startsWith('-')) throw new Error(`unknown option ${a}`);
@@ -164,6 +174,29 @@ async function main() {
       console.log(`terse: ${want} (saved to ${configFile()}; applies to this and new sessions)`);
       return;
     }
+    case 'recall': {
+      const root = o.root || process.cwd();
+      if (o.session) return console.log(sessionDetail(root, o.session));
+      if (o.refresh) return void buildIndex(root);
+      if (!o._.length) throw new Error('recall: give some words (feature, file or bug names), or --session ID');
+      const r = recall(root, o._.join(' '), { limit: o.n || 5, exclude: process.env.CLAUDE_CODE_SESSION_ID || null });
+      return console.log(o.json ? JSON.stringify(r, null, 2) : formatRecall(r));
+    }
+    case 'lean': {
+      const want = o._[0] || 'status';
+      if (['on', 'balanced', 'max', 'ultra'].includes(want)) {
+        const added = leanOn(undefined, want);
+        const st = leanStatus();
+        console.log(`lean: ${st.level}${added.length ? `; denied ${added.join(', ')}` : ''} (${st.file}). Applies to sessions started from now on.`);
+      } else if (want === 'off') {
+        const removed = leanOff();
+        console.log(removed.length ? `lean: off; removed ${removed.join(', ')} from ${leanStatus().file}.` : 'lean: nothing of ours to remove');
+      } else if (want === 'status') {
+        const st = leanStatus();
+        console.log(`lean: ${st.level === 'partial' ? `partial (${st.active.length}/${LEAN_DENY.length})` : st.level} (${st.file})`);
+      } else throw new Error('lean: on|balanced|max|ultra|off|status');
+      return;
+    }
     case 'ui': {
       if (o.stop) return console.log(uiStop() ? 'tforge ui: stopped' : 'tforge ui: not running');
       const st = uiState();
@@ -260,10 +293,14 @@ async function waitRun(root, timeoutMs) {
 
 function ensureGitignore(root) {
   const gi = path.join(root, FORGE_DIR, '.gitignore');
-  if (!fs.existsSync(gi)) {
-    fs.mkdirSync(path.dirname(gi), { recursive: true });
-    fs.writeFileSync(gi, 'state.json\nledger.jsonl\n.worker-system.md\nrun.log\nrun.pid\nrun.exit\n');
-  }
+  fs.mkdirSync(path.dirname(gi), { recursive: true });
+  let have = '';
+  try {
+    have = fs.readFileSync(gi, 'utf8');
+  } catch {}
+  const lines = have.split('\n');
+  const add = ['state.json', 'ledger.jsonl', '.worker-system.md', 'run.log', 'run.pid', 'run.exit'].filter((l) => !lines.includes(l));
+  if (add.length) fs.appendFileSync(gi, (have && !have.endsWith('\n') ? '\n' : '') + add.join('\n') + '\n');
 }
 
 main().catch((e) => {

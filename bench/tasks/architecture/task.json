@@ -1,0 +1,20 @@
+{
+  "id": "architecture",
+  "title": "Trace where the remote area surcharge on quotes originates",
+  "category": "architecture",
+  "language": "typescript",
+  "rubric": "architecture",
+  "timeout_s": 1200,
+  "relevant_files": [
+    "services/gateway/main.ts",
+    "services/gateway/routes/index.ts",
+    "services/gateway/middleware/tenant.ts",
+    "services/gateway/controllers/quotes.controller.ts",
+    "packages/shipping/src/quotes/QuoteService.ts",
+    "packages/rates/src/registry.ts",
+    "packages/rates/src/adjustments.ts",
+    "packages/shipping/src/quotes/QuoteRepository.ts"
+  ],
+  "allowed_change_globs": ["ANSWER.md"],
+  "reference_diff_lines": 16
+}

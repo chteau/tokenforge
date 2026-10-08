@@ -1,6 +1,6 @@
 ---
 name: forge
-description: Build a large feature or app with far fewer tokens. Plan contracts and tasks once, then run each task in a small stateless worker that the tests check (tforge). Use for multi-file builds ("build me a ...", "implement this app"), not small edits.
+description: Plan-then-workers build (tforge) for large multi-file apps; not for edits or features in existing code.
 argument-hint: "<what to build>"
 ---
 

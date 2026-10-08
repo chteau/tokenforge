@@ -1,0 +1,426 @@
+diff --git a/apps/web/views/transactions.ts b/apps/web/views/transactions.ts
+index a3152ab..4b44230 100644
+--- a/apps/web/views/transactions.ts
++++ b/apps/web/views/transactions.ts
+@@ -1,4 +1,5 @@
+ import type { Account } from "../../../packages/accounts/src/types.ts";
++import type { TransactionFilterInput } from "../../../packages/transactions/src/filters.ts";
+ import type { TransactionPage } from "../../../packages/transactions/src/transaction-service.ts";
+ import { html, queryString } from "../html.ts";
+ import { date, money, signedMoney } from "./format.ts";
+@@ -8,10 +9,31 @@ export interface TransactionsViewModel {
+   user: { displayName: string; timezone: string; unreadNotifications: number };
+   account: Account;
+   page: TransactionPage;
++  filters?: TransactionFilterInput;
++}
++
++function filterForm(accountId: string, f: TransactionFilterInput) {
++  return html`<form method="get" action="/accounts/${accountId}/transactions" class="filters">
++    <label>From <input type="date" name="from" value="${f.from ?? ""}"></label>
++    <label>To <input type="date" name="to" value="${f.to ?? ""}"></label>
++    <label>Type
++      <select name="type">
++        <option value="">All</option>
++        <option value="credit"${f.type === "credit" ? html` selected` : ""}>Money in</option>
++        <option value="debit"${f.type === "debit" ? html` selected` : ""}>Money out</option>
++      </select>
++    </label>
++    <label>Min amount <input name="minAmount" inputmode="decimal" value="${f.minAmount ?? ""}"></label>
++    <label>Max amount <input name="maxAmount" inputmode="decimal" value="${f.maxAmount ?? ""}"></label>
++    <label>Search <input type="search" name="q" value="${f.q ?? ""}"></label>
++    <button type="submit">Filter</button>
++  </form>`;
+ }
+ 
+ export function renderTransactionsPage(model: TransactionsViewModel): string {
+   const { user, account, page } = model;
++  const f = model.filters ?? {};
++  const filterParams = { from: f.from, to: f.to, type: f.type, minAmount: f.minAmount, maxAmount: f.maxAmount, q: f.q };
+   const prevOffset = page.offset - page.limit;
+   const nextOffset = page.offset + page.limit;
+   const first = page.total === 0 ? 0 : page.offset + 1;
+@@ -23,7 +45,11 @@ export function renderTransactionsPage(model: TransactionsViewModel): string {
+       <p class="muted">${account.number} · Balance ${money(account.balanceMinor, account.currency)}</p>
+     </header>
+     <section class="card">
+-      <h2>Activity</h2>
++      <header class="card-header">
++        <h2>Activity</h2>
++        <a class="button" href="/api/accounts/${account.id}/transactions.csv${queryString(filterParams)}">Export CSV</a>
++      </header>
++      ${filterForm(account.id, f)}
+       ${page.items.length === 0
+         ? html`<p class="empty">No transactions to show.</p>`
+         : html`<table class="transactions">
+@@ -45,10 +71,10 @@ export function renderTransactionsPage(model: TransactionsViewModel): string {
+       <nav class="pager" aria-label="Pagination">
+         <span>Showing ${first}–${last} of ${page.total}</span>
+         ${page.offset > 0
+-          ? html`<a rel="prev" href="/accounts/${account.id}/transactions${queryString({ offset: Math.max(prevOffset, 0) || undefined })}">Newer</a>`
++          ? html`<a rel="prev" href="/accounts/${account.id}/transactions${queryString({ ...filterParams, offset: Math.max(prevOffset, 0) || undefined })}">Newer</a>`
+           : ""}
+         ${nextOffset < page.total
+-          ? html`<a rel="next" href="/accounts/${account.id}/transactions${queryString({ offset: nextOffset })}">Older</a>`
++          ? html`<a rel="next" href="/accounts/${account.id}/transactions${queryString({ ...filterParams, offset: nextOffset })}">Older</a>`
+           : ""}
+       </nav>
+     </section>`,
+diff --git a/packages/transactions/src/csv.ts b/packages/transactions/src/csv.ts
+new file mode 100644
+index 0000000..1491b1d
+--- /dev/null
++++ b/packages/transactions/src/csv.ts
+@@ -0,0 +1,29 @@
++import { localDateString } from "../../shared/src/dates.ts";
++import { formatDecimal } from "../../shared/src/money.ts";
++import { type LedgerEntry, signedAmount } from "./types.ts";
++
++export const CSV_HEADER = ["date", "description", "counterparty", "reference", "type", "amount", "currency", "balance_after"];
++
++/** Neutralise spreadsheet formulas in free-text cells. */
++function guardText(value: string | null): string {
++  const text = value ?? "";
++  return /^[=+\-@]/.test(text) ? `'${text}` : text;
++}
++
++export function escapeCsvField(value: string): string {
++  return /[",\r\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
++}
++
++export function entriesToCsv(entries: readonly LedgerEntry[], timezone: string): string {
++  const rows = entries.map((e) => [
++    localDateString(new Date(e.postedAt), timezone),
++    guardText(e.description),
++    guardText(e.counterparty),
++    guardText(e.reference),
++    e.type,
++    formatDecimal(signedAmount(e), e.currency),
++    e.currency,
++    formatDecimal(e.balanceAfterMinor, e.currency),
++  ]);
++  return [CSV_HEADER, ...rows].map((row) => row.map(escapeCsvField).join(",") + "\r\n").join("");
++}
+diff --git a/packages/transactions/src/filters.ts b/packages/transactions/src/filters.ts
+new file mode 100644
+index 0000000..2d00501
+--- /dev/null
++++ b/packages/transactions/src/filters.ts
+@@ -0,0 +1,73 @@
++import { type ErrorDetail, validationError } from "../../shared/src/errors.ts";
++import { compareIsoDates, localDateString } from "../../shared/src/dates.ts";
++import { type Currency, parseAmount } from "../../shared/src/money.ts";
++import type { EntryType, LedgerEntry } from "./types.ts";
++
++/** Raw filter values as received from the query string (already shape-validated). */
++export interface TransactionFilterInput {
++  from?: string;
++  to?: string;
++  type?: EntryType;
++  minAmount?: string;
++  maxAmount?: string;
++  q?: string;
++}
++
++export interface TransactionFilter {
++  from?: string;
++  to?: string;
++  type?: EntryType;
++  minMinor?: number;
++  maxMinor?: number;
++  q?: string;
++  /** Calendar dates are compared in this time zone. */
++  timezone: string;
++}
++
++export const FILTER_FIELDS = ["from", "to", "type", "minAmount", "maxAmount", "q"] as const;
++
++export function isFilterActive(input: TransactionFilterInput): boolean {
++  return FILTER_FIELDS.some((field) => input[field] !== undefined && input[field] !== "");
++}
++
++/** Convert amounts to minor units for `currency` and check cross-field rules. */
++export function resolveFilter(input: TransactionFilterInput, currency: Currency, timezone: string): TransactionFilter {
++  const issues: ErrorDetail[] = [];
++  const amount = (field: "minAmount" | "maxAmount"): number | undefined => {
++    const raw = input[field];
++    if (raw === undefined) return undefined;
++    const minor = parseAmount(raw, currency);
++    if (minor === null) {
++      issues.push({ field, message: `must be a valid ${currency} amount` });
++      return undefined;
++    }
++    return minor;
++  };
++  const minMinor = amount("minAmount");
++  const maxMinor = amount("maxAmount");
++  if (input.from && input.to && compareIsoDates(input.from, input.to) > 0) {
++    issues.push({ field: "to", message: "must not be before from" });
++  }
++  if (minMinor !== undefined && maxMinor !== undefined && minMinor > maxMinor) {
++    issues.push({ field: "maxAmount", message: "must not be less than minAmount" });
++  }
++  if (issues.length) throw validationError(issues);
++  const q = input.q?.trim().toLowerCase();
++  return { from: input.from, to: input.to, type: input.type, minMinor, maxMinor, q: q || undefined, timezone };
++}
++
++export function matchesFilter(entry: LedgerEntry, filter: TransactionFilter): boolean {
++  if (filter.type && entry.type !== filter.type) return false;
++  if (filter.minMinor !== undefined && entry.amountMinor < filter.minMinor) return false;
++  if (filter.maxMinor !== undefined && entry.amountMinor > filter.maxMinor) return false;
++  if (filter.from || filter.to) {
++    const day = localDateString(new Date(entry.postedAt), filter.timezone);
++    if (filter.from && compareIsoDates(day, filter.from) < 0) return false;
++    if (filter.to && compareIsoDates(day, filter.to) > 0) return false;
++  }
++  if (filter.q) {
++    const haystack = [entry.description, entry.counterparty ?? "", entry.reference ?? ""].join("\n").toLowerCase();
++    if (!haystack.includes(filter.q)) return false;
++  }
++  return true;
++}
+diff --git a/packages/transactions/src/index.ts b/packages/transactions/src/index.ts
+index 39852b1..d1a3a45 100644
+--- a/packages/transactions/src/index.ts
++++ b/packages/transactions/src/index.ts
+@@ -1,3 +1,5 @@
+ export * from "./types.ts";
+ export * from "./ledger.ts";
+ export * from "./transaction-service.ts";
++export * from "./filters.ts";
++export * from "./csv.ts";
+diff --git a/packages/transactions/src/transaction-service.ts b/packages/transactions/src/transaction-service.ts
+index b139a36..9f4b8d8 100644
+--- a/packages/transactions/src/transaction-service.ts
++++ b/packages/transactions/src/transaction-service.ts
+@@ -1,6 +1,8 @@
+ import type { AccountService } from "../../accounts/src/account-service.ts";
+ import type { Actor } from "../../auth/src/types.ts";
+ import { notFound } from "../../shared/src/errors.ts";
++import { entriesToCsv } from "./csv.ts";
++import { type TransactionFilterInput, isFilterActive, matchesFilter, resolveFilter } from "./filters.ts";
+ import type { LedgerEntry, LedgerRepository, Page } from "./types.ts";
+ 
+ export const DEFAULT_PAGE_SIZE = 50;
+@@ -13,8 +15,16 @@ export interface TransactionPage {
+   offset: number;
+ }
+ 
++export interface CsvExport {
++  filename: string;
++  content: string;
++}
++
+ export interface TransactionService {
+-  listForAccount(actor: Actor, accountId: string, page?: Partial<Page>): TransactionPage;
++  /** Newest first. Filters (dates in the actor's time zone) apply before paging. */
++  listForAccount(actor: Actor, accountId: string, page?: Partial<Page>, filter?: TransactionFilterInput): TransactionPage;
++  /** Every matching entry, newest first, as CSV. */
++  exportCsv(actor: Actor, accountId: string, filter?: TransactionFilterInput): CsvExport;
+   getEntry(actor: Actor, entryId: string): LedgerEntry;
+   recentForAccounts(accountIds: readonly string[], limit: number): LedgerEntry[];
+ }
+@@ -23,16 +33,28 @@ export function createTransactionService(deps: { entries: LedgerRepository; acco
+   const { entries, accounts } = deps;
+ 
+   return {
+-    listForAccount(actor, accountId, page = {}) {
++    listForAccount(actor, accountId, page = {}, filter = {}) {
+       const account = accounts.getForActor(actor, accountId);
+       const limit = Math.min(Math.max(page.limit ?? DEFAULT_PAGE_SIZE, 1), MAX_PAGE_SIZE);
+       const offset = Math.max(page.offset ?? 0, 0);
+-      return {
+-        items: entries.listByAccount(account.id, { limit, offset }),
+-        total: entries.countByAccount(account.id),
+-        limit,
+-        offset,
+-      };
++      if (!isFilterActive(filter)) {
++        return {
++          items: entries.listByAccount(account.id, { limit, offset }),
++          total: entries.countByAccount(account.id),
++          limit,
++          offset,
++        };
++      }
++      const resolved = resolveFilter(filter, account.currency, actor.timezone);
++      const matching = entries.listByAccount(account.id).filter((e) => matchesFilter(e, resolved));
++      return { items: matching.slice(offset, offset + limit), total: matching.length, limit, offset };
++    },
++
++    exportCsv(actor, accountId, filter = {}) {
++      const account = accounts.getForActor(actor, accountId);
++      const resolved = resolveFilter(filter, account.currency, actor.timezone);
++      const matching = entries.listByAccount(account.id).filter((e) => matchesFilter(e, resolved));
++      return { filename: `${account.number}-transactions.csv`, content: entriesToCsv(matching, actor.timezone) };
+     },
+ 
+     getEntry(actor, entryId) {
+diff --git a/server/routes/transaction-routes.ts b/server/routes/transaction-routes.ts
+index d0af9bd..01ac353 100644
+--- a/server/routes/transaction-routes.ts
++++ b/server/routes/transaction-routes.ts
+@@ -1,6 +1,6 @@
+ import { parseOrThrow, queryToObject, v } from "../../packages/shared/src/validation.ts";
+ import { MAX_PAGE_SIZE } from "../../packages/transactions/src/transaction-service.ts";
+-import { json } from "../http/response.ts";
++import { json, text } from "../http/response.ts";
+ import type { Route } from "../http/types.ts";
+ import { api } from "./helpers.ts";
+ import { presentEntry } from "./presenters.ts";
+@@ -10,14 +10,33 @@ export const pageSchema = v.object({
+   offset: v.optional(v.integer({ min: 0 })),
+ });
+ 
++export const filterSchema = v.object({
++  from: v.optional(v.isoDate()),
++  to: v.optional(v.isoDate()),
++  type: v.optional(v.oneOf(["credit", "debit"] as const)),
++  minAmount: v.optional(v.decimalString()),
++  maxAmount: v.optional(v.decimalString()),
++  q: v.optional(v.string({ max: 100 })),
++});
++
+ export function transactionRoutes(): Route[] {
+   return [
+     api("GET", "/api/accounts/:accountId/transactions", "user", (ctx) => {
+-      const page = parseOrThrow(pageSchema, queryToObject(ctx.query));
+-      const result = ctx.deps.services.transactions.listForAccount(ctx.actor, ctx.params["accountId"] ?? "", page);
++      const query = queryToObject(ctx.query);
++      const page = parseOrThrow(pageSchema, query);
++      const filter = parseOrThrow(filterSchema, query);
++      const result = ctx.deps.services.transactions.listForAccount(ctx.actor, ctx.params["accountId"] ?? "", page, filter);
+       return json(200, { ...result, items: result.items.map(presentEntry) });
+     }),
+ 
++    api("GET", "/api/accounts/:accountId/transactions.csv", "user", (ctx) => {
++      const filter = parseOrThrow(filterSchema, queryToObject(ctx.query));
++      const csv = ctx.deps.services.transactions.exportCsv(ctx.actor, ctx.params["accountId"] ?? "", filter);
++      return text(200, csv.content, "text/csv; charset=utf-8", {
++        "content-disposition": `attachment; filename="${csv.filename}"`,
++      });
++    }),
++
+     api("GET", "/api/transactions/:entryId", "user", (ctx) => {
+       const entry = ctx.deps.services.transactions.getEntry(ctx.actor, ctx.params["entryId"] ?? "");
+       return json(200, { transaction: presentEntry(entry) });
+diff --git a/server/routes/web-routes.ts b/server/routes/web-routes.ts
+index 9e25ca0..b01d6d6 100644
+--- a/server/routes/web-routes.ts
++++ b/server/routes/web-routes.ts
+@@ -23,7 +23,7 @@ import { SESSION_COOKIE } from "../http/request.ts";
+ import { html, redirect, serializeCookie, text } from "../http/response.ts";
+ import type { RequestContext, Route } from "../http/types.ts";
+ import { bodyRecord, publicWeb, web } from "./helpers.ts";
+-import { pageSchema } from "./transaction-routes.ts";
++import { filterSchema, pageSchema } from "./transaction-routes.ts";
+ 
+ const WEB_ROOT = join(import.meta.dirname, "..", "..", "apps", "web");
+ const staticCache = new Map<string, string>();
+@@ -107,11 +107,18 @@ export function webRoutes(): Route[] {
+     }),
+ 
+     web("GET", "/accounts/:accountId/transactions", "user", (ctx) => {
+-      const page = parseOrThrow(pageSchema, queryToObject(ctx.query));
++      const query = queryToObject(ctx.query);
++      const page = parseOrThrow(pageSchema, query);
++      const filters = parseOrThrow(filterSchema, query);
+       const accountId = ctx.params["accountId"] ?? "";
+       const account = ctx.deps.services.accounts.getForActor(ctx.actor, accountId);
+-      const result = ctx.deps.services.transactions.listForAccount(ctx.actor, accountId, { limit: page.limit ?? 25, offset: page.offset });
+-      return html(200, renderTransactionsPage({ user: viewUser(ctx, ctx.actor), account, page: result }));
++      const result = ctx.deps.services.transactions.listForAccount(
++        ctx.actor,
++        accountId,
++        { limit: page.limit ?? 25, offset: page.offset },
++        filters,
++      );
++      return html(200, renderTransactionsPage({ user: viewUser(ctx, ctx.actor), account, page: result, filters }));
+     }),
+ 
+     web("GET", "/transfers", "user", (ctx) => {
+diff --git a/tests/api/transaction-filters.api.test.ts b/tests/api/transaction-filters.api.test.ts
+new file mode 100644
+index 0000000..455567a
+--- /dev/null
++++ b/tests/api/transaction-filters.api.test.ts
+@@ -0,0 +1,78 @@
++import assert from "node:assert/strict";
++import { describe, it } from "node:test";
++import { setup } from "../support/harness.ts";
++
++const descriptions = (body: { items: { description: string }[] }): string[] => body.items.map((i) => i.description);
++
++describe("transaction filters", () => {
++  it("filters by local date range, type, amount and text", async () => {
++    const t = setup();
++    const alice = await t.login("alice");
++    const id = t.accountId("QM-1000-0001");
++    const dates = await alice.get(`/api/accounts/${id}/transactions?from=2026-08-31&to=2026-09-01`);
++    assert.deepEqual(descriptions(dates.json()), ["Gym membership", "Late-night pharmacy"]);
++    const rent = await alice.get(`/api/accounts/${id}/transactions?type=debit&minAmount=1450&maxAmount=1450`);
++    assert.equal(rent.json().total, 3);
++    const search = await alice.get(`/api/accounts/${id}/transactions?q=NORTHWIND&limit=2`);
++    assert.equal(search.json().total, 3);
++    assert.deepEqual(descriptions(search.json()), ["Salary September", "Salary August"]);
++  });
++
++  it("rejects invalid filters with the offending field", async () => {
++    const t = setup();
++    const alice = await t.login("alice");
++    const id = t.accountId("QM-1000-0001");
++    const cases: [string, string][] = [
++      ["from=2026-02-30", "from"],
++      ["type=other", "type"],
++      ["minAmount=1.234", "minAmount"],
++      ["from=2026-09-02&to=2026-09-01", "to"],
++      ["minAmount=5&maxAmount=1", "maxAmount"],
++    ];
++    for (const [query, field] of cases) {
++      const res = await alice.get(`/api/accounts/${id}/transactions?${query}`);
++      assert.equal(res.status, 400, query);
++      assert.equal(res.json().error.details[0].field, field, query);
++    }
++  });
++});
++
++describe("transaction CSV export", () => {
++  it("exports matching entries with escaping and formula protection", async () => {
++    const t = setup();
++    const alice = await t.login("alice");
++    const id = t.accountId("QM-1000-0001");
++    const res = await alice.get(`/api/accounts/${id}/transactions.csv?from=2026-08-27&to=2026-08-27`);
++    assert.equal(res.status, 200);
++    assert.equal(res.headers["content-type"], "text/csv; charset=utf-8");
++    assert.equal(res.headers["content-disposition"], 'attachment; filename="QM-1000-0001-transactions.csv"');
++    assert.equal(
++      res.body,
++      "date,description,counterparty,reference,type,amount,currency,balance_after\r\n" +
++        '2026-08-27,"Dinner at ""The Anchor"", Pier 9",The Anchor,,debit,-38.40,USD,5675.32\r\n',
++    );
++    const formula = await alice.get(`/api/accounts/${id}/transactions.csv?q=concert`);
++    assert.match(formula.body, /\r\n2026-10-05,'=Concert tickets,Lyric Hall Box Office,,debit,-300\.00,USD,6660\.13\r\n$/);
++  });
++
++  it("is limited to accounts the caller may read", async () => {
++    const t = setup();
++    const bob = await t.login("bob");
++    assert.equal((await bob.get(`/api/accounts/${t.accountId("QM-1000-0001")}/transactions.csv`)).status, 404);
++  });
++});
++
++describe("activity page filters", () => {
++  it("pre-fills the form and links to a filtered export", async () => {
++    const t = setup();
++    const alice = await t.login("alice");
++    const id = t.accountId("QM-1000-0001");
++    const res = await alice.page(`/accounts/${id}/transactions?type=credit&q=salary`);
++    assert.equal(res.status, 200);
++    assert.match(res.body, /name="q" value="salary"/);
++    assert.match(res.body, /<option value="credit" selected>/);
++    assert.match(res.body, /Showing 1–3 of 3/);
++    assert.match(res.body, new RegExp(`href="/api/accounts/${id}/transactions\\.csv\\?type=credit&amp;q=salary"`));
++    assert.equal((await alice.page(`/accounts/${id}/transactions?to=never`)).status, 400);
++  });
++});

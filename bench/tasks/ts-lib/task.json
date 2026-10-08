@@ -1,0 +1,11 @@
+{
+  "id": "ts-lib",
+  "title": "Build a typed schema validation library in TypeScript",
+  "category": "greenfield",
+  "language": "typescript",
+  "rubric": "coding",
+  "timeout_s": 2400,
+  "relevant_files": [],
+  "allowed_change_globs": ["**"],
+  "reference_diff_lines": 488
+}

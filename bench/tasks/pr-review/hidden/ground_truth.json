@@ -1,0 +1,223 @@
+[
+  {
+    "id": "export-authz-bypass",
+    "severity": "critical",
+    "file": "internal/services/exports.go",
+    "lines": [
+      90,
+      96
+    ],
+    "keywords": [
+      [
+        "authoriz",
+        "authoris",
+        "permission",
+        "access control",
+        "privilege",
+        "billing_admin",
+        "billing admin",
+        "idor",
+        "bypass",
+        "role",
+        "unauthori",
+        "ownership",
+        "owner",
+        "not verified",
+        "not checked",
+        "scoped",
+        "any customer"
+      ],
+      [
+        "customer",
+        "other user",
+        "another user",
+        "any user",
+        "someone else",
+        "arbitrary user",
+        "other users",
+        "other account",
+        "another account"
+      ]
+    ]
+  },
+  {
+    "id": "export-path-traversal",
+    "severity": "high",
+    "file": "internal/services/exports.go",
+    "lines": [
+      87,
+      112
+    ],
+    "keywords": [
+      [
+        "traversal",
+        "../",
+        "..\\",
+        "arbitrary file",
+        "arbitrary path",
+        "arbitrary location",
+        "outside the export",
+        "outside of the export",
+        "outside the directory",
+        "outside the dir",
+        "escape",
+        "sanitiz",
+        "sanitis",
+        "path injection",
+        "filepath.base",
+        "overwrite",
+        "absolute path"
+      ]
+    ]
+  },
+  {
+    "id": "export-jobs-data-race",
+    "severity": "high",
+    "file": "internal/services/exports.go",
+    "lines": [
+      45,
+      240
+    ],
+    "keywords": [
+      [
+        "data race",
+        "race condition",
+        "racy",
+        "racing",
+        "concurrent",
+        "mutex",
+        "synchroniz",
+        "synchronis",
+        "thread-safe",
+        "thread safe",
+        "-race",
+        "sync.map",
+        "sync.rwmutex",
+        "goroutines",
+        "locking",
+        "unprotected",
+        "unguarded"
+      ]
+    ]
+  },
+  {
+    "id": "export-signature-leak",
+    "severity": "high",
+    "file": "internal/services/exports.go",
+    "lines": [
+      231,
+      235
+    ],
+    "keywords": [
+      [
+        "signature",
+        "hmac",
+        "sig"
+      ],
+      [
+        "leak",
+        "disclos",
+        "reveal",
+        "expos",
+        "forg",
+        "echo",
+        "expected",
+        "correct signature",
+        "valid signature",
+        "correct hmac",
+        "valid hmac",
+        "oracle"
+      ]
+    ]
+  },
+  {
+    "id": "export-error-mapping",
+    "severity": "medium",
+    "file": "internal/handlers/exports.go",
+    "lines": [
+      21,
+      26
+    ],
+    "keywords": [
+      [
+        "500",
+        "internal server error",
+        "internal error",
+        "status code",
+        "statusinternalservererror",
+        "h.fail",
+        "fail(",
+        "responder",
+        "error mapping",
+        "maps every",
+        "422",
+        "403",
+        "wrong status",
+        "err.error()"
+      ]
+    ]
+  },
+  {
+    "id": "export-links-never-expire",
+    "severity": "medium",
+    "file": "internal/services/exports.go",
+    "lines": [
+      214,
+      238
+    ],
+    "keywords": [
+      [
+        "expir",
+        "ttl",
+        "never",
+        "forever",
+        "indefinite",
+        "lifetime",
+        "valid forever"
+      ]
+    ],
+    "alt": [
+      {
+        "file": "internal/app/app.go",
+        "lines": [
+          45,
+          147
+        ]
+      },
+      {
+        "file": "internal/app/env.go",
+        "lines": [
+          14,
+          42
+        ]
+      }
+    ]
+  },
+  {
+    "id": "export-date-range-off-by-one",
+    "severity": "medium",
+    "file": "internal/services/exports.go",
+    "lines": [
+      150,
+      156
+    ],
+    "keywords": [
+      [
+        "off-by-one",
+        "off by one",
+        "inclusive",
+        "exclusive",
+        "last day",
+        "end date",
+        "final day",
+        "boundary",
+        "midnight",
+        "excluded",
+        "excludes",
+        "omit",
+        "drops invoices",
+        "skips invoices"
+      ]
+    ]
+  }
+]

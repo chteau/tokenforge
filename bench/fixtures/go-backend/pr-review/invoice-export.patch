@@ -1,0 +1,632 @@
+diff --git a/docs/api.md b/docs/api.md
+index 391712e..a66f240 100644
+--- a/docs/api.md
++++ b/docs/api.md
+@@ -41,6 +41,16 @@ Invoice statuses: `draft → open → paid`, and `draft|open → void` while unp
+ | POST | /v1/invoices/{id}/payments | billing_admin | `{amount_cents, method, reference?}` → 201 payment; 409 unless open; 422 `amount_exceeds_outstanding` |
+ | GET | /v1/invoices/{id}/payments | owner / billing_admin | `{items}` |
+ 
++## Exports
++
++Requires the `invoice_exports` feature flag.
++
++| Method | Path | Auth | Notes |
++|---|---|---|---|
++| POST | /v1/exports/invoices | user | `{from, to, customer_id?, file_name?}` (dates inclusive, `YYYY-MM-DD`) → 202 job |
++| GET | /v1/exports/{id} | requester / billing_admin | job; `download_url` once `status` is `completed` |
++| GET | /v1/exports/{id}/download | signed link | CSV file |
++
+ ## Feature flags & audit
+ 
+ | Method | Path | Auth | Notes |
+diff --git a/internal/app/app.go b/internal/app/app.go
+index b0bfdd7..1cd33b1 100644
+--- a/internal/app/app.go
++++ b/internal/app/app.go
+@@ -9,6 +9,8 @@ import (
+ 	"io"
+ 	"log/slog"
+ 	"net/http"
++	"os"
++	"path/filepath"
+ 	"time"
+ 
+ 	"github.com/acme/meridian/internal/auth"
+@@ -38,6 +40,11 @@ type Config struct {
+ 	// FlagsFile persists feature flags as JSON. Empty keeps them in memory.
+ 	FlagsFile string
+ 
++	// ExportDir is where CSV exports are written. Defaults to the system temp dir.
++	ExportDir string
++	// ExportLinkTTL is how long signed export download links stay valid.
++	ExportLinkTTL time.Duration
++
+ 	// RateLimitPerMinute per client IP; 0 disables rate limiting.
+ 	RateLimitPerMinute int
+ 	RateLimitBurst     int
+@@ -74,6 +81,7 @@ type App struct {
+ 	Plans   *services.PlanService
+ 	Audit   *services.AuditService
+ 	Flags   *services.FlagService
++	Exports *services.ExportService
+ 
+ 	limiter *middleware.RateLimiter
+ }
+@@ -95,6 +103,9 @@ func New(cfg Config) (*App, error) {
+ 	if cfg.SMS == nil {
+ 		cfg.SMS = notifications.LogSender{Logger: cfg.Logger}
+ 	}
++	if cfg.ExportDir == "" {
++		cfg.ExportDir = filepath.Join(os.TempDir(), "meridian-exports")
++	}
+ 
+ 	issuer, err := auth.NewIssuer(cfg.TokenSecret, cfg.Clock, cfg.TokenTTL)
+ 	if err != nil {
+@@ -130,6 +141,11 @@ func New(cfg Config) (*App, error) {
+ 	a.Billing = services.NewBillingService(repos.Invoices, repos.Payments, repos.Users, a.Audit, notifier, cfg.Clock)
+ 	a.Plans = services.NewPlanService(repos.Plans, repos.Subscriptions, a.Billing, a.Audit, cfg.Clock)
+ 	a.Flags = services.NewFlagService(repos.Flags, a.Audit, cfg.Clock)
++	a.Exports = services.NewExportService(repos.Invoices, a.Flags, a.Audit, cfg.Clock, cfg.Logger, services.ExportConfig{
++		Dir:     cfg.ExportDir,
++		Secret:  cfg.TokenSecret,
++		LinkTTL: cfg.ExportLinkTTL,
++	})
+ 
+ 	if cfg.RateLimitPerMinute > 0 {
+ 		burst := cfg.RateLimitBurst
+@@ -152,6 +168,7 @@ func New(cfg Config) (*App, error) {
+ 		Plans:      a.Plans,
+ 		Audit:      a.Audit,
+ 		Flags:      a.Flags,
++		Exports:    a.Exports,
+ 		Issuer:     issuer,
+ 		Clock:      cfg.Clock,
+ 		Logger:     cfg.Logger,
+diff --git a/internal/app/env.go b/internal/app/env.go
+index 953365d..2d68db6 100644
+--- a/internal/app/env.go
++++ b/internal/app/env.go
+@@ -11,7 +11,7 @@ import (
+ //
+ //	TOKEN_SECRET (required), TOKEN_TTL (e.g. "12h"), FLAGS_FILE,
+ //	RATE_LIMIT_PER_MINUTE, RATE_LIMIT_BURST, TRUST_PROXY,
+-//	ADMIN_EMAIL, ADMIN_PASSWORD
++//	ADMIN_EMAIL, ADMIN_PASSWORD, EXPORT_DIR, EXPORT_LINK_TTL
+ func ConfigFromEnv(getenv func(string) string) (Config, error) {
+ 	if getenv == nil {
+ 		getenv = os.Getenv
+@@ -19,6 +19,7 @@ func ConfigFromEnv(getenv func(string) string) (Config, error) {
+ 	cfg := Config{
+ 		TokenSecret:            []byte(getenv("TOKEN_SECRET")),
+ 		FlagsFile:              getenv("FLAGS_FILE"),
++		ExportDir:              getenv("EXPORT_DIR"),
+ 		BootstrapAdminEmail:    getenv("ADMIN_EMAIL"),
+ 		BootstrapAdminPassword: getenv("ADMIN_PASSWORD"),
+ 		RateLimitPerMinute:     120,
+@@ -33,6 +34,13 @@ func ConfigFromEnv(getenv func(string) string) (Config, error) {
+ 		}
+ 		cfg.TokenTTL = d
+ 	}
++	if v := getenv("EXPORT_LINK_TTL"); v != "" {
++		d, err := time.ParseDuration(v)
++		if err != nil || d < 0 {
++			return Config{}, fmt.Errorf("EXPORT_LINK_TTL: invalid duration %q", v)
++		}
++		cfg.ExportLinkTTL = d
++	}
+ 	for name, dst := range map[string]*int{"RATE_LIMIT_PER_MINUTE": &cfg.RateLimitPerMinute, "RATE_LIMIT_BURST": &cfg.RateLimitBurst} {
+ 		if v := getenv(name); v != "" {
+ 			n, err := strconv.Atoi(v)
+diff --git a/internal/exports/exports.go b/internal/exports/exports.go
+new file mode 100644
+index 0000000..fbe6400
+--- /dev/null
++++ b/internal/exports/exports.go
+@@ -0,0 +1,36 @@
++// Package exports defines asynchronous data export jobs.
++package exports
++
++import "time"
++
++// Status is the lifecycle state of an export job.
++type Status string
++
++const (
++	StatusPending   Status = "pending"
++	StatusCompleted Status = "completed"
++	StatusFailed    Status = "failed"
++)
++
++// Job is a requested export of invoices to a CSV file.
++type Job struct {
++	ID          string     `json:"id"`
++	RequestedBy string     `json:"requested_by"`
++	CustomerID  string     `json:"customer_id"`
++	From        time.Time  `json:"from"`
++	To          time.Time  `json:"to"`
++	Status      Status     `json:"status"`
++	Rows        int        `json:"rows"`
++	FileName    string     `json:"file_name"`
++	DownloadURL string     `json:"download_url,omitempty"`
++	CreatedAt   time.Time  `json:"created_at"`
++	CompletedAt *time.Time `json:"completed_at,omitempty"`
++
++	path string
++}
++
++// Path returns the location of the generated file on disk.
++func (j *Job) Path() string { return j.path }
++
++// SetPath records where the generated file is stored.
++func (j *Job) SetPath(p string) { j.path = p }
+diff --git a/internal/handlers/exports.go b/internal/handlers/exports.go
+new file mode 100644
+index 0000000..8a0a40a
+--- /dev/null
++++ b/internal/handlers/exports.go
+@@ -0,0 +1,59 @@
++package handlers
++
++import (
++	"io"
++	"net/http"
++	"strconv"
++
++	"github.com/acme/meridian/internal/services"
++	"github.com/acme/meridian/pkg/httpx"
++)
++
++type exportHandler struct {
++	responder
++	exports *services.ExportService
++}
++
++func (h *exportHandler) createInvoiceExport(w http.ResponseWriter, r *http.Request) {
++	var in services.InvoiceExportInput
++	if !h.decode(w, r, &in) {
++		return
++	}
++	job, err := h.exports.RequestInvoiceExport(r.Context(), principal(r), in)
++	if err != nil {
++		httpx.WriteError(w, http.StatusInternalServerError, httpx.ErrorDetail{Code: "export_failed", Message: err.Error()})
++		return
++	}
++	httpx.WriteJSON(w, http.StatusAccepted, job)
++}
++
++func (h *exportHandler) get(w http.ResponseWriter, r *http.Request) {
++	job, err := h.exports.GetExport(r.Context(), principal(r), r.PathValue("id"))
++	if err != nil {
++		h.fail(w, r, err)
++		return
++	}
++	httpx.WriteJSON(w, http.StatusOK, job)
++}
++
++// download serves a finished export. It is authorised by the signed link
++// returned from GET /v1/exports/{id}, so it does not require a bearer token.
++func (h *exportHandler) download(w http.ResponseWriter, r *http.Request) {
++	q := r.URL.Query()
++	expires, err := strconv.ParseInt(q.Get("expires"), 10, 64)
++	if err != nil {
++		httpx.WriteError(w, http.StatusBadRequest, httpx.ErrorDetail{Code: "invalid_link", Message: "malformed download link"})
++		return
++	}
++	f, name, err := h.exports.OpenDownload(r.Context(), r.PathValue("id"), expires, q.Get("sig"))
++	if err != nil {
++		h.fail(w, r, err)
++		return
++	}
++	defer f.Close()
++	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
++	w.Header().Set("Content-Disposition", `attachment; filename="`+name+`"`)
++	if _, err := io.Copy(w, f); err != nil {
++		h.logger.WarnContext(r.Context(), "export download interrupted", "err", err)
++	}
++}
+diff --git a/internal/handlers/router.go b/internal/handlers/router.go
+index 792afb8..33a3d6d 100644
+--- a/internal/handlers/router.go
++++ b/internal/handlers/router.go
+@@ -22,6 +22,7 @@ type Deps struct {
+ 	Plans   *services.PlanService
+ 	Audit   *services.AuditService
+ 	Flags   *services.FlagService
++	Exports *services.ExportService
+ 
+ 	Issuer     *auth.Issuer
+ 	Clock      clock.Clock
+@@ -46,6 +47,7 @@ func NewRouter(d Deps) http.Handler {
+ 	uh := &userHandler{responder: rs, users: d.Users}
+ 	bh := &billingHandler{responder: rs, billing: d.Billing}
+ 	ph := &planHandler{responder: rs, plans: d.Plans}
++	eh := &exportHandler{responder: rs, exports: d.Exports}
+ 	adm := &adminHandler{responder: rs, users: d.Users, audit: d.Audit, flags: d.Flags}
+ 
+ 	mux := http.NewServeMux()
+@@ -71,6 +73,10 @@ func NewRouter(d Deps) http.Handler {
+ 	mux.Handle("POST /v1/invoices/{id}/payments", protected(bh.recordPayment))
+ 	mux.Handle("GET /v1/invoices/{id}/payments", protected(bh.listPayments))
+ 
++	mux.Handle("POST /v1/exports/invoices", protected(eh.createInvoiceExport))
++	mux.Handle("GET /v1/exports/{id}", protected(eh.get))
++	mux.HandleFunc("GET /v1/exports/{id}/download", eh.download)
++
+ 	mux.Handle("GET /v1/flags/{key}", protected(adm.evaluateFlag))
+ 
+ 	mux.Handle("GET /v1/admin/users", staff(auth.RoleAdmin, adm.listUsers))
+diff --git a/internal/services/exports.go b/internal/services/exports.go
+new file mode 100644
+index 0000000..59bc3c6
+--- /dev/null
++++ b/internal/services/exports.go
+@@ -0,0 +1,248 @@
++package services
++
++import (
++	"context"
++	"crypto/hmac"
++	"crypto/sha256"
++	"encoding/csv"
++	"encoding/hex"
++	"fmt"
++	"io"
++	"log/slog"
++	"os"
++	"path/filepath"
++	"strconv"
++	"time"
++
++	"github.com/acme/meridian/internal/apperr"
++	"github.com/acme/meridian/internal/auth"
++	"github.com/acme/meridian/internal/billing"
++	"github.com/acme/meridian/internal/clock"
++	"github.com/acme/meridian/internal/exports"
++	"github.com/acme/meridian/internal/repositories"
++	"github.com/acme/meridian/internal/validation"
++	"github.com/acme/meridian/pkg/ids"
++)
++
++// FlagInvoiceExports gates the export endpoints.
++const FlagInvoiceExports = "invoice_exports"
++
++const maxExportRange = 366 * 24 * time.Hour
++
++var errExportNotFound = apperr.NotFound("export_not_found", "export not found")
++
++// ExportService produces CSV exports of invoices in the background.
++type ExportService struct {
++	invoices repositories.InvoiceRepository
++	flags    *FlagService
++	audit    *AuditService
++	clock    clock.Clock
++	logger   *slog.Logger
++	dir      string
++	secret   []byte
++	linkTTL  time.Duration
++
++	jobs map[string]*exports.Job
++}
++
++// ExportConfig configures where exports are written and how download links are signed.
++type ExportConfig struct {
++	Dir     string
++	Secret  []byte
++	LinkTTL time.Duration
++}
++
++// NewExportService returns an ExportService.
++func NewExportService(invoices repositories.InvoiceRepository, flagSvc *FlagService, auditSvc *AuditService, clk clock.Clock, logger *slog.Logger, cfg ExportConfig) *ExportService {
++	return &ExportService{
++		invoices: invoices, flags: flagSvc, audit: auditSvc, clock: clk, logger: logger,
++		dir: cfg.Dir, secret: cfg.Secret, linkTTL: cfg.LinkTTL,
++		jobs: map[string]*exports.Job{},
++	}
++}
++
++// InvoiceExportInput selects the invoices to export. From and To are
++// calendar dates (YYYY-MM-DD) and both are inclusive.
++type InvoiceExportInput struct {
++	CustomerID string `json:"customer_id"`
++	From       string `json:"from"`
++	To         string `json:"to"`
++	FileName   string `json:"file_name"`
++}
++
++// RequestInvoiceExport queues an export of invoices created in the date range.
++func (s *ExportService) RequestInvoiceExport(ctx context.Context, p auth.Principal, in InvoiceExportInput) (exports.Job, error) {
++	if !s.flags.IsEnabled(ctx, FlagInvoiceExports, p.UserID) {
++		return exports.Job{}, apperr.Forbidden("feature_disabled", "invoice exports are not enabled for this account")
++	}
++	from, errFrom := time.Parse(time.DateOnly, in.From)
++	to, errTo := time.Parse(time.DateOnly, in.To)
++	v := validation.New()
++	v.Check(errFrom == nil, "from", "must be a date in YYYY-MM-DD format")
++	v.Check(errTo == nil, "to", "must be a date in YYYY-MM-DD format")
++	if errFrom == nil && errTo == nil {
++		v.Check(!to.Before(from), "to", "must not be before from")
++		v.Check(to.Sub(from) <= maxExportRange, "to", "range must not exceed one year")
++	}
++	v.MaxLen("file_name", in.FileName, 100)
++	if err := v.Err(); err != nil {
++		return exports.Job{}, err
++	}
++
++	customerID := p.UserID
++	if in.CustomerID != "" {
++		customerID = in.CustomerID
++	}
++	job := &exports.Job{
++		ID:          ids.New("exp"),
++		RequestedBy: p.UserID,
++		CustomerID:  customerID,
++		From:        from,
++		To:          to,
++		Status:      exports.StatusPending,
++		FileName:    in.FileName,
++		CreatedAt:   s.clock.Now(),
++	}
++	if job.FileName == "" {
++		job.FileName = "invoices-" + in.From + "-" + in.To
++	}
++	job.SetPath(filepath.Join(s.dir, job.FileName+".csv"))
++	s.jobs[job.ID] = job
++
++	if err := s.audit.Record(ctx, p.UserID, "invoice.export_requested", "export", job.ID, map[string]string{
++		"customer_id": customerID, "from": in.From, "to": in.To,
++	}); err != nil {
++		return exports.Job{}, err
++	}
++	go s.run(job)
++	return *job, nil
++}
++
++func (s *ExportService) run(job *exports.Job) {
++	ctx := context.Background()
++	rows, err := s.writeCSV(ctx, job)
++	now := s.clock.Now()
++	job.CompletedAt = &now
++	if err != nil {
++		s.logger.ErrorContext(ctx, "invoice export failed", "export_id", job.ID, "err", err)
++		job.Status = exports.StatusFailed
++		return
++	}
++	job.Rows = rows
++	job.Status = exports.StatusCompleted
++}
++
++func (s *ExportService) writeCSV(ctx context.Context, job *exports.Job) (int, error) {
++	list, err := s.invoices.List(ctx, repositories.InvoiceFilter{CustomerID: job.CustomerID})
++	if err != nil {
++		return 0, err
++	}
++	if err := os.MkdirAll(s.dir, 0o750); err != nil {
++		return 0, err
++	}
++	f, err := os.Create(job.Path())
++	if err != nil {
++		return 0, err
++	}
++	defer f.Close()
++
++	w := csv.NewWriter(f)
++	_ = w.Write([]string{"number", "status", "currency", "subtotal", "tax", "total", "paid", "issued_at", "due_at"})
++	rows := 0
++	for _, inv := range list {
++		if inv.CreatedAt.Before(job.From) || !inv.CreatedAt.Before(job.To) {
++			continue
++		}
++		if err := w.Write(invoiceRecord(inv)); err != nil {
++			return rows, err
++		}
++		rows++
++	}
++	w.Flush()
++	return rows, w.Error()
++}
++
++func invoiceRecord(inv billing.Invoice) []string {
++	return []string{
++		csvSafe(inv.Number),
++		string(inv.Status),
++		inv.Currency,
++		centsToDecimal(inv.SubtotalCents),
++		centsToDecimal(inv.TaxCents),
++		centsToDecimal(inv.TotalCents),
++		centsToDecimal(inv.PaidCents),
++		formatOptionalTime(inv.IssuedAt),
++		formatOptionalTime(inv.DueAt),
++	}
++}
++
++// csvSafe neutralises values that spreadsheet applications would evaluate as formulas.
++func csvSafe(s string) string {
++	if s != "" && (s[0] == '=' || s[0] == '+' || s[0] == '-' || s[0] == '@') {
++		return "'" + s
++	}
++	return s
++}
++
++func centsToDecimal(c int64) string {
++	sign := ""
++	if c < 0 {
++		sign, c = "-", -c
++	}
++	return fmt.Sprintf("%s%d.%02d", sign, c/100, c%100)
++}
++
++func formatOptionalTime(t *time.Time) string {
++	if t == nil {
++		return ""
++	}
++	return t.UTC().Format(time.RFC3339)
++}
++
++// GetExport returns an export job. The requester and billing admins can see it.
++func (s *ExportService) GetExport(ctx context.Context, p auth.Principal, id string) (exports.Job, error) {
++	job, ok := s.jobs[id]
++	if !ok || (job.RequestedBy != p.UserID && !p.Is(auth.RoleBillingAdmin)) {
++		return exports.Job{}, errExportNotFound
++	}
++	out := *job
++	if out.Status == exports.StatusCompleted {
++		out.DownloadURL = s.downloadURL(job.ID)
++	}
++	return out, nil
++}
++
++func (s *ExportService) downloadURL(id string) string {
++	var expires int64
++	if s.linkTTL > 0 {
++		expires = s.clock.Now().Add(s.linkTTL).Unix()
++	}
++	return fmt.Sprintf("/v1/exports/%s/download?expires=%d&sig=%s", id, expires, s.sign(id, expires))
++}
++
++func (s *ExportService) sign(id string, expires int64) string {
++	mac := hmac.New(sha256.New, s.secret)
++	mac.Write([]byte(id + ":" + strconv.FormatInt(expires, 10)))
++	return hex.EncodeToString(mac.Sum(nil))
++}
++
++// OpenDownload verifies a signed download link and opens the export file.
++// The caller must close the returned reader.
++func (s *ExportService) OpenDownload(ctx context.Context, id string, expires int64, sig string) (io.ReadCloser, string, error) {
++	expected := s.sign(id, expires)
++	if !hmac.Equal([]byte(sig), []byte(expected)) {
++		return nil, "", apperr.Forbidden("invalid_signature", fmt.Sprintf("signature mismatch: got %s, expected %s", sig, expected))
++	}
++	if expires != 0 && s.clock.Now().Unix() > expires {
++		return nil, "", apperr.Forbidden("link_expired", "the download link has expired")
++	}
++	job, ok := s.jobs[id]
++	if !ok || job.Status != exports.StatusCompleted {
++		return nil, "", errExportNotFound
++	}
++	f, err := os.Open(job.Path())
++	if err != nil {
++		return nil, "", fmt.Errorf("open export %s: %w", id, err)
++	}
++	return f, job.FileName + ".csv", nil
++}
+diff --git a/internal/services/exports_test.go b/internal/services/exports_test.go
+new file mode 100644
+index 0000000..15987f4
+--- /dev/null
++++ b/internal/services/exports_test.go
+@@ -0,0 +1,115 @@
++package services
++
++import (
++	"context"
++	"io"
++	"log/slog"
++	"net/url"
++	"strconv"
++	"strings"
++	"testing"
++	"time"
++
++	"github.com/acme/meridian/internal/apperr"
++	"github.com/acme/meridian/internal/auth"
++	"github.com/acme/meridian/internal/exports"
++	"github.com/acme/meridian/internal/flags"
++	"github.com/acme/meridian/internal/repositories"
++)
++
++func newExportFixture(t *testing.T) (*ExportService, *billingFixture) {
++	t.Helper()
++	bf := newBillingFixture(t)
++	flagRepo := repositories.NewMemoryFlags()
++	_ = flagRepo.Put(context.Background(), flags.Flag{Key: FlagInvoiceExports, Enabled: true, RolloutPercent: 100})
++	auditSvc := NewAuditService(repositories.NewMemoryAudit(), bf.clock)
++	svc := NewExportService(bf.invoices, NewFlagService(flagRepo, auditSvc, bf.clock), auditSvc, bf.clock,
++		slog.New(slog.NewTextHandler(io.Discard, nil)), ExportConfig{Dir: t.TempDir(), Secret: []byte("export-secret"), LinkTTL: time.Hour})
++	return svc, bf
++}
++
++func waitForExport(t *testing.T, svc *ExportService, p auth.Principal, id string) exports.Job {
++	t.Helper()
++	deadline := time.Now().Add(2 * time.Second)
++	for time.Now().Before(deadline) {
++		job, err := svc.GetExport(context.Background(), p, id)
++		if err != nil {
++			t.Fatal(err)
++		}
++		if job.Status != exports.StatusPending {
++			return job
++		}
++		time.Sleep(5 * time.Millisecond)
++	}
++	t.Fatal("export did not finish")
++	return exports.Job{}
++}
++
++func TestInvoiceExport(t *testing.T) {
++	svc, bf := newExportFixture(t)
++	ctx := context.Background()
++	bf.openInvoice(t, 1250) // created 2026-05-01
++	bf.clock.Advance(3 * 24 * time.Hour)
++	bf.openInvoice(t, 990) // created 2026-05-04
++
++	job, err := svc.RequestInvoiceExport(ctx, bf.customer, InvoiceExportInput{From: "2026-04-01", To: "2026-05-31"})
++	if err != nil {
++		t.Fatal(err)
++	}
++	if job.Status != exports.StatusPending || job.CustomerID != "usr_c" {
++		t.Fatalf("job = %+v", job)
++	}
++	done := waitForExport(t, svc, bf.customer, job.ID)
++	if done.Status != exports.StatusCompleted || done.Rows != 2 {
++		t.Fatalf("done = %+v", done)
++	}
++
++	u, err := url.Parse(done.DownloadURL)
++	if err != nil {
++		t.Fatal(err)
++	}
++	expires, _ := strconv.ParseInt(u.Query().Get("expires"), 10, 64)
++	f, name, err := svc.OpenDownload(ctx, job.ID, expires, u.Query().Get("sig"))
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer f.Close()
++	data, _ := io.ReadAll(f)
++	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
++	if name != "invoices-2026-04-01-2026-05-31.csv" || len(lines) != 3 || !strings.HasPrefix(lines[0], "number,status") {
++		t.Fatalf("name=%s csv=%q", name, data)
++	}
++	if !strings.Contains(string(data), ",12.50,") {
++		t.Fatalf("amounts not formatted: %q", data)
++	}
++
++	if _, _, err := svc.OpenDownload(ctx, job.ID, expires, "deadbeef"); apperr.KindOf(err) != apperr.KindForbidden {
++		t.Fatalf("bad signature: %v", err)
++	}
++	stranger := auth.Principal{UserID: "usr_x", Role: auth.RoleUser}
++	if _, err := svc.GetExport(ctx, stranger, job.ID); apperr.KindOf(err) != apperr.KindNotFound {
++		t.Fatalf("stranger: %v", err)
++	}
++}
++
++func TestInvoiceExportValidation(t *testing.T) {
++	svc, bf := newExportFixture(t)
++	tests := []struct {
++		name  string
++		in    InvoiceExportInput
++		field string
++	}{
++		{"bad from", InvoiceExportInput{From: "May 1", To: "2026-05-31"}, "from"},
++		{"to before from", InvoiceExportInput{From: "2026-05-31", To: "2026-05-01"}, "to"},
++		{"range too long", InvoiceExportInput{From: "2024-01-01", To: "2026-01-01"}, "to"},
++	}
++	for _, tt := range tests {
++		t.Run(tt.name, func(t *testing.T) {
++			_, err := svc.RequestInvoiceExport(context.Background(), bf.customer, tt.in)
++			e, ok := apperr.As(err)
++			if !ok || e.Fields[tt.field] == "" {
++				t.Fatalf("err = %v, want field %q", err, tt.field)
++			}
++		})
++	}
++}

@@ -1,0 +1,11 @@
+{
+  "id": "csharp-api",
+  "title": "Build the Bramble library-loans web API in C# (.NET 8 minimal APIs)",
+  "category": "greenfield",
+  "language": "csharp",
+  "rubric": "coding",
+  "timeout_s": 2400,
+  "relevant_files": [],
+  "allowed_change_globs": ["**"],
+  "reference_diff_lines": 771
+}

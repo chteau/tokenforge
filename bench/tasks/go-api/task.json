@@ -1,0 +1,36 @@
+{
+  "id": "go-api",
+  "title": "Add partial refund endpoint for paid invoices",
+  "category": "feature",
+  "language": "go",
+  "rubric": "coding",
+  "timeout_s": 1500,
+  "relevant_files": [
+    "docs/*.md",
+    "internal/handlers/router.go",
+    "internal/handlers/billing.go",
+    "internal/handlers/respond.go",
+    "internal/services/billing.go",
+    "internal/services/services.go",
+    "internal/billing/invoice.go",
+    "internal/repositories/repositories.go",
+    "internal/repositories/memory_billing.go",
+    "internal/app/app.go",
+    "internal/audit/audit.go",
+    "internal/notifications/templates.go"
+  ],
+  "allowed_change_globs": [
+    "internal/handlers/*",
+    "internal/services/*",
+    "internal/billing/*",
+    "internal/repositories/*",
+    "internal/app/*",
+    "internal/audit/*",
+    "internal/notifications/*",
+    "internal/validation/*",
+    "migrations/*",
+    "docs/*",
+    "README.md"
+  ],
+  "reference_diff_lines": 260
+}

@@ -1,0 +1,26 @@
+{
+  "behaviour": "POST /v2/quotes adds a 3.5% 'Remote area surcharge' (code RAS) line item for remote destination postcodes and stores the quote",
+  "path": [
+    ["services/gateway/main.ts", "start"],
+    ["services/gateway/routes/index.ts", "mountRoutes"],
+    ["services/gateway/middleware/tenant.ts", "resolveTenant"],
+    ["services/gateway/controllers/quotes.controller.ts", "postQuote"],
+    ["packages/shipping/src/quotes/QuoteService.ts", "createQuote"],
+    ["packages/rates/src/registry.ts", "resolve"],
+    ["packages/rates/src/adjustments.ts", "zoneUplift"],
+    ["packages/shipping/src/quotes/QuoteRepository.ts", "save"]
+  ],
+  "decoys": [
+    ["packages/pricing/src/surcharge.ts", "applyRemoteSurcharge"],
+    ["packages/pricing/src/RateCalculator.ts", "calculate"],
+    ["packages/legacy/tariff/surcharge.ts", "remoteAreaSurcharge"],
+    ["packages/legacy/tariff/quoteWithTariff.ts", "quoteWithTariff"],
+    ["packages/legacy/quotes/QuoteRepository.ts", "save"],
+    ["packages/rates/src/zones/zoneEngineV2.ts", "zoneUpliftV2"],
+    ["packages/rates/src/fuelSurcharge.ts", "remoteFuelSurcharge"],
+    ["services/gateway/routes/v1.ts", "registerV1Routes"],
+    ["services/gateway/handlers/quote.ts", "handleQuote"],
+    ["packages/core/src/tenant/resolveTenant.ts", "resolveTenant"],
+    ["packages/sdk/gen/quotesClient.gen.ts", "createQuote"]
+  ]
+}

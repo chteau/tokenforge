@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 284" width="760" role="img" aria-label="Fixed context per request by lean level">
+<style>
+  .bg{fill:#fcfcfb} .t1{fill:#0b0b0b} .t2{fill:#52514e} .mu{fill:#898781} .grid{stroke:#e1e0d9} .base{stroke:#c3c2b7}
+  .s1{fill:#2a78d6} .s2{fill:#eb6834} .s3{fill:#1baf7a} .o{fill:#eb6834} .l1{stroke:#2a78d6} .l2{stroke:#eb6834} .a1{fill:#2a78d6;fill-opacity:.12} .a2{fill:#eb6834;fill-opacity:.16}
+  @media (prefers-color-scheme: dark){
+    .bg{fill:#1a1a19} .t1{fill:#ffffff} .t2{fill:#c3c2b7} .grid{stroke:#2c2c2a} .base{stroke:#383835}
+    .s1{fill:#3987e5} .s2{fill:#d95926} .s3{fill:#199e70} .o{fill:#f08a5d} .l1{stroke:#3987e5} .l2{stroke:#d95926} .a1{fill:#3987e5} .a2{fill:#d95926}
+  }
+  text{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif}
+</style>
+<rect class="bg" width="760" height="284" rx="6"/>
+<text class="t1" x="24" y="34" font-size="17" font-weight="600">Fixed context re-sent with every request</text>
+<text class="t2" x="24" y="56" font-size="12.5">Tool and skill definitions Claude Code sends on every call, by tokenforge lean level (measured, tokens).</text>
+<line class="grid" x1="170.0" y1="66" x2="170.0" y2="254" stroke-width="1"/><text class="mu" x="170.0" y="270" font-size="11.5" text-anchor="middle">0k</text>
+<line class="grid" x1="283.3" y1="66" x2="283.3" y2="254" stroke-width="1"/><text class="mu" x="283.3" y="270" font-size="11.5" text-anchor="middle">4k</text>
+<line class="grid" x1="396.7" y1="66" x2="396.7" y2="254" stroke-width="1"/><text class="mu" x="396.7" y="270" font-size="11.5" text-anchor="middle">8k</text>
+<line class="grid" x1="510.0" y1="66" x2="510.0" y2="254" stroke-width="1"/><text class="mu" x="510.0" y="270" font-size="11.5" text-anchor="middle">12k</text>
+<line class="grid" x1="623.3" y1="66" x2="623.3" y2="254" stroke-width="1"/><text class="mu" x="623.3" y="270" font-size="11.5" text-anchor="middle">16k</text>
+<text class="t1" x="158" y="88" font-size="13" text-anchor="end">off (Claude Code)</text><path class="s1" d="M170,74h475.655a4,4 0 0 1 4,4v10a4,4 0 0 1 -4,4h-475.655z"><title>off (Claude Code): 16,929 tokens per request</title></path><text class="t2" x="655.7" y="88" font-size="12">16.9k</text>
+<text class="t1" x="158" y="122" font-size="13" text-anchor="end">lean on</text><path class="s2" d="M170,108h334.1016666666667a4,4 0 0 1 4,4v10a4,4 0 0 1 -4,4h-334.1016666666667z"><title>lean on: 11,933 tokens per request</title></path><text class="t2" x="514.1" y="122" font-size="12">11.9k  (−30%)</text>
+<text class="t1" x="158" y="156" font-size="13" text-anchor="end">balanced (default)</text><path class="s2" d="M170,142h271.91a4,4 0 0 1 4,4v10a4,4 0 0 1 -4,4h-271.91z"><title>balanced (default): 9,738 tokens per request</title></path><text class="t2" x="451.9" y="156" font-size="12">9.7k  (−42%)</text>
+<text class="t1" x="158" y="190" font-size="13" text-anchor="end">lean max</text><path class="s2" d="M170,176h159.05833333333334a4,4 0 0 1 4,4v10a4,4 0 0 1 -4,4h-159.05833333333334z"><title>lean max: 5,755 tokens per request</title></path><text class="t2" x="339.1" y="190" font-size="12">5.8k  (−66%)</text>
+<text class="t1" x="158" y="224" font-size="13" text-anchor="end">lean ultra</text><path class="s3" d="M170,210h120.695a4,4 0 0 1 4,4v10a4,4 0 0 1 -4,4h-120.695z"><title>lean ultra: 4,401 tokens per request</title></path><text class="t2" x="300.7" y="224" font-size="12">4.4k  (−74%)</text>
+<line class="base" x1="170" y1="66" x2="170" y2="254" stroke-width="1"/>
+</svg>

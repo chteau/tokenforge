@@ -1,0 +1,36 @@
+{
+  "env": "development",
+  "http": { "port": 8080, "host": "0.0.0.0", "bodyLimit": 262144 },
+  "storage": { "dataDir": "var/data" },
+  "features": {
+    "zoneEngineV2": false,
+    "carrierFailover": true,
+    "asyncInvoices": false,
+    "webhookSigning": true,
+    "trackingPushIngest": false
+  },
+  "pricing": {
+    "defaultProfile": "standard",
+    "profiles": {
+      "standard": ["adjuster.fuel", "adjuster.zone", "adjuster.residential", "adjuster.peak"],
+      "marketplace": ["adjuster.fuel", "adjuster.zone", "adjuster.peak"],
+      "contract": ["adjuster.fuel", "adjuster.contractDiscount"],
+      "internal": []
+    }
+  },
+  "rates": {
+    "currency": "GBP",
+    "zoneUpliftBps": { "A": 0, "B": 120, "R": 350, "X": 900 },
+    "fuelIndexBps": 1175,
+    "residentialFlat": 145,
+    "peak": { "from": "11-20", "to": "12-31", "bps": 400 },
+    "volumetricDivisor": 5000
+  },
+  "tracking": { "pollIntervalMs": 300000, "staleAfterHours": 72 },
+  "billing": { "invoiceDay": 1, "vatBps": { "GB": 2000, "FR": 2000, "NL": 2100, "DE": 1900 } },
+  "notify": {
+    "webhookTimeoutMs": 5000,
+    "senders": { "email": "noreply@kestrel-freight.example", "sms": "KESTREL" }
+  },
+  "customs": { "holdDestinations": ["CH", "NO", "JE", "GG", "IM"], "declaredValueThreshold": 135000 }
+}

@@ -1,0 +1,5 @@
+#!/usr/bin/env node
+// Shortcut for `tmap kit <tool> [args]`: the token-saving tools built into the tmap binary.
+import { launch } from '../lib/tmapbin.mjs';
+
+await launch(['kit', ...process.argv.slice(2)]);

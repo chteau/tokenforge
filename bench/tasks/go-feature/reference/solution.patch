@@ -1,0 +1,1092 @@
+diff --git a/cmd/server/main.go b/cmd/server/main.go
+index e67f2ac..f1f7c50 100644
+--- a/cmd/server/main.go
++++ b/cmd/server/main.go
+@@ -10,6 +10,7 @@ import (
+ 	"os/signal"
+ 	"syscall"
+ 	"time"
++	_ "time/tzdata" // IANA zones for notification quiet hours, even without system tzdata
+ 
+ 	"github.com/acme/meridian/internal/app"
+ )
+diff --git a/docs/api.md b/docs/api.md
+index 391712e..e44c93f 100644
+--- a/docs/api.md
++++ b/docs/api.md
+@@ -41,6 +41,21 @@ Invoice statuses: `draft → open → paid`, and `draft|open → void` while unp
+ | POST | /v1/invoices/{id}/payments | billing_admin | `{amount_cents, method, reference?}` → 201 payment; 409 unless open; 422 `amount_exceeds_outstanding` |
+ | GET | /v1/invoices/{id}/payments | owner / billing_admin | `{items}` |
+ 
++## Scheduled notifications
++
++| Method | Path | Auth | Notes |
++|---|---|---|---|
++| GET | /v1/me/notification-preferences | user | `{timezone, quiet_hours: {start, end} \| null}`; default `{"timezone":"UTC","quiet_hours":null}` |
++| PUT | /v1/me/notification-preferences | user | same shape; IANA zone, `HH:MM` bounds |
++| POST | /v1/notifications | user | `{channel, subject?, body, send_at}`, optional `Idempotency-Key` header → 201 (200 on replay, 409 `idempotency_key_reused`) |
++| GET | /v1/notifications/{id} | owner | others get 404 |
++| POST | /v1/admin/notifications/dispatch | admin | run one dispatch pass → `{sent, retried, failed, deferred}` |
++
++Due notifications are delivered by a dispatch pass (every 30 s in the server,
++or on demand). Nothing is delivered during the recipient's quiet hours.
++Failed deliveries are retried after 1 and 2 minutes; after 3 failed attempts
++the notification is `failed`.
++
+ ## Feature flags & audit
+ 
+ | Method | Path | Auth | Notes |
+diff --git a/internal/app/app.go b/internal/app/app.go
+index b0bfdd7..045fd35 100644
+--- a/internal/app/app.go
++++ b/internal/app/app.go
+@@ -58,6 +58,8 @@ type Repositories struct {
+ 	Payments      repositories.PaymentRepository
+ 	Audit         repositories.AuditRepository
+ 	Flags         repositories.FlagRepository
++	Scheduled     repositories.ScheduledNotificationRepository
++	Preferences   repositories.PreferenceRepository
+ }
+ 
+ // App is a fully wired application.
+@@ -75,6 +77,8 @@ type App struct {
+ 	Audit   *services.AuditService
+ 	Flags   *services.FlagService
+ 
++	Scheduling *services.SchedulingService
++
+ 	limiter *middleware.RateLimiter
+ }
+ 
+@@ -113,6 +117,8 @@ func New(cfg Config) (*App, error) {
+ 		Payments:      repositories.NewMemoryPayments(),
+ 		Audit:         repositories.NewMemoryAudit(),
+ 		Flags:         repositories.NewMemoryFlags(),
++		Scheduled:     repositories.NewMemoryScheduledNotifications(),
++		Preferences:   repositories.NewMemoryPreferences(),
+ 	}
+ 	if cfg.FlagsFile != "" {
+ 		ff, err := repositories.OpenFileFlags(cfg.FlagsFile)
+@@ -130,6 +136,7 @@ func New(cfg Config) (*App, error) {
+ 	a.Billing = services.NewBillingService(repos.Invoices, repos.Payments, repos.Users, a.Audit, notifier, cfg.Clock)
+ 	a.Plans = services.NewPlanService(repos.Plans, repos.Subscriptions, a.Billing, a.Audit, cfg.Clock)
+ 	a.Flags = services.NewFlagService(repos.Flags, a.Audit, cfg.Clock)
++	a.Scheduling = services.NewSchedulingService(repos.Scheduled, repos.Preferences, repos.Users, cfg.Email, cfg.SMS, cfg.Clock, cfg.Logger)
+ 
+ 	if cfg.RateLimitPerMinute > 0 {
+ 		burst := cfg.RateLimitBurst
+@@ -152,6 +159,7 @@ func New(cfg Config) (*App, error) {
+ 		Plans:      a.Plans,
+ 		Audit:      a.Audit,
+ 		Flags:      a.Flags,
++		Scheduling: a.Scheduling,
+ 		Issuer:     issuer,
+ 		Clock:      cfg.Clock,
+ 		Logger:     cfg.Logger,
+@@ -161,8 +169,25 @@ func New(cfg Config) (*App, error) {
+ 	return a, nil
+ }
+ 
++// DispatchInterval is how often RunBackground delivers due notifications.
++const DispatchInterval = 30 * time.Second
++
+ // RunBackground starts periodic maintenance jobs until ctx is canceled.
+ func (a *App) RunBackground(ctx context.Context) {
++	go func() {
++		t := time.NewTicker(DispatchInterval)
++		defer t.Stop()
++		for {
++			select {
++			case <-ctx.Done():
++				return
++			case <-t.C:
++				if _, err := a.Scheduling.Dispatch(ctx); err != nil {
++					a.Logger.ErrorContext(ctx, "notification dispatch failed", "err", err)
++				}
++			}
++		}
++	}()
+ 	if a.limiter == nil {
+ 		return
+ 	}
+diff --git a/internal/app/app_test.go b/internal/app/app_test.go
+index c7df2fd..ab9f01f 100644
+--- a/internal/app/app_test.go
++++ b/internal/app/app_test.go
+@@ -10,6 +10,7 @@ import (
+ 	"strings"
+ 	"testing"
+ 	"time"
++	_ "time/tzdata"
+ 
+ 	"github.com/acme/meridian/internal/app"
+ 	"github.com/acme/meridian/internal/clock"
+@@ -430,3 +431,49 @@ func TestConfigFromEnv(t *testing.T) {
+ 		t.Fatal("bad ttl accepted")
+ 	}
+ }
++
++func TestScheduledNotifications(t *testing.T) {
++	e := newTestEnv(t)
++	_, tok := e.user("ada@example.com", "")
++	e.expect(e.do("PUT", "/v1/me/notification-preferences", tok, map[string]any{
++		"timezone": "Europe/Paris", "quiet_hours": map[string]string{"start": "22:00", "end": "07:00"},
++	}), http.StatusOK)
++
++	body := map[string]string{"channel": "email", "subject": "Reminder", "body": "Renew your plan", "send_at": "2026-03-02T21:30:00Z"}
++	req := func() response {
++		b, _ := json.Marshal(body)
++		r, _ := http.NewRequest("POST", e.srv.URL+"/v1/notifications", bytes.NewReader(b))
++		r.Header.Set("Authorization", "Bearer "+tok)
++		r.Header.Set("Idempotency-Key", "renewal-1")
++		res, err := e.srv.Client().Do(r)
++		if err != nil {
++			t.Fatal(err)
++		}
++		defer res.Body.Close()
++		raw, _ := io.ReadAll(res.Body)
++		out := response{status: res.StatusCode, raw: string(raw)}
++		_ = json.Unmarshal(raw, &out.body)
++		return out
++	}
++	first := e.expect(req(), http.StatusCreated)
++	if replay := e.expect(req(), http.StatusOK); replay.body["id"] != first.body["id"] {
++		t.Fatalf("replay = %s", replay.raw)
++	}
++	id := first.body["id"].(string)
++
++	// 21:30 UTC is 22:30 in Paris: deferred until 07:00 local (06:00 UTC).
++	e.clock.Set(time.Date(2026, 3, 2, 21, 30, 0, 0, time.UTC))
++	admin := e.login(adminEmail, adminPassword)
++	d := e.expect(e.do("POST", "/v1/admin/notifications/dispatch", admin, nil), http.StatusOK)
++	if d.body["deferred"] != float64(1) || d.body["sent"] != float64(0) {
++		t.Fatalf("dispatch = %s", d.raw)
++	}
++	e.clock.Set(time.Date(2026, 3, 3, 6, 0, 0, 0, time.UTC))
++	admin = e.login(adminEmail, adminPassword)
++	e.expect(e.do("POST", "/v1/admin/notifications/dispatch", admin, nil), http.StatusOK)
++	tok = e.login("ada@example.com", "password-123")
++	n := e.expect(e.do("GET", "/v1/notifications/"+id, tok, nil), http.StatusOK)
++	if n.body["status"] != "sent" || n.body["sent_at"] != "2026-03-03T06:00:00Z" {
++		t.Fatalf("notification = %s", n.raw)
++	}
++}
+diff --git a/internal/handlers/notifications.go b/internal/handlers/notifications.go
+new file mode 100644
+index 0000000..b67fa45
+--- /dev/null
++++ b/internal/handlers/notifications.go
+@@ -0,0 +1,71 @@
++package handlers
++
++import (
++	"net/http"
++
++	"github.com/acme/meridian/internal/notifications"
++	"github.com/acme/meridian/internal/services"
++	"github.com/acme/meridian/pkg/httpx"
++)
++
++type notificationHandler struct {
++	responder
++	scheduling *services.SchedulingService
++}
++
++func (h *notificationHandler) getPreferences(w http.ResponseWriter, r *http.Request) {
++	prefs, err := h.scheduling.GetPreferences(r.Context(), principal(r))
++	if err != nil {
++		h.fail(w, r, err)
++		return
++	}
++	httpx.WriteJSON(w, http.StatusOK, prefs)
++}
++
++func (h *notificationHandler) putPreferences(w http.ResponseWriter, r *http.Request) {
++	var in notifications.Preferences
++	if !h.decode(w, r, &in) {
++		return
++	}
++	prefs, err := h.scheduling.UpdatePreferences(r.Context(), principal(r), in)
++	if err != nil {
++		h.fail(w, r, err)
++		return
++	}
++	httpx.WriteJSON(w, http.StatusOK, prefs)
++}
++
++func (h *notificationHandler) schedule(w http.ResponseWriter, r *http.Request) {
++	var in services.ScheduleInput
++	if !h.decode(w, r, &in) {
++		return
++	}
++	n, created, err := h.scheduling.Schedule(r.Context(), principal(r), r.Header.Get("Idempotency-Key"), in)
++	if err != nil {
++		h.fail(w, r, err)
++		return
++	}
++	status := http.StatusOK
++	if created {
++		status = http.StatusCreated
++	}
++	httpx.WriteJSON(w, status, n)
++}
++
++func (h *notificationHandler) get(w http.ResponseWriter, r *http.Request) {
++	n, err := h.scheduling.Get(r.Context(), principal(r), r.PathValue("id"))
++	if err != nil {
++		h.fail(w, r, err)
++		return
++	}
++	httpx.WriteJSON(w, http.StatusOK, n)
++}
++
++func (h *notificationHandler) dispatch(w http.ResponseWriter, r *http.Request) {
++	res, err := h.scheduling.RunDispatch(r.Context(), principal(r))
++	if err != nil {
++		h.fail(w, r, err)
++		return
++	}
++	httpx.WriteJSON(w, http.StatusOK, res)
++}
+diff --git a/internal/handlers/router.go b/internal/handlers/router.go
+index 792afb8..dc1f575 100644
+--- a/internal/handlers/router.go
++++ b/internal/handlers/router.go
+@@ -23,6 +23,8 @@ type Deps struct {
+ 	Audit   *services.AuditService
+ 	Flags   *services.FlagService
+ 
++	Scheduling *services.SchedulingService
++
+ 	Issuer     *auth.Issuer
+ 	Clock      clock.Clock
+ 	Logger     *slog.Logger
+@@ -46,6 +48,7 @@ func NewRouter(d Deps) http.Handler {
+ 	uh := &userHandler{responder: rs, users: d.Users}
+ 	bh := &billingHandler{responder: rs, billing: d.Billing}
+ 	ph := &planHandler{responder: rs, plans: d.Plans}
++	nh := &notificationHandler{responder: rs, scheduling: d.Scheduling}
+ 	adm := &adminHandler{responder: rs, users: d.Users, audit: d.Audit, flags: d.Flags}
+ 
+ 	mux := http.NewServeMux()
+@@ -71,6 +74,11 @@ func NewRouter(d Deps) http.Handler {
+ 	mux.Handle("POST /v1/invoices/{id}/payments", protected(bh.recordPayment))
+ 	mux.Handle("GET /v1/invoices/{id}/payments", protected(bh.listPayments))
+ 
++	mux.Handle("GET /v1/me/notification-preferences", protected(nh.getPreferences))
++	mux.Handle("PUT /v1/me/notification-preferences", protected(nh.putPreferences))
++	mux.Handle("POST /v1/notifications", protected(nh.schedule))
++	mux.Handle("GET /v1/notifications/{id}", protected(nh.get))
++
+ 	mux.Handle("GET /v1/flags/{key}", protected(adm.evaluateFlag))
+ 
+ 	mux.Handle("GET /v1/admin/users", staff(auth.RoleAdmin, adm.listUsers))
+@@ -79,6 +87,7 @@ func NewRouter(d Deps) http.Handler {
+ 	mux.Handle("GET /v1/admin/audit", staff(auth.RoleAdmin, adm.listAudit))
+ 	mux.Handle("GET /v1/admin/flags", staff(auth.RoleAdmin, adm.listFlags))
+ 	mux.Handle("PUT /v1/admin/flags/{key}", staff(auth.RoleAdmin, adm.saveFlag))
++	mux.Handle("POST /v1/admin/notifications/dispatch", staff(auth.RoleAdmin, nh.dispatch))
+ 
+ 	mux.HandleFunc("/", notFound)
+ 
+diff --git a/internal/notifications/scheduled.go b/internal/notifications/scheduled.go
+new file mode 100644
+index 0000000..04668ae
+--- /dev/null
++++ b/internal/notifications/scheduled.go
+@@ -0,0 +1,104 @@
++package notifications
++
++import (
++	"fmt"
++	"time"
++)
++
++// Channel is the delivery channel of a scheduled notification.
++type Channel string
++
++const (
++	ChannelEmail Channel = "email"
++	ChannelSMS   Channel = "sms"
++)
++
++// ScheduledStatus is the lifecycle state of a scheduled notification.
++type ScheduledStatus string
++
++const (
++	StatusPending ScheduledStatus = "pending"
++	StatusSent    ScheduledStatus = "sent"
++	StatusFailed  ScheduledStatus = "failed"
++)
++
++// MaxAttempts is the number of delivery attempts before a notification fails.
++const MaxAttempts = 3
++
++// RetryBackoff returns the delay before the next attempt after the given
++// number of failed attempts: 1m, 2m, 4m, ...
++func RetryBackoff(failedAttempts int) time.Duration {
++	return time.Minute << (failedAttempts - 1)
++}
++
++// Scheduled is a message a user asked to be delivered at a later time.
++type Scheduled struct {
++	ID             string          `json:"id"`
++	UserID         string          `json:"user_id"`
++	Channel        Channel         `json:"channel"`
++	Subject        string          `json:"subject,omitempty"`
++	Body           string          `json:"body"`
++	SendAt         time.Time       `json:"send_at"`
++	Status         ScheduledStatus `json:"status"`
++	Attempts       int             `json:"attempts"`
++	NextAttemptAt  time.Time       `json:"next_attempt_at"`
++	SentAt         *time.Time      `json:"sent_at,omitempty"`
++	IdempotencyKey string          `json:"-"`
++	CreatedAt      time.Time       `json:"created_at"`
++}
++
++// SamePayload reports whether two requests describe the same notification.
++func (s Scheduled) SamePayload(o Scheduled) bool {
++	return s.Channel == o.Channel && s.Subject == o.Subject && s.Body == o.Body && s.SendAt.Equal(o.SendAt)
++}
++
++// QuietHours is a daily window, in the user's time zone, during which no
++// scheduled notifications are delivered. Start is inclusive, End exclusive;
++// a window with Start after End wraps around midnight.
++type QuietHours struct {
++	Start string `json:"start"`
++	End   string `json:"end"`
++}
++
++// Preferences are a user's notification settings.
++type Preferences struct {
++	Timezone   string      `json:"timezone"`
++	QuietHours *QuietHours `json:"quiet_hours"`
++}
++
++// DefaultPreferences apply to users who never saved any.
++func DefaultPreferences() Preferences { return Preferences{Timezone: "UTC"} }
++
++// ParseClock parses "HH:MM" into minutes after midnight.
++func ParseClock(s string) (int, error) {
++	if len(s) != 5 || s[2] != ':' {
++		return 0, fmt.Errorf("invalid time of day %q", s)
++	}
++	t, err := time.Parse("15:04", s)
++	if err != nil {
++		return 0, fmt.Errorf("invalid time of day %q", s)
++	}
++	return t.Hour()*60 + t.Minute(), nil
++}
++
++// Quiet reports whether instant t falls within the user's quiet hours.
++func (p Preferences) Quiet(t time.Time) bool {
++	if p.QuietHours == nil {
++		return false
++	}
++	loc, err := time.LoadLocation(p.Timezone)
++	if err != nil {
++		return false
++	}
++	start, err1 := ParseClock(p.QuietHours.Start)
++	end, err2 := ParseClock(p.QuietHours.End)
++	if err1 != nil || err2 != nil || start == end {
++		return false
++	}
++	local := t.In(loc)
++	m := local.Hour()*60 + local.Minute()
++	if start < end {
++		return m >= start && m < end
++	}
++	return m >= start || m < end
++}
+diff --git a/internal/notifications/scheduled_test.go b/internal/notifications/scheduled_test.go
+new file mode 100644
+index 0000000..91dec21
+--- /dev/null
++++ b/internal/notifications/scheduled_test.go
+@@ -0,0 +1,51 @@
++package notifications
++
++import (
++	"testing"
++	"time"
++	_ "time/tzdata"
++)
++
++func TestPreferencesQuiet(t *testing.T) {
++	night := &QuietHours{Start: "22:00", End: "07:00"}
++	lunch := &QuietHours{Start: "12:00", End: "13:30"}
++	tests := []struct {
++		name  string
++		prefs Preferences
++		at    string
++		want  bool
++	}{
++		{"no quiet hours", Preferences{Timezone: "UTC"}, "2026-07-01T23:00:00Z", false},
++		{"wrap: late evening", Preferences{Timezone: "UTC", QuietHours: night}, "2026-07-01T22:00:00Z", true},
++		{"wrap: early morning", Preferences{Timezone: "UTC", QuietHours: night}, "2026-07-01T06:59:00Z", true},
++		{"wrap: end is exclusive", Preferences{Timezone: "UTC", QuietHours: night}, "2026-07-01T07:00:00Z", false},
++		{"daytime window", Preferences{Timezone: "UTC", QuietHours: lunch}, "2026-07-01T13:29:00Z", true},
++		{"daytime window outside", Preferences{Timezone: "UTC", QuietHours: lunch}, "2026-07-01T21:00:00Z", false},
++		{"time zone applied", Preferences{Timezone: "America/New_York", QuietHours: night}, "2026-07-01T03:00:00Z", true},
++		{"time zone applied outside", Preferences{Timezone: "America/New_York", QuietHours: night}, "2026-07-01T12:00:00Z", false},
++		{"winter offset", Preferences{Timezone: "Europe/Berlin", QuietHours: night}, "2026-01-15T21:30:00Z", true},
++		{"summer offset", Preferences{Timezone: "Europe/Berlin", QuietHours: night}, "2026-07-15T05:30:00Z", false},
++	}
++	for _, tt := range tests {
++		t.Run(tt.name, func(t *testing.T) {
++			at, _ := time.Parse(time.RFC3339, tt.at)
++			if got := tt.prefs.Quiet(at); got != tt.want {
++				t.Fatalf("Quiet(%s) = %v, want %v", tt.at, got, tt.want)
++			}
++		})
++	}
++}
++
++func TestParseClockAndBackoff(t *testing.T) {
++	for _, bad := range []string{"", "7:00", "24:00", "12:60", "ab:cd", "12:00:00"} {
++		if _, err := ParseClock(bad); err == nil {
++			t.Errorf("ParseClock(%q) accepted", bad)
++		}
++	}
++	if m, err := ParseClock("23:59"); err != nil || m != 23*60+59 {
++		t.Fatalf("ParseClock(23:59) = %d, %v", m, err)
++	}
++	if RetryBackoff(1) != time.Minute || RetryBackoff(2) != 2*time.Minute {
++		t.Fatalf("backoff = %v, %v", RetryBackoff(1), RetryBackoff(2))
++	}
++}
+diff --git a/internal/repositories/memory_notifications.go b/internal/repositories/memory_notifications.go
+new file mode 100644
+index 0000000..944766e
+--- /dev/null
++++ b/internal/repositories/memory_notifications.go
+@@ -0,0 +1,144 @@
++package repositories
++
++import (
++	"context"
++	"slices"
++	"strings"
++	"sync"
++	"time"
++
++	"github.com/acme/meridian/internal/notifications"
++)
++
++// MemoryScheduledNotifications is an in-memory ScheduledNotificationRepository.
++type MemoryScheduledNotifications struct {
++	mu    sync.RWMutex
++	byID  map[string]notifications.Scheduled
++	byKey map[string]string // userID + "\x00" + key -> id
++}
++
++// NewMemoryScheduledNotifications returns an empty repository.
++func NewMemoryScheduledNotifications() *MemoryScheduledNotifications {
++	return &MemoryScheduledNotifications{byID: map[string]notifications.Scheduled{}, byKey: map[string]string{}}
++}
++
++func cloneScheduled(n notifications.Scheduled) notifications.Scheduled {
++	if n.SentAt != nil {
++		t := *n.SentAt
++		n.SentAt = &t
++	}
++	return n
++}
++
++func (m *MemoryScheduledNotifications) Create(_ context.Context, n notifications.Scheduled) (notifications.Scheduled, error) {
++	m.mu.Lock()
++	defer m.mu.Unlock()
++	if _, ok := m.byID[n.ID]; ok {
++		return notifications.Scheduled{}, ErrDuplicate
++	}
++	if n.IdempotencyKey != "" {
++		k := n.UserID + "\x00" + n.IdempotencyKey
++		if id, ok := m.byKey[k]; ok {
++			return cloneScheduled(m.byID[id]), ErrDuplicate
++		}
++		m.byKey[k] = n.ID
++	}
++	m.byID[n.ID] = cloneScheduled(n)
++	return cloneScheduled(n), nil
++}
++
++func (m *MemoryScheduledNotifications) Get(_ context.Context, id string) (notifications.Scheduled, error) {
++	m.mu.RLock()
++	defer m.mu.RUnlock()
++	n, ok := m.byID[id]
++	if !ok {
++		return notifications.Scheduled{}, ErrNotFound
++	}
++	return cloneScheduled(n), nil
++}
++
++func (m *MemoryScheduledNotifications) GetByIdempotencyKey(_ context.Context, userID, key string) (notifications.Scheduled, error) {
++	m.mu.RLock()
++	defer m.mu.RUnlock()
++	id, ok := m.byKey[userID+"\x00"+key]
++	if !ok {
++		return notifications.Scheduled{}, ErrNotFound
++	}
++	return cloneScheduled(m.byID[id]), nil
++}
++
++func (m *MemoryScheduledNotifications) Update(_ context.Context, id string, fn func(*notifications.Scheduled) error) (notifications.Scheduled, error) {
++	m.mu.Lock()
++	defer m.mu.Unlock()
++	cur, ok := m.byID[id]
++	if !ok {
++		return notifications.Scheduled{}, ErrNotFound
++	}
++	n := cloneScheduled(cur)
++	if err := fn(&n); err != nil {
++		return notifications.Scheduled{}, err
++	}
++	n.ID, n.UserID, n.IdempotencyKey = cur.ID, cur.UserID, cur.IdempotencyKey
++	m.byID[id] = cloneScheduled(n)
++	return n, nil
++}
++
++func (m *MemoryScheduledNotifications) list(match func(notifications.Scheduled) bool) []notifications.Scheduled {
++	out := []notifications.Scheduled{}
++	for _, n := range m.byID {
++		if match(n) {
++			out = append(out, cloneScheduled(n))
++		}
++	}
++	slices.SortFunc(out, func(a, b notifications.Scheduled) int {
++		if c := a.SendAt.Compare(b.SendAt); c != 0 {
++			return c
++		}
++		return strings.Compare(a.ID, b.ID)
++	})
++	return out
++}
++
++func (m *MemoryScheduledNotifications) ListDue(_ context.Context, now time.Time) ([]notifications.Scheduled, error) {
++	m.mu.RLock()
++	defer m.mu.RUnlock()
++	return m.list(func(n notifications.Scheduled) bool {
++		return n.Status == notifications.StatusPending && !n.NextAttemptAt.After(now)
++	}), nil
++}
++
++// MemoryPreferences is an in-memory PreferenceRepository.
++type MemoryPreferences struct {
++	mu    sync.RWMutex
++	prefs map[string]notifications.Preferences
++}
++
++// NewMemoryPreferences returns an empty repository.
++func NewMemoryPreferences() *MemoryPreferences {
++	return &MemoryPreferences{prefs: map[string]notifications.Preferences{}}
++}
++
++func (m *MemoryPreferences) Get(_ context.Context, userID string) (notifications.Preferences, error) {
++	m.mu.RLock()
++	defer m.mu.RUnlock()
++	p, ok := m.prefs[userID]
++	if !ok {
++		return notifications.Preferences{}, ErrNotFound
++	}
++	if p.QuietHours != nil {
++		q := *p.QuietHours
++		p.QuietHours = &q
++	}
++	return p, nil
++}
++
++func (m *MemoryPreferences) Put(_ context.Context, userID string, p notifications.Preferences) error {
++	m.mu.Lock()
++	defer m.mu.Unlock()
++	if p.QuietHours != nil {
++		q := *p.QuietHours
++		p.QuietHours = &q
++	}
++	m.prefs[userID] = p
++	return nil
++}
+diff --git a/internal/repositories/repositories.go b/internal/repositories/repositories.go
+index fda24dc..2dfa891 100644
+--- a/internal/repositories/repositories.go
++++ b/internal/repositories/repositories.go
+@@ -12,10 +12,12 @@ package repositories
+ import (
+ 	"context"
+ 	"errors"
++	"time"
+ 
+ 	"github.com/acme/meridian/internal/audit"
+ 	"github.com/acme/meridian/internal/billing"
+ 	"github.com/acme/meridian/internal/flags"
++	"github.com/acme/meridian/internal/notifications"
+ 	"github.com/acme/meridian/internal/users"
+ )
+ 
+@@ -85,3 +87,22 @@ type FlagRepository interface {
+ 	Put(ctx context.Context, f flags.Flag) error
+ 	List(ctx context.Context) ([]flags.Flag, error)
+ }
++
++// ScheduledNotificationRepository stores scheduled notifications. The pair
++// (UserID, IdempotencyKey) is unique when the key is not empty.
++type ScheduledNotificationRepository interface {
++	// Create stores n, or returns ErrDuplicate together with the existing
++	// notification when the user already used n.IdempotencyKey.
++	Create(ctx context.Context, n notifications.Scheduled) (notifications.Scheduled, error)
++	Get(ctx context.Context, id string) (notifications.Scheduled, error)
++	GetByIdempotencyKey(ctx context.Context, userID, key string) (notifications.Scheduled, error)
++	Update(ctx context.Context, id string, fn func(*notifications.Scheduled) error) (notifications.Scheduled, error)
++	// ListDue returns pending notifications whose next attempt is at or before now, oldest send_at first.
++	ListDue(ctx context.Context, now time.Time) ([]notifications.Scheduled, error)
++}
++
++// PreferenceRepository stores per-user notification preferences.
++type PreferenceRepository interface {
++	Get(ctx context.Context, userID string) (notifications.Preferences, error)
++	Put(ctx context.Context, userID string, p notifications.Preferences) error
++}
+diff --git a/internal/services/scheduling.go b/internal/services/scheduling.go
+new file mode 100644
+index 0000000..9b6fa68
+--- /dev/null
++++ b/internal/services/scheduling.go
+@@ -0,0 +1,266 @@
++package services
++
++import (
++	"context"
++	"errors"
++	"fmt"
++	"log/slog"
++	"strings"
++	"sync"
++	"time"
++
++	"github.com/acme/meridian/internal/apperr"
++	"github.com/acme/meridian/internal/auth"
++	"github.com/acme/meridian/internal/clock"
++	"github.com/acme/meridian/internal/notifications"
++	"github.com/acme/meridian/internal/repositories"
++	"github.com/acme/meridian/internal/validation"
++	"github.com/acme/meridian/pkg/ids"
++)
++
++var errNotificationNotFound = apperr.NotFound("notification_not_found", "notification not found")
++
++// MaxScheduleAhead bounds how far in the future a notification can be scheduled.
++const MaxScheduleAhead = 30 * 24 * time.Hour
++
++// SchedulingService manages notification preferences, scheduled
++// notifications and their delivery.
++type SchedulingService struct {
++	repo   repositories.ScheduledNotificationRepository
++	prefs  repositories.PreferenceRepository
++	users  repositories.UserRepository
++	email  notifications.EmailSender
++	sms    notifications.SMSSender
++	clock  clock.Clock
++	logger *slog.Logger
++
++	dispatchMu sync.Mutex // serialises dispatch passes so nothing is delivered twice
++}
++
++// NewSchedulingService returns a SchedulingService.
++func NewSchedulingService(repo repositories.ScheduledNotificationRepository, prefs repositories.PreferenceRepository, usersRepo repositories.UserRepository, email notifications.EmailSender, sms notifications.SMSSender, clk clock.Clock, logger *slog.Logger) *SchedulingService {
++	return &SchedulingService{repo: repo, prefs: prefs, users: usersRepo, email: email, sms: sms, clock: clk, logger: logger}
++}
++
++func (s *SchedulingService) preferences(ctx context.Context, userID string) (notifications.Preferences, error) {
++	p, err := s.prefs.Get(ctx, userID)
++	if errors.Is(err, repositories.ErrNotFound) {
++		return notifications.DefaultPreferences(), nil
++	}
++	return p, err
++}
++
++// GetPreferences returns the caller's notification preferences.
++func (s *SchedulingService) GetPreferences(ctx context.Context, p auth.Principal) (notifications.Preferences, error) {
++	return s.preferences(ctx, p.UserID)
++}
++
++// UpdatePreferences replaces the caller's notification preferences.
++func (s *SchedulingService) UpdatePreferences(ctx context.Context, p auth.Principal, in notifications.Preferences) (notifications.Preferences, error) {
++	v := validation.New()
++	v.Required("timezone", in.Timezone)
++	if in.Timezone != "" {
++		_, err := time.LoadLocation(in.Timezone)
++		v.Check(err == nil && in.Timezone != "Local", "timezone", "must be an IANA time zone name")
++	}
++	if q := in.QuietHours; q != nil {
++		start, err1 := notifications.ParseClock(q.Start)
++		end, err2 := notifications.ParseClock(q.End)
++		v.Check(err1 == nil, "quiet_hours.start", "must be a time of day in HH:MM format")
++		v.Check(err2 == nil, "quiet_hours.end", "must be a time of day in HH:MM format")
++		v.Check(err1 != nil || err2 != nil || start != end, "quiet_hours.end", "must differ from start")
++	}
++	if err := v.Err(); err != nil {
++		return notifications.Preferences{}, err
++	}
++	if err := s.prefs.Put(ctx, p.UserID, in); err != nil {
++		return notifications.Preferences{}, err
++	}
++	return in, nil
++}
++
++// ScheduleInput is the payload for scheduling a notification.
++type ScheduleInput struct {
++	Channel string `json:"channel"`
++	Subject string `json:"subject"`
++	Body    string `json:"body"`
++	SendAt  string `json:"send_at"`
++}
++
++// Schedule creates a pending notification for the caller. With an
++// idempotency key, repeating an identical request returns the original
++// notification (created == false); reusing the key for a different payload
++// is a conflict.
++func (s *SchedulingService) Schedule(ctx context.Context, p auth.Principal, key string, in ScheduleInput) (n notifications.Scheduled, created bool, err error) {
++	v := validation.New()
++	v.OneOf("channel", in.Channel, string(notifications.ChannelEmail), string(notifications.ChannelSMS))
++	if in.Channel == string(notifications.ChannelEmail) {
++		v.Required("subject", in.Subject)
++	}
++	v.MaxLen("subject", in.Subject, 200)
++	v.Required("body", in.Body)
++	v.MaxLen("body", in.Body, 2000)
++	v.MaxLen("idempotency_key", key, 128)
++	sendAt, perr := time.Parse(time.RFC3339, in.SendAt)
++	v.Check(perr == nil, "send_at", "must be an RFC 3339 timestamp")
++	if err := v.Err(); err != nil {
++		return notifications.Scheduled{}, false, err
++	}
++	now := s.clock.Now()
++	n = notifications.Scheduled{
++		ID: ids.New("ntf"), UserID: p.UserID, Channel: notifications.Channel(in.Channel),
++		Subject: in.Subject, Body: in.Body, SendAt: sendAt.UTC(), Status: notifications.StatusPending,
++		NextAttemptAt: sendAt.UTC(), IdempotencyKey: key, CreatedAt: now,
++	}
++	if key != "" {
++		existing, err := s.repo.GetByIdempotencyKey(ctx, p.UserID, key)
++		if err == nil {
++			return replay(existing, n)
++		}
++		if !errors.Is(err, repositories.ErrNotFound) {
++			return notifications.Scheduled{}, false, err
++		}
++	}
++
++	v = validation.New()
++	v.Check(!n.SendAt.Before(now), "send_at", "must not be in the past")
++	v.Check(!n.SendAt.After(now.Add(MaxScheduleAhead)), "send_at", "must be at most 30 days ahead")
++	if n.Channel == notifications.ChannelSMS {
++		u, err := s.users.Get(ctx, p.UserID)
++		if err != nil {
++			return notifications.Scheduled{}, false, mapNotFound(err, errUserNotFound)
++		}
++		v.Check(u.Phone != "", "channel", "no phone number on file")
++	}
++	if err := v.Err(); err != nil {
++		return notifications.Scheduled{}, false, err
++	}
++
++	stored, err := s.repo.Create(ctx, n)
++	if errors.Is(err, repositories.ErrDuplicate) && key != "" {
++		return replay(stored, n)
++	}
++	if err != nil {
++		return notifications.Scheduled{}, false, err
++	}
++	return stored, true, nil
++}
++
++func replay(existing, req notifications.Scheduled) (notifications.Scheduled, bool, error) {
++	if !existing.SamePayload(req) {
++		return notifications.Scheduled{}, false, apperr.Conflict("idempotency_key_reused", "the idempotency key was already used for a different request")
++	}
++	return existing, false, nil
++}
++
++func (s *SchedulingService) loadFor(ctx context.Context, p auth.Principal, id string) (notifications.Scheduled, error) {
++	n, err := s.repo.Get(ctx, id)
++	if err != nil {
++		return notifications.Scheduled{}, mapNotFound(err, errNotificationNotFound)
++	}
++	if n.UserID != p.UserID && !p.Is(auth.RoleAdmin) {
++		return notifications.Scheduled{}, errNotificationNotFound
++	}
++	return n, nil
++}
++
++// Get returns one of the caller's scheduled notifications.
++func (s *SchedulingService) Get(ctx context.Context, p auth.Principal, id string) (notifications.Scheduled, error) {
++	return s.loadFor(ctx, p, id)
++}
++
++// DispatchResult summarises one dispatch pass.
++type DispatchResult struct {
++	Sent     int `json:"sent"`
++	Retried  int `json:"retried"`
++	Failed   int `json:"failed"`
++	Deferred int `json:"deferred"`
++}
++
++// RunDispatch runs a dispatch pass on behalf of an admin.
++func (s *SchedulingService) RunDispatch(ctx context.Context, p auth.Principal) (DispatchResult, error) {
++	if err := requireRole(p, auth.RoleAdmin); err != nil {
++		return DispatchResult{}, err
++	}
++	return s.Dispatch(ctx)
++}
++
++var errNoLongerPending = errors.New("notification is no longer pending")
++
++// Dispatch delivers every pending notification that is due at the current
++// time, unless the recipient is in their quiet hours. Failed deliveries are
++// retried with exponential backoff up to notifications.MaxAttempts.
++func (s *SchedulingService) Dispatch(ctx context.Context) (DispatchResult, error) {
++	s.dispatchMu.Lock()
++	defer s.dispatchMu.Unlock()
++
++	var res DispatchResult
++	now := s.clock.Now()
++	due, err := s.repo.ListDue(ctx, now)
++	if err != nil {
++		return res, err
++	}
++	for _, n := range due {
++		prefs, err := s.preferences(ctx, n.UserID)
++		if err != nil {
++			return res, err
++		}
++		if prefs.Quiet(now) {
++			res.Deferred++
++			continue
++		}
++		sendErr := s.deliver(ctx, n)
++		updated, err := s.repo.Update(ctx, n.ID, func(cur *notifications.Scheduled) error {
++			if cur.Status != notifications.StatusPending {
++				return errNoLongerPending
++			}
++			cur.Attempts++
++			switch {
++			case sendErr == nil:
++				cur.Status = notifications.StatusSent
++				cur.SentAt = &now
++			case cur.Attempts >= notifications.MaxAttempts:
++				cur.Status = notifications.StatusFailed
++			default:
++				cur.NextAttemptAt = now.Add(notifications.RetryBackoff(cur.Attempts))
++			}
++			return nil
++		})
++		if errors.Is(err, errNoLongerPending) {
++			continue
++		}
++		if err != nil {
++			return res, err
++		}
++		switch updated.Status {
++		case notifications.StatusSent:
++			res.Sent++
++		case notifications.StatusFailed:
++			res.Failed++
++		default:
++			res.Retried++
++		}
++		if sendErr != nil {
++			s.logger.WarnContext(ctx, "scheduled notification delivery failed", "id", n.ID, "attempt", updated.Attempts, "err", sendErr)
++		}
++	}
++	return res, nil
++}
++
++func (s *SchedulingService) deliver(ctx context.Context, n notifications.Scheduled) error {
++	u, err := s.users.Get(ctx, n.UserID)
++	if err != nil {
++		return fmt.Errorf("load recipient: %w", err)
++	}
++	switch n.Channel {
++	case notifications.ChannelEmail:
++		return s.email.SendEmail(ctx, notifications.Email{To: u.Email, Subject: n.Subject, Body: n.Body})
++	case notifications.ChannelSMS:
++		if strings.TrimSpace(u.Phone) == "" {
++			return errors.New("recipient has no phone number")
++		}
++		return s.sms.SendSMS(ctx, notifications.SMS{To: u.Phone, Body: n.Body})
++	default:
++		return fmt.Errorf("unknown channel %q", n.Channel)
++	}
++}
+diff --git a/internal/services/scheduling_test.go b/internal/services/scheduling_test.go
+new file mode 100644
+index 0000000..b1ae122
+--- /dev/null
++++ b/internal/services/scheduling_test.go
+@@ -0,0 +1,132 @@
++package services
++
++import (
++	"context"
++	"io"
++	"log/slog"
++	"testing"
++	"time"
++	_ "time/tzdata"
++
++	"github.com/acme/meridian/internal/apperr"
++	"github.com/acme/meridian/internal/auth"
++	"github.com/acme/meridian/internal/clock"
++	"github.com/acme/meridian/internal/notifications"
++	"github.com/acme/meridian/internal/repositories"
++	"github.com/acme/meridian/internal/users"
++)
++
++type schedulingFixture struct {
++	svc   *SchedulingService
++	clock *clock.Fake
++	email *notifications.FakeEmailSender
++	user  auth.Principal
++}
++
++func newSchedulingFixture(t *testing.T) *schedulingFixture {
++	t.Helper()
++	clk := clock.NewFake(time.Date(2026, 7, 1, 12, 0, 0, 0, time.UTC))
++	usersRepo := repositories.NewMemoryUsers()
++	_ = usersRepo.Create(context.Background(), users.User{ID: "usr_1", Email: "u@example.com"})
++	email := &notifications.FakeEmailSender{}
++	svc := NewSchedulingService(repositories.NewMemoryScheduledNotifications(), repositories.NewMemoryPreferences(), usersRepo,
++		email, &notifications.FakeSMSSender{}, clk, slog.New(slog.NewTextHandler(io.Discard, nil)))
++	return &schedulingFixture{svc: svc, clock: clk, email: email, user: auth.Principal{UserID: "usr_1", Role: auth.RoleUser}}
++}
++
++func (f *schedulingFixture) schedule(t *testing.T, key string, at time.Time) notifications.Scheduled {
++	t.Helper()
++	n, _, err := f.svc.Schedule(context.Background(), f.user, key, ScheduleInput{Channel: "email", Subject: "Hi", Body: "Hello", SendAt: at.Format(time.RFC3339)})
++	if err != nil {
++		t.Fatal(err)
++	}
++	return n
++}
++
++func TestScheduleIdempotency(t *testing.T) {
++	f := newSchedulingFixture(t)
++	at := f.clock.Now().Add(time.Hour)
++	first := f.schedule(t, "k1", at)
++	in := ScheduleInput{Channel: "email", Subject: "Hi", Body: "Hello", SendAt: at.In(time.FixedZone("x", 7200)).Format(time.RFC3339)}
++	again, created, err := f.svc.Schedule(context.Background(), f.user, "k1", in)
++	if err != nil || created || again.ID != first.ID {
++		t.Fatalf("replay = %+v created=%v err=%v", again, created, err)
++	}
++	in.Body = "changed"
++	if _, _, err := f.svc.Schedule(context.Background(), f.user, "k1", in); apperr.KindOf(err) != apperr.KindConflict {
++		t.Fatalf("reuse: %v", err)
++	}
++}
++
++func TestDispatchRetriesWithBackoff(t *testing.T) {
++	f := newSchedulingFixture(t)
++	ctx := context.Background()
++	n := f.schedule(t, "", f.clock.Now())
++	f.email.FailNext(3)
++
++	steps := []struct {
++		advance time.Duration
++		want    DispatchResult
++	}{
++		{0, DispatchResult{Retried: 1}},
++		{59 * time.Second, DispatchResult{}},
++		{time.Second, DispatchResult{Retried: 1}},
++		{2 * time.Minute, DispatchResult{Failed: 1}},
++		{time.Hour, DispatchResult{}},
++	}
++	for i, st := range steps {
++		f.clock.Advance(st.advance)
++		got, err := f.svc.Dispatch(ctx)
++		if err != nil || got != st.want {
++			t.Fatalf("step %d: got %+v, %v; want %+v", i, got, err, st.want)
++		}
++	}
++	got, _ := f.svc.Get(ctx, f.user, n.ID)
++	if got.Status != notifications.StatusFailed || got.Attempts != 3 {
++		t.Fatalf("final = %+v", got)
++	}
++}
++
++func TestDispatchHonoursQuietHours(t *testing.T) {
++	f := newSchedulingFixture(t)
++	ctx := context.Background()
++	if _, err := f.svc.UpdatePreferences(ctx, f.user, notifications.Preferences{
++		Timezone: "Asia/Tokyo", QuietHours: &notifications.QuietHours{Start: "21:00", End: "08:00"},
++	}); err != nil {
++		t.Fatal(err)
++	}
++	f.schedule(t, "", f.clock.Now()) // 12:00 UTC is 21:00 in Tokyo
++	if got, _ := f.svc.Dispatch(ctx); got != (DispatchResult{Deferred: 1}) {
++		t.Fatalf("during quiet hours: %+v", got)
++	}
++	f.clock.Advance(11 * time.Hour) // 08:00 in Tokyo
++	if got, _ := f.svc.Dispatch(ctx); got != (DispatchResult{Sent: 1}) {
++		t.Fatalf("after quiet hours: %+v", got)
++	}
++	if len(f.email.Sent()) != 1 {
++		t.Fatalf("sent = %+v", f.email.Sent())
++	}
++}
++
++func TestUpdatePreferencesValidation(t *testing.T) {
++	f := newSchedulingFixture(t)
++	tests := []struct {
++		name  string
++		in    notifications.Preferences
++		field string
++	}{
++		{"unknown zone", notifications.Preferences{Timezone: "Mars/Olympus"}, "timezone"},
++		{"empty zone", notifications.Preferences{}, "timezone"},
++		{"bad start", notifications.Preferences{Timezone: "UTC", QuietHours: &notifications.QuietHours{Start: "25:00", End: "07:00"}}, "quiet_hours.start"},
++		{"equal bounds", notifications.Preferences{Timezone: "UTC", QuietHours: &notifications.QuietHours{Start: "07:00", End: "07:00"}}, "quiet_hours.end"},
++	}
++	for _, tt := range tests {
++		t.Run(tt.name, func(t *testing.T) {
++			_, err := f.svc.UpdatePreferences(context.Background(), f.user, tt.in)
++			e, ok := apperr.As(err)
++			if !ok || e.Fields[tt.field] == "" {
++				t.Fatalf("err = %v, want field %q", err, tt.field)
++			}
++		})
++	}
++}
+diff --git a/migrations/0004_scheduled_notifications.sql b/migrations/0004_scheduled_notifications.sql
+new file mode 100644
+index 0000000..1f02400
+--- /dev/null
++++ b/migrations/0004_scheduled_notifications.sql
+@@ -0,0 +1,28 @@
++-- Scheduled notifications and per-user delivery preferences.
++
++CREATE TABLE notification_preferences (
++    user_id           TEXT PRIMARY KEY REFERENCES users (id),
++    timezone          TEXT NOT NULL DEFAULT 'UTC',   -- IANA zone name
++    quiet_hours_start TIME,                          -- local time, inclusive
++    quiet_hours_end   TIME,                          -- local time, exclusive; may wrap midnight
++    CHECK ((quiet_hours_start IS NULL) = (quiet_hours_end IS NULL))
++);
++
++CREATE TABLE scheduled_notifications (
++    id              TEXT PRIMARY KEY,                -- ntf_<16 hex>
++    user_id         TEXT NOT NULL REFERENCES users (id),
++    channel         TEXT NOT NULL CHECK (channel IN ('email', 'sms')),
++    subject         TEXT,
++    body            TEXT NOT NULL,
++    send_at         TIMESTAMPTZ NOT NULL,
++    status          TEXT NOT NULL CHECK (status IN ('pending', 'sent', 'failed')),
++    attempts        INTEGER NOT NULL DEFAULT 0,
++    next_attempt_at TIMESTAMPTZ NOT NULL,
++    sent_at         TIMESTAMPTZ,
++    idempotency_key TEXT,
++    created_at      TIMESTAMPTZ NOT NULL
++);
++
++CREATE UNIQUE INDEX scheduled_notifications_idem_key ON scheduled_notifications (user_id, idempotency_key)
++    WHERE idempotency_key IS NOT NULL;
++CREATE INDEX scheduled_notifications_due_idx ON scheduled_notifications (next_attempt_at) WHERE status = 'pending';

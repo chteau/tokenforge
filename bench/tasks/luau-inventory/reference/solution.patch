@@ -1,0 +1,629 @@
+diff --git a/README.md b/README.md
+index a016ff1..652b015 100644
+--- a/README.md
++++ b/README.md
+@@ -1,3 +1,20 @@
+ # Forager inventory
+ 
+ Shared inventory, stacking and crafting modules for the Forager Roblox experience.
++
++## Layout
++
++`src/shared` is synced to `ReplicatedStorage.Shared` by Rojo (`default.project.json`):
++
++- `Items.luau`: item catalogue and stack limits
++- `Signal.luau`: minimal Roblox-style signal
++- `Inventory.luau`: slots, stacking, moving, change events and saves
++- `Crafting.luau`: recipes and atomic crafting
++
++## Tests
++
++The modules are plain Luau and run outside Studio with [Lune](https://lune-org.github.io/docs):
++
++```sh
++lune run tests/run.luau
++```
+diff --git a/src/shared/Crafting.luau b/src/shared/Crafting.luau
+new file mode 100644
+index 0000000..5218b57
+--- /dev/null
++++ b/src/shared/Crafting.luau
+@@ -0,0 +1,71 @@
++--!strict
++-- Crafting recipes; crafts consume inputs and produce outputs atomically.
++
++local Inventory = require("./Inventory")
++
++export type Ingredient = { itemId: string, count: number }
++export type Recipe = { id: string, inputs: { Ingredient }, output: Ingredient }
++
++local Crafting = {}
++
++Crafting.recipes = {
++	planks = { id = "planks", inputs = { { itemId = "wood", count = 1 } }, output = { itemId = "plank", count = 4 } },
++	sticks = { id = "sticks", inputs = { { itemId = "plank", count = 2 } }, output = { itemId = "stick", count = 4 } },
++	pickaxe = {
++		id = "pickaxe",
++		inputs = { { itemId = "stone", count = 3 }, { itemId = "stick", count = 2 } },
++		output = { itemId = "pickaxe", count = 1 },
++	},
++	sword = {
++		id = "sword",
++		inputs = { { itemId = "iron_ingot", count = 2 }, { itemId = "stick", count = 1 } },
++		output = { itemId = "sword", count = 1 },
++	},
++} :: { [string]: Recipe }
++
++local function resolve(recipeId: string, times: number?): (Recipe, number)
++	local recipe = Crafting.recipes[recipeId]
++	if recipe == nil then
++		error("unknown recipe: " .. tostring(recipeId), 3)
++	end
++	local n = if times == nil then 1 else times
++	if type(n) ~= "number" or n < 1 or n ~= math.floor(n) then
++		error("invalid count", 3)
++	end
++	return recipe, n
++end
++
++local function check(inv: Inventory.Inventory, recipe: Recipe, times: number): boolean
++	for _, input in recipe.inputs do
++		if inv:count(input.itemId) < input.count * times then
++			return false
++		end
++	end
++	-- Simulate on a copy so the space freed by the inputs counts.
++	local copy = Inventory.deserialize(inv:serialize())
++	for _, input in recipe.inputs do
++		copy:remove(input.itemId, input.count * times)
++	end
++	return copy:canAdd(recipe.output.itemId, recipe.output.count * times)
++end
++
++function Crafting.canCraft(inv: Inventory.Inventory, recipeId: string, times: number?): boolean
++	local recipe, n = resolve(recipeId, times)
++	return check(inv, recipe, n)
++end
++
++function Crafting.craft(inv: Inventory.Inventory, recipeId: string, times: number?): boolean
++	local recipe, n = resolve(recipeId, times)
++	if not check(inv, recipe, n) then
++		return false
++	end
++	inv:batch(function()
++		for _, input in recipe.inputs do
++			inv:remove(input.itemId, input.count * n)
++		end
++		inv:add(recipe.output.itemId, recipe.output.count * n)
++	end)
++	return true
++end
++
++return Crafting
+diff --git a/src/shared/Inventory.luau b/src/shared/Inventory.luau
+new file mode 100644
+index 0000000..3feca79
+--- /dev/null
++++ b/src/shared/Inventory.luau
+@@ -0,0 +1,289 @@
++--!strict
++-- Slot-based inventory with item stacking, change events and DataStore-friendly saves.
++
++local Items = require("./Items")
++local Signal = require("./Signal")
++
++export type Stack = { itemId: string, count: number }
++
++export type SaveData = {
++	version: number,
++	capacity: number,
++	slots: { { slot: number, itemId: string, count: number } },
++}
++
++export type Inventory = {
++	capacity: number,
++	changed: Signal.Signal,
++	getSlot: (self: Inventory, slot: number) -> Stack?,
++	count: (self: Inventory, itemId: string) -> number,
++	add: (self: Inventory, itemId: string, count: number) -> number,
++	canAdd: (self: Inventory, itemId: string, count: number) -> boolean,
++	remove: (self: Inventory, itemId: string, count: number) -> boolean,
++	move: (self: Inventory, from: number, to: number) -> boolean,
++	serialize: (self: Inventory) -> SaveData,
++	batch: (self: Inventory, fn: () -> ()) -> (),
++	_slots: { [number]: Stack },
++	_dirty: { [number]: boolean }?,
++}
++
++local SAVE_VERSION = 2
++
++local Inventory = {}
++Inventory.SAVE_VERSION = SAVE_VERSION
++local methods = {}
++local metatable = { __index = methods }
++
++local function isPositiveInteger(n: any): boolean
++	return type(n) == "number" and n >= 1 and n == math.floor(n) and n ~= math.huge
++end
++
++local function checkSlot(self: Inventory, slot: any)
++	if type(slot) ~= "number" or slot < 1 or slot > self.capacity or slot ~= math.floor(slot) then
++		error("invalid slot", 3)
++	end
++end
++
++local function checkItemAndCount(itemId: any, count: any)
++	if type(itemId) ~= "string" or Items.get(itemId) == nil then
++		error("unknown item: " .. tostring(itemId), 3)
++	end
++	if not isPositiveInteger(count) then
++		error("invalid count", 3)
++	end
++end
++
++-- Records changed slots; fires `changed` once when the outermost operation finishes.
++local function track(self: Inventory, fn: (mark: (number) -> ()) -> ())
++	local outer = self._dirty == nil
++	if outer then
++		self._dirty = {}
++	end
++	local dirty = self._dirty :: { [number]: boolean }
++	local ok, err = pcall(fn, function(slot: number)
++		dirty[slot] = true
++	end)
++	if outer then
++		self._dirty = nil
++	end
++	if not ok then
++		error(err, 0)
++	end
++	if outer then
++		local list = {}
++		for slot in dirty do
++			table.insert(list, slot)
++		end
++		if #list > 0 then
++			table.sort(list)
++			self.changed:Fire(list)
++		end
++	end
++end
++
++function Inventory.new(capacity: number): Inventory
++	if not isPositiveInteger(capacity) then
++		error("invalid capacity", 2)
++	end
++	local self = setmetatable({
++		capacity = capacity,
++		changed = Signal.new(),
++		_slots = {},
++		_dirty = nil,
++	}, metatable) :: any
++	return self :: Inventory
++end
++
++function methods.getSlot(self: Inventory, slot: number): Stack?
++	checkSlot(self, slot)
++	local stack = self._slots[slot]
++	return if stack then { itemId = stack.itemId, count = stack.count } else nil
++end
++
++function methods.count(self: Inventory, itemId: string): number
++	local total = 0
++	for _, stack in self._slots do
++		if stack.itemId == itemId then
++			total += stack.count
++		end
++	end
++	return total
++end
++
++-- Free room for an item: partial stacks of it plus empty slots.
++local function room(self: Inventory, itemId: string): number
++	local max = Items.maxStack(itemId)
++	local total = 0
++	for slot = 1, self.capacity do
++		local stack = self._slots[slot]
++		if stack == nil then
++			total += max
++		elseif stack.itemId == itemId then
++			total += max - stack.count
++		end
++	end
++	return total
++end
++
++function methods.canAdd(self: Inventory, itemId: string, count: number): boolean
++	checkItemAndCount(itemId, count)
++	return room(self, itemId) >= count
++end
++
++function methods.add(self: Inventory, itemId: string, count: number): number
++	checkItemAndCount(itemId, count)
++	local max = Items.maxStack(itemId)
++	local left = count
++	track(self, function(mark)
++		for slot = 1, self.capacity do
++			local stack = self._slots[slot]
++			if left > 0 and stack and stack.itemId == itemId and stack.count < max then
++				local n = math.min(max - stack.count, left)
++				stack.count += n
++				left -= n
++				mark(slot)
++			end
++		end
++		for slot = 1, self.capacity do
++			if left > 0 and self._slots[slot] == nil then
++				local n = math.min(max, left)
++				self._slots[slot] = { itemId = itemId, count = n }
++				left -= n
++				mark(slot)
++			end
++		end
++	end)
++	return left
++end
++
++function methods.remove(self: Inventory, itemId: string, count: number): boolean
++	checkItemAndCount(itemId, count)
++	if self:count(itemId) < count then
++		return false
++	end
++	local left = count
++	track(self, function(mark)
++		for slot = self.capacity, 1, -1 do
++			local stack = self._slots[slot]
++			if left > 0 and stack and stack.itemId == itemId then
++				local n = math.min(stack.count, left)
++				stack.count -= n
++				left -= n
++				if stack.count == 0 then
++					self._slots[slot] = nil
++				end
++				mark(slot)
++			end
++		end
++	end)
++	return true
++end
++
++function methods.move(self: Inventory, from: number, to: number): boolean
++	checkSlot(self, from)
++	checkSlot(self, to)
++	local a, b = self._slots[from], self._slots[to]
++	if a == nil or from == to then
++		return false
++	end
++	if b ~= nil and a.itemId == b.itemId then
++		local n = math.min(Items.maxStack(a.itemId) - b.count, a.count)
++		if n <= 0 then
++			return false
++		end
++		track(self, function(mark)
++			b.count += n
++			a.count -= n
++			if a.count == 0 then
++				self._slots[from] = nil
++			end
++			mark(from)
++			mark(to)
++		end)
++		return true
++	end
++	track(self, function(mark)
++		self._slots[from], self._slots[to] = b, a
++		mark(from)
++		mark(to)
++	end)
++	return true
++end
++
++-- Runs fn so that every change it makes fires `changed` once, together.
++function methods.batch(self: Inventory, fn: () -> ())
++	track(self, function()
++		fn()
++	end)
++end
++
++function methods.serialize(self: Inventory): SaveData
++	local slots = {}
++	for slot = 1, self.capacity do
++		local stack = self._slots[slot]
++		if stack then
++			table.insert(slots, { slot = slot, itemId = stack.itemId, count = stack.count })
++		end
++	end
++	return { version = SAVE_VERSION, capacity = self.capacity, slots = slots }
++end
++
++local function invalid(): never
++	error("invalid save data", 3)
++end
++
++local function place(inv: Inventory, slot: any, itemId: any, count: any)
++	if type(itemId) ~= "string" then
++		invalid()
++	end
++	if Items.get(itemId) == nil then
++		error("unknown item: " .. itemId, 3)
++	end
++	if not isPositiveInteger(slot) or slot > inv.capacity or inv._slots[slot] ~= nil then
++		invalid()
++	end
++	if not isPositiveInteger(count) or count > Items.maxStack(itemId) then
++		invalid()
++	end
++	inv._slots[slot] = { itemId = itemId, count = count }
++end
++
++function Inventory.deserialize(data: any): Inventory
++	if type(data) ~= "table" or type(data.version) ~= "number" then
++		invalid()
++	end
++	local version = data.version
++	if version ~= 1 and version ~= 2 then
++		error("unsupported save version: " .. tostring(version), 2)
++	end
++	if not isPositiveInteger(data.capacity) then
++		invalid()
++	end
++	local inv = Inventory.new(data.capacity)
++	if version == 1 then
++		local items = data.items
++		if type(items) ~= "table" or #items > inv.capacity then
++			invalid()
++		end
++		for i, entry in items do
++			if type(entry) ~= "table" or type(i) ~= "number" then
++				invalid()
++			end
++			place(inv, i, entry.id, entry.count)
++		end
++	else
++		local slots = data.slots
++		if type(slots) ~= "table" then
++			invalid()
++		end
++		for _, entry in slots do
++			if type(entry) ~= "table" then
++				invalid()
++			end
++			place(inv, entry.slot, entry.itemId, entry.count)
++		end
++	end
++	return inv
++end
++
++return Inventory
+diff --git a/src/shared/Items.luau b/src/shared/Items.luau
+new file mode 100644
+index 0000000..02e4cf8
+--- /dev/null
++++ b/src/shared/Items.luau
+@@ -0,0 +1,39 @@
++--!strict
++-- Item catalogue: ids, display names and stack limits.
++
++export type ItemDef = {
++	id: string,
++	name: string,
++	maxStack: number,
++}
++
++local DEFINITIONS: { [string]: ItemDef } = {
++	wood = { id = "wood", name = "Wood", maxStack = 64 },
++	plank = { id = "plank", name = "Plank", maxStack = 64 },
++	stick = { id = "stick", name = "Stick", maxStack = 64 },
++	stone = { id = "stone", name = "Stone", maxStack = 64 },
++	iron_ingot = { id = "iron_ingot", name = "Iron Ingot", maxStack = 32 },
++	apple = { id = "apple", name = "Apple", maxStack = 16 },
++	pickaxe = { id = "pickaxe", name = "Pickaxe", maxStack = 1 },
++	sword = { id = "sword", name = "Sword", maxStack = 1 },
++}
++
++local Items = {}
++
++function Items.get(itemId: string): ItemDef?
++	local def = DEFINITIONS[itemId]
++	if def == nil then
++		return nil
++	end
++	return table.clone(def)
++end
++
++function Items.maxStack(itemId: string): number
++	local def = DEFINITIONS[itemId]
++	if def == nil then
++		error("unknown item: " .. tostring(itemId), 2)
++	end
++	return def.maxStack
++end
++
++return Items
+diff --git a/src/shared/Signal.luau b/src/shared/Signal.luau
+new file mode 100644
+index 0000000..7f93cb6
+--- /dev/null
++++ b/src/shared/Signal.luau
+@@ -0,0 +1,60 @@
++--!strict
++-- Minimal synchronous Roblox-style signal.
++
++export type Connection = {
++	Connected: boolean,
++	Disconnect: (self: Connection) -> (),
++}
++
++export type Signal = {
++	Connect: (self: Signal, fn: (...any) -> ()) -> Connection,
++	Fire: (self: Signal, ...any) -> (),
++	DisconnectAll: (self: Signal) -> (),
++}
++
++type Handler = { connection: Connection, fn: (...any) -> () }
++
++local Signal = {}
++
++function Signal.new(): Signal
++	local handlers: { Handler } = {}
++	local self = {} :: Signal
++
++	function self:Connect(fn: (...any) -> ()): Connection
++		local connection = { Connected = true } :: Connection
++		function connection:Disconnect()
++			if not self.Connected then
++				return
++			end
++			self.Connected = false
++			for i, h in handlers do
++				if h.connection == self then
++					table.remove(handlers, i)
++					break
++				end
++			end
++		end
++		table.insert(handlers, { connection = connection, fn = fn })
++		return connection
++	end
++
++	function self:Fire(...: any)
++		local snapshot = table.clone(handlers)
++		for _, h in snapshot do
++			if h.connection.Connected then
++				h.fn(...)
++			end
++		end
++	end
++
++	function self:DisconnectAll()
++		for _, h in handlers do
++			h.connection.Connected = false
++		end
++		table.clear(handlers)
++	end
++
++	return self
++end
++
++return Signal
+diff --git a/tests/run.luau b/tests/run.luau
+new file mode 100644
+index 0000000..7cb4997
+--- /dev/null
++++ b/tests/run.luau
+@@ -0,0 +1,115 @@
++-- Run with: lune run tests/run.luau
++local Inventory = require("../src/shared/Inventory")
++local Crafting = require("../src/shared/Crafting")
++local Signal = require("../src/shared/Signal")
++local Items = require("../src/shared/Items")
++
++local failures = 0
++local function test(name: string, fn: () -> ())
++	local ok, err = pcall(fn)
++	if ok then
++		print("PASS " .. name)
++	else
++		failures += 1
++		print("FAIL " .. name .. ": " .. tostring(err))
++	end
++end
++
++local function expectEq(actual: any, expected: any)
++	if actual ~= expected then
++		error(string.format("expected %s, got %s", tostring(expected), tostring(actual)), 2)
++	end
++end
++
++local function expectError(fn: () -> any, needle: string)
++	local ok, err = pcall(fn)
++	assert(not ok, "expected an error")
++	assert(string.find(tostring(err), needle, 1, true), "unexpected error: " .. tostring(err))
++end
++
++test("items have stack limits", function()
++	expectEq(Items.maxStack("apple"), 16)
++	expectEq(Items.get("nope"), nil)
++	expectError(function() return Items.maxStack("nope") end, "unknown item: nope")
++end)
++
++test("signal connects, fires and disconnects", function()
++	local s = Signal.new()
++	local got = {}
++	local c = s:Connect(function(v) table.insert(got, v) end)
++	s:Fire(1)
++	c:Disconnect()
++	s:Fire(2)
++	expectEq(#got, 1)
++	expectEq(c.Connected, false)
++end)
++
++test("add stacks and reports leftover", function()
++	local inv = Inventory.new(2)
++	expectEq(inv:add("iron_ingot", 70), 6)
++	expectEq(inv:getSlot(1).count, 32)
++	expectEq(inv:count("iron_ingot"), 64)
++	expectError(function() return inv:add("wood", 0) end, "invalid count")
++end)
++
++test("remove is all or nothing", function()
++	local inv = Inventory.new(3)
++	inv:add("wood", 70)
++	expectEq(inv:remove("wood", 71), false)
++	expectEq(inv:remove("wood", 10), true)
++	expectEq(inv:getSlot(1).count, 60)
++	expectEq(inv:getSlot(2), nil)
++end)
++
++test("move merges and swaps", function()
++	local inv = Inventory.new(3)
++	inv:add("wood", 5)
++	inv:add("sword", 1)
++	expectEq(inv:move(1, 2), true)
++	expectEq(inv:getSlot(1).itemId, "sword")
++	expectEq(inv:move(3, 1), false)
++	expectError(function() return inv:move(1, 9) end, "invalid slot")
++end)
++
++test("changed fires once with sorted slots", function()
++	local inv = Inventory.new(3)
++	local events = {}
++	inv.changed:Connect(function(slots) table.insert(events, table.concat(slots, ",")) end)
++	inv:add("apple", 20)
++	inv:remove("apple", 99)
++	expectEq(#events, 1)
++	expectEq(events[1], "1,2")
++end)
++
++test("serialize round trip and legacy saves", function()
++	local inv = Inventory.new(4)
++	inv:add("stone", 3)
++	inv:move(1, 3)
++	local data = inv:serialize()
++	expectEq(data.version, Inventory.SAVE_VERSION)
++	expectEq(data.slots[1].slot, 3)
++	local copy = Inventory.deserialize(data)
++	expectEq(copy:getSlot(3).count, 3)
++	local old = Inventory.deserialize({ version = 1, capacity = 2, items = { { id = "apple", count = 2 } } })
++	expectEq(old:getSlot(1).itemId, "apple")
++	expectError(function() return Inventory.deserialize({ version = 9, capacity = 1, slots = {} }) end, "unsupported save version: 9")
++	expectError(function() return Inventory.deserialize({ version = 2, capacity = 1, slots = { { slot = 2, itemId = "wood", count = 1 } } }) end, "invalid save data")
++end)
++
++test("crafting is atomic", function()
++	local inv = Inventory.new(3)
++	inv:add("wood", 2)
++	local fired = 0
++	inv.changed:Connect(function() fired += 1 end)
++	expectEq(Crafting.craft(inv, "planks", 2), true)
++	expectEq(fired, 1)
++	expectEq(inv:count("plank"), 8)
++	expectEq(Crafting.craft(inv, "sword"), false)
++	expectEq(fired, 1)
++	expectError(function() return Crafting.canCraft(inv, "boat") end, "unknown recipe: boat")
++end)
++
++if failures > 0 then
++	error(failures .. " test(s) failed", 0)
++end
++print("all tests passed")

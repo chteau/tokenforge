@@ -1,0 +1,12 @@
+{
+  "id": "refactor",
+  "title": "Consolidate duplicated entry validation in the tally ledger CLI",
+  "category": "refactor",
+  "language": "rust",
+  "rubric": "refactor",
+  "timeout_s": 1800,
+  "relevant_files": ["src/commands/add.rs", "src/commands/edit.rs", "src/commands/rename.rs", "src/import/mod.rs",
+                     "src/model/**", "src/cli/mod.rs", "src/error.rs", "tests/cli_entries.rs", "tests/cli_import.rs"],
+  "allowed_change_globs": ["src/**", "tests/**", "Cargo.lock"],
+  "reference_diff_lines": 218
+}

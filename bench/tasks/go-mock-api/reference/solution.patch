@@ -1,0 +1,718 @@
+diff --git a/internal/api/api.go b/internal/api/api.go
+new file mode 100644
+index 0000000..6d651bf
+--- /dev/null
++++ b/internal/api/api.go
+@@ -0,0 +1,166 @@
++// Package api implements the HTTP layer of the books service.
++package api
++
++import (
++	"bytes"
++	"encoding/json"
++	"errors"
++	"io"
++	"net/http"
++	"strconv"
++
++	"example.com/mockapi/internal/store"
++)
++
++// Server serves the books API.
++type Server struct {
++	store *store.Store
++	token string
++}
++
++// New returns an http.Handler for the API.
++func New(s *store.Store, token string) http.Handler {
++	srv := &Server{store: s, token: token}
++	mux := http.NewServeMux()
++	mux.HandleFunc("GET /health", srv.health)
++	mux.HandleFunc("GET /books", srv.list)
++	mux.HandleFunc("GET /books/{id}", srv.get)
++	mux.HandleFunc("POST /books", srv.auth(srv.create))
++	mux.HandleFunc("PUT /books/{id}", srv.auth(srv.update))
++	mux.HandleFunc("DELETE /books/{id}", srv.auth(srv.remove))
++	return mux
++}
++
++type errBody struct {
++	Code    string            `json:"code"`
++	Message string            `json:"message"`
++	Fields  map[string]string `json:"fields,omitempty"`
++}
++
++func writeJSON(w http.ResponseWriter, status int, v any) {
++	w.Header().Set("Content-Type", "application/json")
++	w.WriteHeader(status)
++	_ = json.NewEncoder(w).Encode(v)
++}
++
++func writeErr(w http.ResponseWriter, status int, code, msg string) {
++	writeJSON(w, status, map[string]errBody{"error": {Code: code, Message: msg}})
++}
++
++func notFound(w http.ResponseWriter) { writeErr(w, http.StatusNotFound, "not_found", "book not found") }
++
++func (s *Server) auth(next http.HandlerFunc) http.HandlerFunc {
++	want := "Bearer " + s.token
++	return func(w http.ResponseWriter, r *http.Request) {
++		if r.Header.Get("Authorization") != want {
++			writeErr(w, http.StatusUnauthorized, "unauthorized", "missing or invalid token")
++			return
++		}
++		next(w, r)
++	}
++}
++
++func pathID(r *http.Request) (int, bool) {
++	raw := r.PathValue("id")
++	for _, c := range raw {
++		if c < '0' || c > '9' {
++			return 0, false
++		}
++	}
++	id, err := strconv.Atoi(raw)
++	return id, err == nil && id > 0
++}
++
++func (s *Server) health(w http.ResponseWriter, _ *http.Request) {
++	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
++}
++
++func (s *Server) list(w http.ResponseWriter, r *http.Request) {
++	q, err := parseListQuery(r.URL.Query())
++	if err != nil {
++		writeErr(w, http.StatusBadRequest, "invalid_query", err.Error())
++		return
++	}
++	data, pg := q.apply(s.store.All())
++	writeJSON(w, http.StatusOK, map[string]any{"data": data, "pagination": pg})
++}
++
++func (s *Server) get(w http.ResponseWriter, r *http.Request) {
++	id, ok := pathID(r)
++	if !ok {
++		notFound(w)
++		return
++	}
++	b, err := s.store.Get(id)
++	if err != nil {
++		notFound(w)
++		return
++	}
++	writeJSON(w, http.StatusOK, b)
++}
++
++// decodeBook reads and validates a request body; it writes the error response itself.
++func decodeBook(w http.ResponseWriter, r *http.Request) (store.Book, bool) {
++	raw, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
++	var b store.Book
++	trimmed := bytes.TrimSpace(raw)
++	if err != nil || len(trimmed) == 0 || trimmed[0] != '{' || json.Unmarshal(trimmed, &b) != nil {
++		writeErr(w, http.StatusBadRequest, "invalid_json", "request body must be a valid JSON object")
++		return b, false
++	}
++	if fields := validate(b); len(fields) > 0 {
++		writeJSON(w, http.StatusUnprocessableEntity, map[string]errBody{"error": {
++			Code: "validation_failed", Message: "validation failed", Fields: fields}})
++		return b, false
++	}
++	return b, true
++}
++
++func writeStoreErr(w http.ResponseWriter, err error) {
++	if errors.Is(err, store.ErrConflict) {
++		writeErr(w, http.StatusConflict, "conflict", "isbn already exists")
++		return
++	}
++	notFound(w)
++}
++
++func (s *Server) create(w http.ResponseWriter, r *http.Request) {
++	b, ok := decodeBook(w, r)
++	if !ok {
++		return
++	}
++	created, err := s.store.Create(b)
++	if err != nil {
++		writeStoreErr(w, err)
++		return
++	}
++	w.Header().Set("Location", "/books/"+strconv.Itoa(created.ID))
++	writeJSON(w, http.StatusCreated, created)
++}
++
++func (s *Server) update(w http.ResponseWriter, r *http.Request) {
++	id, ok := pathID(r)
++	if !ok || !s.store.Exists(id) {
++		notFound(w)
++		return
++	}
++	b, ok := decodeBook(w, r)
++	if !ok {
++		return
++	}
++	updated, err := s.store.Update(id, b)
++	if err != nil {
++		writeStoreErr(w, err)
++		return
++	}
++	writeJSON(w, http.StatusOK, updated)
++}
++
++func (s *Server) remove(w http.ResponseWriter, r *http.Request) {
++	id, ok := pathID(r)
++	if !ok || s.store.Delete(id) != nil {
++		notFound(w)
++		return
++	}
++	w.WriteHeader(http.StatusNoContent)
++}
+diff --git a/internal/api/api_test.go b/internal/api/api_test.go
+new file mode 100644
+index 0000000..5d2de2e
+--- /dev/null
++++ b/internal/api/api_test.go
+@@ -0,0 +1,74 @@
++package api
++
++import (
++	"encoding/json"
++	"net/http"
++	"net/http/httptest"
++	"strings"
++	"testing"
++
++	"example.com/mockapi/internal/store"
++)
++
++func newTestServer() http.Handler {
++	return New(store.New([]store.Book{
++		{ID: 1, ISBN: "9780000000011", Title: "B", Author: "Ann", Genre: "fiction", Year: 2000, PriceCents: 100},
++		{ID: 2, ISBN: "9780000000028", Title: "A", Author: "Bob", Genre: "poetry", Year: 2000, PriceCents: 200},
++	}), "tok")
++}
++
++func do(h http.Handler, method, path, body, token string) *httptest.ResponseRecorder {
++	req := httptest.NewRequest(method, path, strings.NewReader(body))
++	if token != "" {
++		req.Header.Set("Authorization", "Bearer "+token)
++	}
++	rec := httptest.NewRecorder()
++	h.ServeHTTP(rec, req)
++	return rec
++}
++
++func TestListSortedByTitleDesc(t *testing.T) {
++	rec := do(newTestServer(), "GET", "/books?sort=title&order=desc&per_page=1", "", "")
++	var got struct {
++		Data       []store.Book `json:"data"`
++		Pagination pagination   `json:"pagination"`
++	}
++	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
++		t.Fatal(err)
++	}
++	if len(got.Data) != 1 || got.Data[0].ID != 1 || got.Pagination.TotalPages != 2 {
++		t.Fatalf("unexpected %s", rec.Body)
++	}
++}
++
++func TestCreateRequiresToken(t *testing.T) {
++	if rec := do(newTestServer(), "POST", "/books", "{}", ""); rec.Code != http.StatusUnauthorized {
++		t.Fatalf("status %d", rec.Code)
++	}
++}
++
++func TestCreateValidation(t *testing.T) {
++	rec := do(newTestServer(), "POST", "/books", `{"isbn":"12"}`, "tok")
++	if rec.Code != http.StatusUnprocessableEntity || !strings.Contains(rec.Body.String(), "must be 13 digits") {
++		t.Fatalf("got %d %s", rec.Code, rec.Body)
++	}
++	rec = do(newTestServer(), "POST", "/books", `[`, "tok")
++	if rec.Code != http.StatusBadRequest {
++		t.Fatalf("got %d", rec.Code)
++	}
++}
++
++func TestCreateAndDelete(t *testing.T) {
++	h := newTestServer()
++	body := `{"isbn":"9780000000035","title":"C","author":"Cy","genre":"science","year":2001,"price_cents":5}`
++	rec := do(h, "POST", "/books", body, "tok")
++	if rec.Code != http.StatusCreated || rec.Header().Get("Location") != "/books/3" {
++		t.Fatalf("got %d %v", rec.Code, rec.Header())
++	}
++	if rec := do(h, "DELETE", "/books/3", "", "tok"); rec.Code != http.StatusNoContent {
++		t.Fatalf("delete %d", rec.Code)
++	}
++	if rec := do(h, "GET", "/books/3", "", ""); rec.Code != http.StatusNotFound {
++		t.Fatalf("get %d", rec.Code)
++	}
++}
+diff --git a/internal/api/query.go b/internal/api/query.go
+new file mode 100644
+index 0000000..e0485fa
+--- /dev/null
++++ b/internal/api/query.go
+@@ -0,0 +1,140 @@
++package api
++
++import (
++	"cmp"
++	"net/url"
++	"slices"
++	"strconv"
++	"strings"
++
++	"example.com/mockapi/internal/store"
++)
++
++type listQuery struct {
++	genre, author    string
++	minYear, maxYear *int
++	sort             string
++	desc             bool
++	page, perPage    int
++}
++
++type queryError struct{ param string }
++
++func (e queryError) Error() string { return "invalid query parameter: " + e.param }
++
++func intParam(v url.Values, name string, min, max int) (*int, error) {
++	s := v.Get(name)
++	if s == "" {
++		return nil, nil
++	}
++	n, err := strconv.Atoi(s)
++	if err != nil || n < min || n > max {
++		return nil, queryError{name}
++	}
++	return &n, nil
++}
++
++func parseListQuery(v url.Values) (listQuery, error) {
++	q := listQuery{genre: v.Get("genre"), author: v.Get("author"), sort: "id", page: 1, perPage: 10}
++	var err error
++	const big = int(^uint(0) >> 1)
++	if q.minYear, err = intParam(v, "min_year", -big-1, big); err != nil {
++		return q, err
++	}
++	if q.maxYear, err = intParam(v, "max_year", -big-1, big); err != nil {
++		return q, err
++	}
++	if s := v.Get("sort"); s != "" {
++		switch s {
++		case "id", "title", "author", "year", "price_cents":
++			q.sort = s
++		default:
++			return q, queryError{"sort"}
++		}
++	}
++	switch v.Get("order") {
++	case "", "asc":
++	case "desc":
++		q.desc = true
++	default:
++		return q, queryError{"order"}
++	}
++	p, err := intParam(v, "page", 1, big)
++	if err != nil {
++		return q, err
++	}
++	if p != nil {
++		q.page = *p
++	}
++	pp, err := intParam(v, "per_page", 1, 100)
++	if err != nil {
++		return q, err
++	}
++	if pp != nil {
++		q.perPage = *pp
++	}
++	return q, nil
++}
++
++func (q listQuery) match(b store.Book) bool {
++	if q.genre != "" && b.Genre != q.genre {
++		return false
++	}
++	if q.author != "" && !strings.Contains(strings.ToLower(b.Author), strings.ToLower(q.author)) {
++		return false
++	}
++	if q.minYear != nil && b.Year < *q.minYear {
++		return false
++	}
++	if q.maxYear != nil && b.Year > *q.maxYear {
++		return false
++	}
++	return true
++}
++
++func (q listQuery) compare(a, b store.Book) int {
++	var c int
++	switch q.sort {
++	case "title":
++		c = strings.Compare(a.Title, b.Title)
++	case "author":
++		c = strings.Compare(a.Author, b.Author)
++	case "year":
++		c = cmp.Compare(a.Year, b.Year)
++	case "price_cents":
++		c = cmp.Compare(a.PriceCents, b.PriceCents)
++	}
++	if q.desc {
++		c = -c
++	}
++	if c == 0 {
++		c = cmp.Compare(a.ID, b.ID)
++	}
++	return c
++}
++
++type pagination struct {
++	Page       int `json:"page"`
++	PerPage    int `json:"per_page"`
++	Total      int `json:"total"`
++	TotalPages int `json:"total_pages"`
++}
++
++// apply filters, sorts and paginates books.
++func (q listQuery) apply(all []store.Book) ([]store.Book, pagination) {
++	matched := make([]store.Book, 0, len(all))
++	for _, b := range all {
++		if q.match(b) {
++			matched = append(matched, b)
++		}
++	}
++	slices.SortStableFunc(matched, q.compare)
++	pg := pagination{Page: q.page, PerPage: q.perPage, Total: len(matched),
++		TotalPages: (len(matched) + q.perPage - 1) / q.perPage}
++	start := (q.page - 1) * q.perPage
++	if q.page-1 > len(matched)/q.perPage || start >= len(matched) {
++		return []store.Book{}, pg
++	}
++	end := min(start+q.perPage, len(matched))
++	return matched[start:end], pg
++}
+diff --git a/internal/api/validate.go b/internal/api/validate.go
+new file mode 100644
+index 0000000..fc73bef
+--- /dev/null
++++ b/internal/api/validate.go
+@@ -0,0 +1,56 @@
++package api
++
++import (
++	"strings"
++	"unicode/utf8"
++
++	"example.com/mockapi/internal/store"
++)
++
++var genres = []string{"fantasy", "fiction", "history", "poetry", "science"}
++
++// validate returns field -> message for every failing rule.
++func validate(b store.Book) map[string]string {
++	errs := map[string]string{}
++	switch {
++	case b.ISBN == "":
++		errs["isbn"] = "is required"
++	case !isDigits(b.ISBN, 13):
++		errs["isbn"] = "must be 13 digits"
++	}
++	switch {
++	case strings.TrimSpace(b.Title) == "":
++		errs["title"] = "is required"
++	case utf8.RuneCountInString(b.Title) > 200:
++		errs["title"] = "must be at most 200 characters"
++	}
++	if strings.TrimSpace(b.Author) == "" {
++		errs["author"] = "is required"
++	}
++	known := false
++	for _, g := range genres {
++		known = known || g == b.Genre
++	}
++	if !known {
++		errs["genre"] = "must be one of " + strings.Join(genres, ", ")
++	}
++	if b.Year < 1450 || b.Year > 2100 {
++		errs["year"] = "must be between 1450 and 2100"
++	}
++	if b.PriceCents <= 0 {
++		errs["price_cents"] = "must be greater than 0"
++	}
++	return errs
++}
++
++func isDigits(s string, n int) bool {
++	if len(s) != n {
++		return false
++	}
++	for i := 0; i < len(s); i++ {
++		if s[i] < '0' || s[i] > '9' {
++			return false
++		}
++	}
++	return true
++}
+diff --git a/internal/store/store.go b/internal/store/store.go
+new file mode 100644
+index 0000000..e511dd1
+--- /dev/null
++++ b/internal/store/store.go
+@@ -0,0 +1,140 @@
++// Package store holds the in-memory book catalogue.
++package store
++
++import (
++	"encoding/json"
++	"errors"
++	"fmt"
++	"os"
++	"sort"
++	"sync"
++)
++
++// Book is a catalogue entry.
++type Book struct {
++	ID         int    `json:"id"`
++	ISBN       string `json:"isbn"`
++	Title      string `json:"title"`
++	Author     string `json:"author"`
++	Genre      string `json:"genre"`
++	Year       int    `json:"year"`
++	PriceCents int    `json:"price_cents"`
++}
++
++var (
++	// ErrNotFound is returned when no book has the requested id.
++	ErrNotFound = errors.New("book not found")
++	// ErrConflict is returned when another book already uses the isbn.
++	ErrConflict = errors.New("isbn already exists")
++)
++
++// Store is a concurrency-safe in-memory book store.
++type Store struct {
++	mu     sync.RWMutex
++	books  map[int]Book
++	nextID int
++}
++
++// New creates a store holding the given books.
++func New(books []Book) *Store {
++	s := &Store{books: make(map[int]Book, len(books)), nextID: 1}
++	for _, b := range books {
++		s.books[b.ID] = b
++		if b.ID >= s.nextID {
++			s.nextID = b.ID + 1
++		}
++	}
++	return s
++}
++
++// Load reads a seed file of the form {"books": [...]}.
++func Load(path string) (*Store, error) {
++	raw, err := os.ReadFile(path)
++	if err != nil {
++		return nil, fmt.Errorf("read seed: %w", err)
++	}
++	var seed struct {
++		Books []Book `json:"books"`
++	}
++	if err := json.Unmarshal(raw, &seed); err != nil {
++		return nil, fmt.Errorf("parse seed %s: %w", path, err)
++	}
++	return New(seed.Books), nil
++}
++
++// All returns every book ordered by id.
++func (s *Store) All() []Book {
++	s.mu.RLock()
++	defer s.mu.RUnlock()
++	out := make([]Book, 0, len(s.books))
++	for _, b := range s.books {
++		out = append(out, b)
++	}
++	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
++	return out
++}
++
++// Get returns the book with the given id.
++func (s *Store) Get(id int) (Book, error) {
++	s.mu.RLock()
++	defer s.mu.RUnlock()
++	b, ok := s.books[id]
++	if !ok {
++		return Book{}, ErrNotFound
++	}
++	return b, nil
++}
++
++// Exists reports whether a book with the id exists.
++func (s *Store) Exists(id int) bool {
++	_, err := s.Get(id)
++	return err == nil
++}
++
++func (s *Store) isbnTaken(isbn string, except int) bool {
++	for id, b := range s.books {
++		if id != except && b.ISBN == isbn {
++			return true
++		}
++	}
++	return false
++}
++
++// Create assigns a new id and stores the book.
++func (s *Store) Create(b Book) (Book, error) {
++	s.mu.Lock()
++	defer s.mu.Unlock()
++	if s.isbnTaken(b.ISBN, 0) {
++		return Book{}, ErrConflict
++	}
++	b.ID = s.nextID
++	s.nextID++
++	s.books[b.ID] = b
++	return b, nil
++}
++
++// Update replaces every field of an existing book.
++func (s *Store) Update(id int, b Book) (Book, error) {
++	s.mu.Lock()
++	defer s.mu.Unlock()
++	if _, ok := s.books[id]; !ok {
++		return Book{}, ErrNotFound
++	}
++	if s.isbnTaken(b.ISBN, id) {
++		return Book{}, ErrConflict
++	}
++	b.ID = id
++	s.books[id] = b
++	return b, nil
++}
++
++// Delete removes a book.
++func (s *Store) Delete(id int) error {
++	s.mu.Lock()
++	defer s.mu.Unlock()
++	if _, ok := s.books[id]; !ok {
++		return ErrNotFound
++	}
++	delete(s.books, id)
++	return nil
++}
+diff --git a/internal/store/store_test.go b/internal/store/store_test.go
+new file mode 100644
+index 0000000..1c34234
+--- /dev/null
++++ b/internal/store/store_test.go
+@@ -0,0 +1,34 @@
++package store
++
++import (
++	"errors"
++	"testing"
++)
++
++func TestCreateAssignsIncreasingIDs(t *testing.T) {
++	s := New([]Book{{ID: 4, ISBN: "1"}})
++	a, err := s.Create(Book{ISBN: "2"})
++	if err != nil || a.ID != 5 {
++		t.Fatalf("got %+v %v", a, err)
++	}
++	if err := s.Delete(5); err != nil {
++		t.Fatal(err)
++	}
++	b, _ := s.Create(Book{ISBN: "3"})
++	if b.ID != 6 {
++		t.Fatalf("id reused: %d", b.ID)
++	}
++}
++
++func TestIsbnConflict(t *testing.T) {
++	s := New([]Book{{ID: 1, ISBN: "1"}, {ID: 2, ISBN: "2"}})
++	if _, err := s.Create(Book{ISBN: "1"}); !errors.Is(err, ErrConflict) {
++		t.Fatalf("want conflict, got %v", err)
++	}
++	if _, err := s.Update(2, Book{ISBN: "1"}); !errors.Is(err, ErrConflict) {
++		t.Fatalf("want conflict, got %v", err)
++	}
++	if _, err := s.Update(2, Book{ISBN: "2", Title: "x"}); err != nil {
++		t.Fatalf("own isbn: %v", err)
++	}
++}
+diff --git a/main.go b/main.go
+new file mode 100644
+index 0000000..5ebe9f8
+--- /dev/null
++++ b/main.go
+@@ -0,0 +1,66 @@
++// Command mockapi serves an in-memory books catalogue over HTTP.
++package main
++
++import (
++	"context"
++	"errors"
++	"flag"
++	"log"
++	"net/http"
++	"os"
++	"os/signal"
++	"syscall"
++	"time"
++
++	"example.com/mockapi/internal/api"
++	"example.com/mockapi/internal/store"
++)
++
++func listenAddr(flagAddr string, flagSet bool) string {
++	if flagSet {
++		return flagAddr
++	}
++	if p := os.Getenv("PORT"); p != "" {
++		return ":" + p
++	}
++	return ":8080"
++}
++
++func main() {
++	addr := flag.String("addr", ":8080", "listen address")
++	seed := flag.String("seed", "data/seed.json", "seed JSON file")
++	flag.Parse()
++	addrSet := false
++	flag.Visit(func(f *flag.Flag) { addrSet = addrSet || f.Name == "addr" })
++
++	st, err := store.Load(*seed)
++	if err != nil {
++		log.Fatal(err)
++	}
++	token := os.Getenv("API_TOKEN")
++	if token == "" {
++		token = "dev-token"
++	}
++
++	srv := &http.Server{Addr: listenAddr(*addr, addrSet), Handler: api.New(st, token),
++		ReadHeaderTimeout: 5 * time.Second}
++	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
++	defer stop()
++
++	errc := make(chan error, 1)
++	go func() { errc <- srv.ListenAndServe() }()
++	log.Printf("listening on %s", srv.Addr)
++
++	select {
++	case err := <-errc:
++		if !errors.Is(err, http.ErrServerClosed) {
++			log.Fatal(err)
++		}
++	case <-ctx.Done():
++		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
++		defer cancel()
++		if err := srv.Shutdown(shutdownCtx); err != nil {
++			log.Printf("shutdown: %v", err)
++		}
++	}
++}

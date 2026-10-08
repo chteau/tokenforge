@@ -1,0 +1,36 @@
+{
+  "id": "banking-web",
+  "title": "Filter and export account activity (API, CSV, web view)",
+  "category": "feature",
+  "language": "typescript",
+  "rubric": "coding",
+  "timeout_s": 1800,
+  "relevant_files": [
+    "packages/transactions/src/**",
+    "server/routes/transaction-routes.ts",
+    "server/routes/web-routes.ts",
+    "server/routes/helpers.ts",
+    "server/http/response.ts",
+    "apps/web/views/transactions.ts",
+    "apps/web/html.ts",
+    "packages/shared/src/validation.ts",
+    "packages/shared/src/dates.ts",
+    "packages/shared/src/money.ts",
+    "packages/accounts/src/account-service.ts",
+    "tests/support/harness.ts",
+    "tests/api/transactions.api.test.ts"
+  ],
+  "allowed_change_globs": [
+    "packages/transactions/**",
+    "packages/shared/**",
+    "packages/accounts/**",
+    "server/routes/**",
+    "server/http/**",
+    "server/repositories/**",
+    "apps/web/**",
+    "tests/**",
+    "docs/**",
+    "README.md"
+  ],
+  "reference_diff_lines": 274
+}

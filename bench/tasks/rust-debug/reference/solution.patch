@@ -1,0 +1,118 @@
+diff --git a/src/cache.rs b/src/cache.rs
+index 62b4674..927b001 100644
+--- a/src/cache.rs
++++ b/src/cache.rs
+@@ -6,13 +6,13 @@
+ //! recomputed from the ledger and the cache file is rewritten.
+ 
+ use std::collections::BTreeMap;
+-use std::fs::{self, File};
+-use std::io::{BufRead, BufReader};
++use std::fs;
+ use std::path::Path;
+ 
+ use crate::error::{Error, Result};
+ use crate::model::{Entry, Kind};
+ use crate::store::{atomic, codec, Store};
++use crate::util::hash::fnv1a;
+ use crate::util::{Money, YearMonth};
+ 
+ pub const CACHE_FILE: &str = "summary.cache";
+@@ -59,40 +59,29 @@ impl Summary {
+ #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+ struct Fingerprint {
+     len: u64,
+-    next_id: u64,
++    hash: u64,
+ }
+ 
+ impl Fingerprint {
+     fn encode(&self) -> String {
+-        format!("{}:{}", self.len, self.next_id)
++        format!("{}:{:016x}", self.len, self.hash)
+     }
+ 
+     fn decode(s: &str) -> Option<Fingerprint> {
+-        let (len, next_id) = s.split_once(':')?;
++        let (len, hash) = s.split_once(':')?;
+         Some(Fingerprint {
+             len: len.parse().ok()?,
+-            next_id: next_id.parse().ok()?,
++            hash: u64::from_str_radix(hash, 16).ok()?,
+         })
+     }
+ }
+ 
+-/// Identify a ledger version from its size and id counter. Only the header
+-/// is read, so checking a large ledger stays cheap.
+ fn fingerprint(path: &Path) -> Result<Fingerprint> {
+-    let len = fs::metadata(path).map_err(|e| Error::io_at(path, e))?.len();
+-    let file = File::open(path).map_err(|e| Error::io_at(path, e))?;
+-    let mut next_id = 0;
+-    for line in BufReader::new(file).lines() {
+-        let line = line.map_err(|e| Error::io_at(path, e))?;
+-        if let Some(v) = line.strip_prefix("next_id=") {
+-            next_id = v.trim().parse().unwrap_or(0);
+-            break;
+-        }
+-        if !line.trim().is_empty() && !line.starts_with('#') {
+-            break;
+-        }
+-    }
+-    Ok(Fingerprint { len, next_id })
++    let bytes = fs::read(path).map_err(|e| Error::io_at(path, e))?;
++    Ok(Fingerprint {
++        len: bytes.len() as u64,
++        hash: fnv1a(&bytes),
++    })
+ }
+ 
+ /// The current summary, served from the cache file when it is up to date.
+@@ -200,20 +189,13 @@ mod tests {
+                 income: Money(9),
+             },
+         );
+-        let fp = Fingerprint {
+-            len: 10,
+-            next_id: 42,
+-        };
++        let fp = Fingerprint { len: 10, hash: 42 };
+         let dir = std::env::temp_dir().join(format!("tally-cache-{}", std::process::id()));
+         fs::create_dir_all(&dir).unwrap();
+         let p = dir.join(CACHE_FILE);
+         fs::write(&p, render_cache(&s, fp)).unwrap();
+         assert_eq!(read_cache(&p, fp), Some(s));
+-        let other = Fingerprint {
+-            len: 10,
+-            next_id: 43,
+-        };
+-        assert_eq!(read_cache(&p, other), None);
++        assert_eq!(read_cache(&p, Fingerprint { len: 10, hash: 43 }), None);
+         fs::remove_dir_all(&dir).unwrap();
+     }
+ }
+diff --git a/tests/cli_reports.rs b/tests/cli_reports.rs
+index 3b1a7c8..b655f47 100644
+--- a/tests/cli_reports.rs
++++ b/tests/cli_reports.rs
+@@ -95,3 +95,20 @@ fn corrupt_cache_is_rebuilt() {
+         .read("summary.cache")
+         .starts_with("# tally summary cache v1\n"));
+ }
++
++#[test]
++fn summaries_follow_edits_that_keep_the_file_size() {
++    let t = sample();
++    t.ok(&["categories"]);
++    t.ok(&["report", "monthly"]);
++    t.ok(&["edit", "1", "--amount", "13.50"]);
++    let out = t.ok(&["categories", "--format", "csv"]);
++    assert!(out.contains("groceries,1,13.50,0.00\n"), "{out}");
++    t.ok(&["rename-category", "rent", "flat"]);
++    let out = t.ok(&["categories", "--format", "csv"]);
++    assert!(out.contains("flat,1,1200.00,0.00\n"), "{out}");
++    let edited = t.read("ledger.txt").replace("|45.20|", "|46.20|");
++    t.write("ledger.txt", &edited);
++    let out = t.ok(&["report", "monthly", "--format", "csv"]);
++    assert!(out.contains("2026-02,2,46.20,2500.00,2453.80\n"), "{out}");
++}

@@ -194,10 +194,35 @@ code { font-size: 12px; background: var(--surface-2); padding: 1px 5px; color: v
   .app { grid-template-columns: 1fr; }
   .side { position: static; height: auto; flex-direction: row; flex-wrap: wrap; align-items: center; }
   .brand { padding-bottom: 4px; }
-  .brand-rule, .side-card { display: none; }
+  .brand-rule, .side-card, .side-snaps { display: none; }
   .nav { display: flex; gap: 4px; }
   .nav button { width: auto; }
   .main { padding: 16px; }
   .g-controls { width: calc(100% - 28px); }
   .g-detail { left: 14px; right: 14px; width: auto; top: auto; bottom: 14px; max-height: 45%; }
 }
+.pill { display: inline-block; padding: 0 6px; margin-left: 4px; font-size: 10.5px; background: var(--surface-2); color: var(--ivory); }
+.snap-body pre { margin: 4px 0 8px; font-size: 12px; white-space: pre-wrap; word-break: break-word; color: var(--text-secondary); max-height: 420px; overflow: auto; }
+.side-snaps { display: flex; flex-direction: column; margin: 2px 0 12px 50px; border-left: 1px solid var(--line); }
+.side-snaps a { display: flex; justify-content: space-between; gap: 8px; padding: 5px 10px; color: var(--text-secondary); text-decoration: none; font-size: 12.5px; }
+.side-snaps a span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.side-snaps a small { color: var(--text-tertiary, var(--text-secondary)); opacity: 0.7; }
+.side-snaps a:hover { background: var(--wash); color: var(--text-primary); }
+.side-snaps a.on { color: var(--text-primary); box-shadow: inset 2px 0 0 var(--accent); }
+
+/* health card */
+.issues { list-style: none; padding: 0; margin: 10px 0; display: grid; gap: 6px; }
+.issues li { background: var(--wash); padding: 8px 12px; color: var(--text-secondary); font-size: 13px; }
+a.banner { display: block; margin-bottom: 18px; padding: 10px 14px; background: var(--wash); border-left: 3px solid var(--warning); color: var(--text-secondary); font-size: 13px; text-decoration: none; }
+a.banner b { color: var(--text-primary); margin-right: 6px; }
+.levels { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; margin-top: 12px; }
+.level { display: grid; gap: 6px; text-align: left; padding: 14px; background: var(--surface-2); border: 1px solid var(--line); color: var(--text-secondary); font: inherit; font-size: 13px; cursor: pointer; }
+.level:hover { border-color: var(--line-strong); }
+.level.active { border-color: var(--accent); background: var(--accent-soft); }
+.lv-name { color: var(--text-primary); font-weight: 600; text-transform: capitalize; }
+.lv-ctx { color: var(--ivory); font-size: 20px; font-variant-numeric: tabular-nums; }
+.lv-ctx small { font-size: 12px; color: var(--muted); }
+#cost code { font-size: 12px; color: var(--ivory); word-break: break-all; }
+.skills { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 8px 16px; margin-top: 12px; font-size: 13px; color: var(--text-secondary); }
+.skills label { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+.skills input { accent-color: var(--accent); }

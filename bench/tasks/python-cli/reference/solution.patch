@@ -1,0 +1,584 @@
+diff --git a/README.md b/README.md
+index aaf959e..28d3a9b 100644
+--- a/README.md
++++ b/README.md
+@@ -1 +1,16 @@
+ # ledgerstat
++
++Spending reports from bank-export CSV files (`date,merchant,category,amount`).
++
++## Usage
++
++```
++python3 -m ledgerstat categories FILE... [--format table|json|csv] [--from DATE] [--to DATE] [--strict]
++python3 -m ledgerstat monthly FILE...
++python3 -m ledgerstat merchants FILE... --top 10
++python3 -m ledgerstat budget FILE... --config budgets.toml [--alerts-only]
++```
++
++Exit codes: 0 ok, 1 invalid rows skipped, 2 fatal error, 3 a budget is exceeded.
++
++Run the tests with `python3 -m unittest discover`.
+diff --git a/ledgerstat/__init__.py b/ledgerstat/__init__.py
+new file mode 100644
+index 0000000..2b95e04
+--- /dev/null
++++ b/ledgerstat/__init__.py
+@@ -0,0 +1,3 @@
++"""ledgerstat: spending reports from bank-export CSV files."""
++
++__version__ = "1.0.0"
+diff --git a/ledgerstat/__main__.py b/ledgerstat/__main__.py
+new file mode 100644
+index 0000000..7cd2266
+--- /dev/null
++++ b/ledgerstat/__main__.py
+@@ -0,0 +1,5 @@
++import sys
++
++from ledgerstat.cli import main
++
++sys.exit(main())
+diff --git a/ledgerstat/cli.py b/ledgerstat/cli.py
+new file mode 100644
+index 0000000..94c9cb7
+--- /dev/null
++++ b/ledgerstat/cli.py
+@@ -0,0 +1,89 @@
++"""Command-line interface."""
++from __future__ import annotations
++
++import argparse
++import sys
++
++from ledgerstat import output, reports
++from ledgerstat.config import load_config
++from ledgerstat.errors import FatalError
++from ledgerstat.parsing import filter_dates, load_files, parse_date
++
++PROG = "ledgerstat"
++
++
++def _date_arg(text: str):
++    try:
++        return parse_date(text)
++    except ValueError:
++        raise argparse.ArgumentTypeError(f"invalid date {text!r} (expected YYYY-MM-DD)") from None
++
++
++def _positive_int(text: str) -> int:
++    try:
++        value = int(text)
++    except ValueError:
++        value = 0
++    if value < 1:
++        raise argparse.ArgumentTypeError(f"must be a positive integer: {text!r}")
++    return value
++
++
++def build_parser() -> argparse.ArgumentParser:
++    """Create the argument parser with one sub-command per report."""
++    parser = argparse.ArgumentParser(prog=PROG, description="Spending reports from bank CSV exports.")
++    common = argparse.ArgumentParser(add_help=False)
++    common.add_argument("files", nargs="+", metavar="FILE", help="CSV export(s) to read")
++    common.add_argument("--format", choices=output.FORMATS, default="table")
++    common.add_argument("--from", dest="start", type=_date_arg, metavar="YYYY-MM-DD")
++    common.add_argument("--to", dest="end", type=_date_arg, metavar="YYYY-MM-DD")
++    common.add_argument("--strict", action="store_true", help="fail on any invalid row")
++    sub = parser.add_subparsers(dest="command", required=True, metavar="COMMAND")
++    sub.add_parser("categories", parents=[common], help="totals per category")
++    sub.add_parser("monthly", parents=[common], help="totals per month")
++    merchants = sub.add_parser("merchants", parents=[common], help="top merchants by expenses")
++    merchants.add_argument("--top", type=_positive_int, default=5, metavar="N")
++    budget = sub.add_parser("budget", parents=[common], help="monthly budget alerts")
++    budget.add_argument("--config", required=True, metavar="PATH", help="TOML budget file")
++    budget.add_argument("--alerts-only", action="store_true", help="hide rows with status ok")
++    return parser
++
++
++def run(args: argparse.Namespace) -> int:
++    """Execute a parsed command; return the exit code."""
++    config = load_config(args.config) if args.command == "budget" else None
++    loaded = load_files(args.files)
++    for bad in loaded.bad_rows:
++        print(f"{PROG}: {bad}", file=sys.stderr)
++    if loaded.bad_rows:
++        print(f"{PROG}: skipped {len(loaded.bad_rows)} invalid row(s)", file=sys.stderr)
++        if args.strict:
++            return 1
++    transactions = filter_dates(loaded.transactions, args.start, args.end)
++    if args.command == "categories":
++        report = reports.categories_report(transactions)
++    elif args.command == "monthly":
++        report = reports.monthly_report(transactions)
++    elif args.command == "merchants":
++        report = reports.merchants_report(transactions, args.top)
++    else:
++        report = reports.budget_report(transactions, config, args.alerts_only)
++    sys.stdout.write(output.render(report, args.format))
++    if loaded.bad_rows:
++        return 1
++    if args.command == "budget" and any(r["status"] == "over" for r in report.rows):
++        return 3
++    return 0
++
++
++def main(argv: list[str] | None = None) -> int:
++    """Entry point used by `python -m ledgerstat`."""
++    parser = build_parser()
++    args = parser.parse_args(argv)
++    if args.start and args.end and args.start > args.end:
++        parser.error("--from is later than --to")
++    try:
++        return run(args)
++    except FatalError as exc:
++        print(f"{PROG}: error: {exc}", file=sys.stderr)
++        return 2
+diff --git a/ledgerstat/config.py b/ledgerstat/config.py
+new file mode 100644
+index 0000000..55ff3f2
+--- /dev/null
++++ b/ledgerstat/config.py
+@@ -0,0 +1,47 @@
++"""Loading the TOML budget configuration."""
++from __future__ import annotations
++
++import tomllib
++from dataclasses import dataclass
++from decimal import Decimal
++
++from ledgerstat.errors import FatalError
++
++
++@dataclass(frozen=True)
++class BudgetConfig:
++    budgets: dict[str, Decimal]
++    warn_ratio: Decimal
++
++
++def _number(value: object) -> Decimal | None:
++    if isinstance(value, bool) or not isinstance(value, (int, float)):
++        return None
++    return Decimal(str(value))
++
++
++def load_config(path: str) -> BudgetConfig:
++    """Read and validate a budget config; raise FatalError with a 'config:' message."""
++    try:
++        with open(path, "rb") as fh:
++            data = tomllib.load(fh)
++    except OSError as exc:
++        raise FatalError(f"config: cannot read {path}: {exc}") from None
++    except tomllib.TOMLDecodeError as exc:
++        raise FatalError(f"config: {path}: invalid TOML: {exc}") from None
++    raw = data.get("budgets")
++    if not isinstance(raw, dict):
++        raise FatalError(f"config: {path}: missing [budgets] table")
++    budgets: dict[str, Decimal] = {}
++    for name, value in raw.items():
++        limit = _number(value)
++        if limit is None or limit < 0:
++            raise FatalError(f"config: invalid budget for {name!r}: {value!r}")
++        budgets[name.strip().lower()] = limit
++    settings = data.get("settings", {})
++    if not isinstance(settings, dict):
++        raise FatalError(f"config: {path}: [settings] must be a table")
++    ratio = _number(settings.get("warn_ratio", 0.8))
++    if ratio is None or not 0 < ratio <= 1:
++        raise FatalError(f"config: invalid warn_ratio: {settings.get('warn_ratio')!r}")
++    return BudgetConfig(budgets, ratio)
+diff --git a/ledgerstat/errors.py b/ledgerstat/errors.py
+new file mode 100644
+index 0000000..9628db3
+--- /dev/null
++++ b/ledgerstat/errors.py
+@@ -0,0 +1,5 @@
++"""Exceptions shared by the ledgerstat modules."""
++
++
++class FatalError(Exception):
++    """An error that aborts the run with exit code 2."""
+diff --git a/ledgerstat/output.py b/ledgerstat/output.py
+new file mode 100644
+index 0000000..0f11860
+--- /dev/null
++++ b/ledgerstat/output.py
+@@ -0,0 +1,72 @@
++"""Rendering reports as table, CSV or JSON text."""
++from __future__ import annotations
++
++import csv
++import io
++import json
++from decimal import Decimal
++
++from ledgerstat.reports import Report
++
++FORMATS = ("table", "json", "csv")
++
++
++def format_money(value: Decimal) -> str:
++    """Two decimals, no thousands separator."""
++    return f"{value.quantize(Decimal('0.01')):.2f}"
++
++
++def _cell(value: object) -> str:
++    return format_money(value) if isinstance(value, Decimal) else str(value)
++
++
++def _json_value(value: object) -> object:
++    return float(value.quantize(Decimal("0.01"))) if isinstance(value, Decimal) else value
++
++
++def render_table(report: Report) -> str:
++    """Aligned plain-text table, or 'No transactions.' when empty."""
++    if not report.rows:
++        return "No transactions.\n"
++    header = report.columns
++    body = [[_cell(r[c]) for c in header] for r in report.rows]
++    total = None
++    if report.total is not None:
++        total = ["TOTAL"] + [_cell(report.total[c]) for c in header[1:]]
++    everything = [header] + body + ([total] if total else [])
++    widths = [max(len(line[i]) for line in everything) for i in range(len(header))]
++
++    def fmt(cells: list[str]) -> str:
++        parts = [cell.ljust(w) if col in report.text_columns else cell.rjust(w)
++                 for cell, w, col in zip(cells, widths, header)]
++        return "  ".join(parts).rstrip()
++
++    sep = "  ".join("-" * w for w in widths)
++    lines = [fmt(header), sep] + [fmt(row) for row in body]
++    if total:
++        lines += [sep, fmt(total)]
++    return "\n".join(lines) + "\n"
++
++
++def render_csv(report: Report) -> str:
++    """CSV with a header line and no total."""
++    buf = io.StringIO()
++    writer = csv.writer(buf, lineterminator="\n")
++    writer.writerow(report.columns)
++    for row in report.rows:
++        writer.writerow([_cell(row[c]) for c in report.columns])
++    return buf.getvalue()
++
++
++def render_json(report: Report) -> str:
++    """JSON document keyed by the report name (plus 'total' when present)."""
++    doc: dict[str, object] = {
++        report.name: [{c: _json_value(r[c]) for c in report.columns} for r in report.rows]}
++    if report.total is not None:
++        doc["total"] = {k: _json_value(v) for k, v in report.total.items()}
++    return json.dumps(doc, indent=2) + "\n"
++
++
++def render(report: Report, fmt: str) -> str:
++    """Render a report in the requested format."""
++    return {"table": render_table, "csv": render_csv, "json": render_json}[fmt](report)
+diff --git a/ledgerstat/parsing.py b/ledgerstat/parsing.py
+new file mode 100644
+index 0000000..45b77e8
+--- /dev/null
++++ b/ledgerstat/parsing.py
+@@ -0,0 +1,114 @@
++"""Reading and validating bank-export CSV files."""
++from __future__ import annotations
++
++import csv
++import datetime as dt
++import re
++from dataclasses import dataclass, field
++from decimal import Decimal
++
++from ledgerstat.errors import FatalError
++
++REQUIRED_COLUMNS = ("date", "merchant", "category", "amount")
++_AMOUNT = re.compile(r"[+-]?\d+(?:\.\d{1,2})?")
++_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
++
++
++@dataclass(frozen=True)
++class Transaction:
++    date: dt.date
++    merchant: str
++    category: str
++    amount: Decimal
++
++    @property
++    def month(self) -> str:
++        return self.date.strftime("%Y-%m")
++
++
++@dataclass
++class BadRow:
++    path: str
++    line: int
++    reason: str
++
++    def __str__(self) -> str:
++        return f"{self.path}:{self.line}: {self.reason}"
++
++
++@dataclass
++class LoadResult:
++    transactions: list[Transaction] = field(default_factory=list)
++    bad_rows: list[BadRow] = field(default_factory=list)
++
++
++def parse_date(text: str) -> dt.date:
++    """Parse a strict YYYY-MM-DD date; raise ValueError otherwise."""
++    if not _DATE.fullmatch(text):
++        raise ValueError(f"invalid date {text!r}")
++    try:
++        return dt.date.fromisoformat(text)
++    except ValueError:
++        raise ValueError(f"invalid date {text!r}") from None
++
++
++def parse_amount(text: str) -> Decimal:
++    """Parse an amount such as -12.5 or +3.40 into a Decimal."""
++    if not _AMOUNT.fullmatch(text):
++        raise ValueError(f"invalid amount {text!r}")
++    return Decimal(text)
++
++
++def parse_row(values: dict[str, str]) -> Transaction:
++    """Build a Transaction from trimmed field values; raise ValueError on bad data."""
++    date = parse_date(values["date"])
++    merchant = values["merchant"]
++    if not merchant:
++        raise ValueError("empty merchant")
++    category = values["category"].lower() or "uncategorized"
++    return Transaction(date, merchant, category, parse_amount(values["amount"]))
++
++
++def read_file(path: str, result: LoadResult) -> None:
++    """Append the valid transactions and bad rows of one CSV file to result."""
++    try:
++        with open(path, newline="", encoding="utf-8-sig") as fh:
++            reader = csv.reader(fh)
++            header = next(reader, None)
++            columns = [h.strip().lower() for h in header] if header else []
++            missing = [c for c in REQUIRED_COLUMNS if c not in columns]
++            if missing:
++                raise FatalError(f"{path}: missing column(s): {', '.join(missing)}")
++            index = {c: columns.index(c) for c in REQUIRED_COLUMNS}
++            for row in reader:
++                if not row or all(not cell.strip() for cell in row) and len(row) == 1:
++                    continue
++                line = reader.line_num
++                if len(row) != len(columns):
++                    result.bad_rows.append(
++                        BadRow(path, line, f"expected {len(columns)} fields, got {len(row)}"))
++                    continue
++                try:
++                    values = {c: row[i].strip() for c, i in index.items()}
++                    result.transactions.append(parse_row(values))
++                except ValueError as exc:
++                    result.bad_rows.append(BadRow(path, line, str(exc)))
++    except FatalError:
++        raise
++    except (OSError, UnicodeDecodeError, csv.Error) as exc:
++        raise FatalError(f"cannot read {path}: {exc}") from None
++
++
++def load_files(paths: list[str]) -> LoadResult:
++    """Read every file in order and combine the results."""
++    result = LoadResult()
++    for path in paths:
++        read_file(path, result)
++    return result
++
++
++def filter_dates(transactions: list[Transaction], start: dt.date | None,
++                 end: dt.date | None) -> list[Transaction]:
++    """Keep transactions dated within [start, end]; either bound may be None."""
++    return [t for t in transactions
++            if (start is None or t.date >= start) and (end is None or t.date <= end)]
+diff --git a/ledgerstat/reports.py b/ledgerstat/reports.py
+new file mode 100644
+index 0000000..2a866ee
+--- /dev/null
++++ b/ledgerstat/reports.py
+@@ -0,0 +1,93 @@
++"""Report computations. Each report returns a Report with typed rows."""
++from __future__ import annotations
++
++from collections import defaultdict
++from dataclasses import dataclass, field
++from decimal import Decimal
++
++from ledgerstat.config import BudgetConfig
++from ledgerstat.parsing import Transaction
++
++ZERO = Decimal("0")
++
++
++@dataclass
++class Report:
++    name: str
++    columns: list[str]
++    rows: list[dict[str, object]]
++    total: dict[str, object] | None = None
++    text_columns: set[str] = field(default_factory=set)
++
++
++def _sums(transactions: list[Transaction]) -> dict[str, object]:
++    income = sum((t.amount for t in transactions if t.amount > 0), ZERO)
++    expenses = -sum((t.amount for t in transactions if t.amount < 0), ZERO)
++    return {"count": len(transactions), "income": income, "expenses": expenses,
++            "net": income - expenses}
++
++
++def _grouped(transactions: list[Transaction], key) -> dict[str, list[Transaction]]:
++    groups: dict[str, list[Transaction]] = defaultdict(list)
++    for t in transactions:
++        groups[key(t)].append(t)
++    return groups
++
++
++def categories_report(transactions: list[Transaction]) -> Report:
++    """Per-category totals sorted by expenses (desc) then name."""
++    rows = [{"category": c, **_sums(ts)}
++            for c, ts in _grouped(transactions, lambda t: t.category).items()]
++    rows.sort(key=lambda r: (-r["expenses"], r["category"]))
++    return Report("categories", ["category", "count", "income", "expenses", "net"], rows,
++                  _sums(transactions), {"category"})
++
++
++def monthly_report(transactions: list[Transaction]) -> Report:
++    """Per-month totals in chronological order."""
++    groups = _grouped(transactions, lambda t: t.month)
++    rows = [{"month": m, **_sums(groups[m])} for m in sorted(groups)]
++    return Report("months", ["month", "count", "income", "expenses", "net"], rows,
++                  _sums(transactions), {"month"})
++
++
++def merchants_report(transactions: list[Transaction], top: int) -> Report:
++    """The top merchants by expenses."""
++    spending = [t for t in transactions if t.amount < 0]
++    groups = _grouped(spending, lambda t: t.merchant)
++    stats = sorted(((-sum((t.amount for t in ts), ZERO), m, len(ts)) for m, ts in groups.items()),
++                   key=lambda s: (-s[0], s[1]))
++    rows = [{"rank": i, "merchant": m, "count": n, "expenses": e}
++            for i, (e, m, n) in enumerate(stats[:top], start=1)]
++    return Report("merchants", ["rank", "merchant", "count", "expenses"], rows,
++                  None, {"merchant"})
++
++
++def budget_status(budget: Decimal, spent: Decimal, warn_ratio: Decimal) -> str:
++    """Return 'over', 'warning' or 'ok'."""
++    if spent > budget:
++        return "over"
++    if spent >= warn_ratio * budget:
++        return "warning"
++    return "ok"
++
++
++def budget_report(transactions: list[Transaction], config: BudgetConfig,
++                  alerts_only: bool = False) -> Report:
++    """Budget vs. spending for every (month, budgeted category) pair."""
++    months = sorted({t.month for t in transactions})
++    spent: dict[tuple[str, str], Decimal] = defaultdict(lambda: ZERO)
++    for t in transactions:
++        if t.amount < 0:
++            spent[(t.month, t.category)] -= t.amount
++    rows = []
++    for month in months:
++        for category in sorted(config.budgets):
++            limit, used = config.budgets[category], spent[(month, category)]
++            status = budget_status(limit, used, config.warn_ratio)
++            if alerts_only and status == "ok":
++                continue
++            rows.append({"month": month, "category": category, "budget": limit, "spent": used,
++                         "remaining": limit - used, "status": status})
++    return Report("budgets", ["month", "category", "budget", "spent", "remaining", "status"],
++                  rows, None, {"month", "category", "status"})
+diff --git a/tests/__init__.py b/tests/__init__.py
+new file mode 100644
+index 0000000..e69de29
+diff --git a/tests/test_ledgerstat.py b/tests/test_ledgerstat.py
+new file mode 100644
+index 0000000..bee26c3
+--- /dev/null
++++ b/tests/test_ledgerstat.py
+@@ -0,0 +1,78 @@
++import io
++import json
++import os
++import tempfile
++import unittest
++from contextlib import redirect_stderr, redirect_stdout
++from decimal import Decimal
++
++from ledgerstat.cli import main
++from ledgerstat.parsing import parse_amount, parse_date
++from ledgerstat.reports import budget_status
++
++SAMPLE = """date,merchant,category,amount
++2026-01-03,Green Grocer,Groceries,-54.20
++2026-01-05,ACME Corp,Salary,2500.00
++2026-01-09,Cafe Lune,Dining,-12.5
++2026-02-01,City Rent,Housing,-950
++"""
++
++
++class ParsingTests(unittest.TestCase):
++    def test_amounts(self):
++        self.assertEqual(parse_amount("-12.5"), Decimal("-12.5"))
++        self.assertEqual(parse_amount("+3.40"), Decimal("3.40"))
++        for bad in ("1,000", "$5", "1.234", "", "abc"):
++            with self.assertRaises(ValueError):
++                parse_amount(bad)
++
++    def test_dates(self):
++        self.assertEqual(str(parse_date("2026-02-28")), "2026-02-28")
++        for bad in ("2026-02-30", "2026-1-5", "05/01/2026"):
++            with self.assertRaises(ValueError):
++                parse_date(bad)
++
++    def test_budget_status(self):
++        self.assertEqual(budget_status(Decimal(100), Decimal(101), Decimal("0.8")), "over")
++        self.assertEqual(budget_status(Decimal(100), Decimal(80), Decimal("0.8")), "warning")
++        self.assertEqual(budget_status(Decimal(100), Decimal(10), Decimal("0.8")), "ok")
++
++
++class CliTests(unittest.TestCase):
++    def setUp(self):
++        self.dir = tempfile.TemporaryDirectory()
++        self.path = os.path.join(self.dir.name, "tx.csv")
++        with open(self.path, "w") as fh:
++            fh.write(SAMPLE)
++
++    def tearDown(self):
++        self.dir.cleanup()
++
++    def run_cli(self, *args):
++        out, err = io.StringIO(), io.StringIO()
++        with redirect_stdout(out), redirect_stderr(err):
++            code = main(list(args))
++        return code, out.getvalue(), err.getvalue()
++
++    def test_categories_json(self):
++        code, out, _ = self.run_cli("categories", self.path, "--format", "json")
++        self.assertEqual(code, 0)
++        doc = json.loads(out)
++        self.assertEqual(doc["categories"][0]["category"], "housing")
++        self.assertEqual(doc["total"]["count"], 4)
++
++    def test_bad_row_reported(self):
++        with open(self.path, "a") as fh:
++            fh.write("2026-13-01,X,Y,-1\n")
++        code, _, err = self.run_cli("monthly", self.path)
++        self.assertEqual(code, 1)
++        self.assertIn(f"{self.path}:6:", err)
++
++    def test_missing_file(self):
++        code, _, err = self.run_cli("monthly", self.path + ".nope")
++        self.assertEqual(code, 2)
++        self.assertIn("error", err)
++
++
++if __name__ == "__main__":
++    unittest.main()

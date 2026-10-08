@@ -1,0 +1,8 @@
+{
+  "name": "@kestrel/sdk",
+  "version": "2.3.0",
+  "private": false,
+  "type": "module",
+  "description": "Typed client for the Kestrel Freight public API",
+  "exports": { ".": "./src/index.ts" }
+}

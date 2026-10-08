@@ -1,11 +1,13 @@
 ---
 name: handoff
 description: Save this session's working state to .forge/HANDOFF.md so the user can /clear and continue with a small context. Use between phases, when context is large, or when the tokenforge context warning says so.
+disable-model-invocation: true
 ---
 
 # handoff
 
 Write `.forge/HANDOFF.md` in the project root, at most 60 lines. Cover only what a fresh session cannot cheaply rediscover.
+Recent requests, changed files and the last reply are already saved automatically in `.forge/snapshots/`; don't repeat them. Spend the lines on decisions, next steps and gotchas.
 
 ```markdown
 # Handoff: <goal in one line>

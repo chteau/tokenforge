@@ -1,0 +1,589 @@
+diff --git a/src/commands/add.rs b/src/commands/add.rs
+index a086439..1ce0b9a 100644
+--- a/src/commands/add.rs
++++ b/src/commands/add.rs
+@@ -1,146 +1,23 @@
+ use super::Context;
+ use crate::cli::AddArgs;
+-use crate::error::{Error, Result};
+-use crate::model::Entry;
+-use crate::util::{Date, Money};
+-
+-const MAX_CATEGORY_LEN: usize = 32;
+-const MAX_PAYEE_LEN: usize = 64;
+-const MAX_NOTE_LEN: usize = 200;
+-const MAX_TAG_LEN: usize = 16;
+-const MAX_AMOUNT_CENTS: i64 = 100_000_000;
++use crate::error::Result;
++use crate::model::{validate, Entry};
+ 
+ pub fn run(ctx: &mut Context, args: AddArgs) -> Result<()> {
+     let store = ctx.store()?;
+-    let entry = Entry {
++    let mut entry = Entry {
+         id: 0,
+-        date: check_date(args.date)?,
++        date: args.date,
+         kind: args.kind,
+-        amount: check_amount(args.amount)?,
+-        category: normalize_category(&args.category)?,
+-        payee: normalize_payee(&args.payee)?,
+-        note: normalize_note(&args.note)?,
+-        tags: normalize_tags(&args.tags)?,
++        amount: args.amount,
++        category: args.category,
++        payee: args.payee,
++        note: args.note,
++        tags: args.tags,
+     };
++    validate::entry(&mut entry)?;
+     let mut ledger = store.load()?;
+     let id = ledger.insert(entry);
+     store.save(&ledger)?;
+     ctx.say(&format!("added entry {id}"))
+ }
+-
+-fn check_date(d: Date) -> Result<Date> {
+-    if d.year() < 1970 || d.year() > 2100 {
+-        return Err(Error::invalid(format!(
+-            "date {d} is outside the supported range (1970-2100)"
+-        )));
+-    }
+-    Ok(d)
+-}
+-
+-fn check_amount(value: Money) -> Result<Money> {
+-    if value.cents() <= 0 {
+-        return Err(Error::invalid("amount must be greater than zero"));
+-    }
+-    if value.cents() > MAX_AMOUNT_CENTS {
+-        return Err(Error::invalid(format!(
+-            "amount exceeds the maximum of {}",
+-            Money(MAX_AMOUNT_CENTS).to_decimal()
+-        )));
+-    }
+-    Ok(value)
+-}
+-
+-fn normalize_category(raw: &str) -> Result<String> {
+-    let name = raw.trim().to_lowercase();
+-    if name.is_empty() {
+-        return Err(Error::invalid("category must not be empty"));
+-    }
+-    if name.chars().count() > MAX_CATEGORY_LEN {
+-        return Err(Error::invalid(format!(
+-            "category is longer than {MAX_CATEGORY_LEN} characters"
+-        )));
+-    }
+-    if !name
+-        .chars()
+-        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '_')
+-    {
+-        return Err(Error::invalid(format!(
+-            "category '{name}' may only contain letters, digits, '-' and '_'"
+-        )));
+-    }
+-    Ok(name)
+-}
+-
+-fn normalize_payee(raw: &str) -> Result<String> {
+-    let p = raw.trim();
+-    if p.chars().any(char::is_control) {
+-        return Err(Error::invalid("payee must not contain control characters"));
+-    }
+-    if p.chars().count() > MAX_PAYEE_LEN {
+-        return Err(Error::invalid(format!(
+-            "payee is longer than {MAX_PAYEE_LEN} characters"
+-        )));
+-    }
+-    Ok(p.to_string())
+-}
+-
+-fn normalize_note(raw: &str) -> Result<String> {
+-    let n = raw.trim();
+-    if n.chars().count() > MAX_NOTE_LEN {
+-        return Err(Error::invalid(format!(
+-            "note is longer than {MAX_NOTE_LEN} characters"
+-        )));
+-    }
+-    Ok(n.to_string())
+-}
+-
+-fn normalize_tags(raw: &[String]) -> Result<Vec<String>> {
+-    let mut out: Vec<String> = Vec::new();
+-    for t in raw {
+-        let tag = t.trim().trim_start_matches('#').to_lowercase();
+-        if tag.is_empty() {
+-            return Err(Error::invalid("tag must not be empty"));
+-        }
+-        if tag.chars().count() > MAX_TAG_LEN {
+-            return Err(Error::invalid(format!(
+-                "tag '{tag}' is longer than {MAX_TAG_LEN} characters"
+-            )));
+-        }
+-        if !tag
+-            .chars()
+-            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+-        {
+-            return Err(Error::invalid(format!(
+-                "tag '{tag}' may only contain letters, digits and '-'"
+-            )));
+-        }
+-        if !out.contains(&tag) {
+-            out.push(tag);
+-        }
+-    }
+-    Ok(out)
+-}
+-
+-#[cfg(test)]
+-mod tests {
+-    use super::*;
+-
+-    #[test]
+-    fn category_rules() {
+-        assert_eq!(normalize_category("  Groceries ").unwrap(), "groceries");
+-        assert!(normalize_category("").is_err());
+-        assert!(normalize_category("eating out").is_err());
+-        assert!(normalize_category(&"x".repeat(33)).is_err());
+-    }
+-
+-    #[test]
+-    fn amount_and_tag_rules() {
+-        assert!(check_amount(Money(0)).is_err());
+-        assert!(check_amount(Money(MAX_AMOUNT_CENTS + 1)).is_err());
+-        let raw: Vec<String> = ["#Food", "food", "home"]
+-            .iter()
+-            .map(|s| s.to_string())
+-            .collect();
+-        assert_eq!(normalize_tags(&raw).unwrap(), vec!["food", "home"]);
+-    }
+-}
+diff --git a/src/commands/edit.rs b/src/commands/edit.rs
+index 4aea9db..9b1069b 100644
+--- a/src/commands/edit.rs
++++ b/src/commands/edit.rs
+@@ -2,7 +2,7 @@ use super::Context;
+ use crate::cli::EditArgs;
+ use crate::error::{Error, Result};
+ use crate::index::LedgerIndex;
+-use crate::util::Money;
++use crate::model::validate;
+ 
+ pub fn run(ctx: &mut Context, args: EditArgs) -> Result<()> {
+     if args.is_empty() {
+@@ -17,80 +17,24 @@ pub fn run(ctx: &mut Context, args: EditArgs) -> Result<()> {
+         entry.date = d;
+     }
+     if let Some(a) = args.amount {
+-        if a.cents() < 0 {
+-            return Err(Error::invalid("amount must be greater than zero"));
+-        }
+-        if a.cents() > 100_000_000 {
+-            return Err(Error::invalid(format!(
+-                "amount exceeds the maximum of {}",
+-                Money(100_000_000).to_decimal()
+-            )));
+-        }
+         entry.amount = a;
+     }
+     if let Some(c) = args.category {
+-        let name = c.trim().to_string();
+-        if name.is_empty() {
+-            return Err(Error::invalid("category must not be empty"));
+-        }
+-        if name.chars().count() > 32 {
+-            return Err(Error::invalid("category is longer than 32 characters"));
+-        }
+-        if !name
+-            .chars()
+-            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+-        {
+-            return Err(Error::invalid(format!(
+-                "category '{name}' may only contain letters, digits, '-' and '_'"
+-            )));
+-        }
+-        entry.category = name;
++        entry.category = c;
+     }
+     if let Some(k) = args.kind {
+         entry.kind = k;
+     }
+     if let Some(p) = args.payee {
+-        if p.chars().any(char::is_control) {
+-            return Err(Error::invalid("payee must not contain control characters"));
+-        }
+-        if p.chars().count() > 64 {
+-            return Err(Error::invalid("payee is longer than 64 characters"));
+-        }
+         entry.payee = p;
+     }
+     if let Some(n) = args.note {
+-        let n = n.trim();
+-        if n.chars().count() > 250 {
+-            return Err(Error::invalid("note is longer than 250 characters"));
+-        }
+-        entry.note = n.to_string();
++        entry.note = n;
+     }
+-    if let Some(tags) = args.tags {
+-        let mut out: Vec<String> = Vec::new();
+-        for t in tags {
+-            let tag = t.trim().to_lowercase();
+-            if tag.is_empty() {
+-                return Err(Error::invalid("tag must not be empty"));
+-            }
+-            if tag.chars().count() > 16 {
+-                return Err(Error::invalid(format!(
+-                    "tag '{tag}' is longer than 16 characters"
+-                )));
+-            }
+-            if !tag
+-                .chars()
+-                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+-            {
+-                return Err(Error::invalid(format!(
+-                    "tag '{tag}' may only contain letters, digits and '-'"
+-                )));
+-            }
+-            if !out.contains(&tag) {
+-                out.push(tag);
+-            }
+-        }
+-        entry.tags = out;
++    if let Some(t) = args.tags {
++        entry.tags = t;
+     }
++    validate::entry(&mut entry)?;
+     ledger.entries[pos] = entry;
+     store.save(&ledger)?;
+     ctx.say(&format!("updated entry {}", args.id))
+diff --git a/src/commands/rename.rs b/src/commands/rename.rs
+index a3e553a..b7a96d0 100644
+--- a/src/commands/rename.rs
++++ b/src/commands/rename.rs
+@@ -1,25 +1,12 @@
+ use super::Context;
+ use crate::error::{Error, Result};
+ use crate::index::LedgerIndex;
++use crate::model::validate;
+ use crate::util::text::plural;
+ 
+ pub fn run(ctx: &mut Context, from: &str, to: &str) -> Result<()> {
+     let from = from.trim().to_lowercase();
+-    let to = to.trim().to_lowercase();
+-    if to.is_empty() {
+-        return Err(Error::invalid("category must not be empty"));
+-    }
+-    if to.len() > 30 {
+-        return Err(Error::invalid("category is longer than 30 characters"));
+-    }
+-    if !to
+-        .chars()
+-        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '_')
+-    {
+-        return Err(Error::invalid(
+-            "category may only contain letters, digits, '-' and '_'",
+-        ));
+-    }
++    let to = validate::category(to)?;
+     if from == to {
+         return Err(Error::invalid("old and new category are the same"));
+     }
+diff --git a/src/import/mod.rs b/src/import/mod.rs
+index b32e34c..86f0949 100644
+--- a/src/import/mod.rs
++++ b/src/import/mod.rs
+@@ -5,7 +5,7 @@ pub mod bank_csv;
+ use std::collections::HashSet;
+ 
+ use crate::error::{Error, Result};
+-use crate::model::{Entry, Kind};
++use crate::model::{validate, Entry, Kind};
+ use crate::store::Ledger;
+ use crate::util::hash::fnv1a_fields;
+ use crate::util::text::truncate;
+@@ -13,9 +13,6 @@ use crate::util::Money;
+ 
+ pub use bank_csv::{parse as parse_bank_csv, BankRow};
+ 
+-/// Bank descriptions are often padded or very long; payees are capped at this.
+-const MAX_PAYEE_LEN: usize = 64;
+-
+ /// What an import would do.
+ #[derive(Debug, Default)]
+ pub struct ImportPlan {
+@@ -48,17 +45,18 @@ pub fn plan(
+         } else {
+             Kind::Income
+         };
+-        let entry = Entry {
++        let mut entry = Entry {
+             id: 0,
+             date: row.date,
+             kind,
+             amount: Money(row.amount.cents().abs()),
+-            category: category.trim().to_string(),
+-            payee: truncate(row.description.trim(), MAX_PAYEE_LEN),
++            category: category.to_string(),
++            payee: truncate(row.description.trim(), validate::MAX_PAYEE_LEN),
+             note: String::new(),
+             tags: Vec::new(),
+         };
+-        check_row(&entry).map_err(|e| Error::invalid(format!("line {}: {e}", row.line)))?;
++        validate::entry(&mut entry)
++            .map_err(|e| Error::invalid(format!("line {}: {e}", row.line)))?;
+         let key = dedup_key(&entry.date.to_string(), entry.signed_amount(), &entry.payee);
+         if skip_duplicates && existing.contains(&key) {
+             plan.duplicates += 1;
+@@ -69,32 +67,6 @@ pub fn plan(
+     Ok(plan)
+ }
+ 
+-fn check_row(e: &Entry) -> Result<()> {
+-    if e.amount.cents() <= 0 {
+-        return Err(Error::invalid("amount must be greater than zero"));
+-    }
+-    if e.category.is_empty() {
+-        return Err(Error::invalid("category must not be empty"));
+-    }
+-    if e.category.chars().count() > 32 {
+-        return Err(Error::invalid("category is longer than 32 characters"));
+-    }
+-    if !e
+-        .category
+-        .chars()
+-        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+-    {
+-        return Err(Error::invalid(format!(
+-            "category '{}' may only contain letters, digits, '-' and '_'",
+-            e.category
+-        )));
+-    }
+-    if e.payee.chars().any(char::is_control) {
+-        return Err(Error::invalid("payee must not contain control characters"));
+-    }
+-    Ok(())
+-}
+-
+ #[cfg(test)]
+ mod tests {
+     use super::*;
+diff --git a/src/model/mod.rs b/src/model/mod.rs
+index a845fb1..7023f70 100644
+--- a/src/model/mod.rs
++++ b/src/model/mod.rs
+@@ -1,5 +1,6 @@
+ //! Domain types.
+ 
+ pub mod entry;
++pub mod validate;
+ 
+ pub use entry::{Entry, Kind};
+diff --git a/src/model/validate.rs b/src/model/validate.rs
+new file mode 100644
+index 0000000..bf69e94
+--- /dev/null
++++ b/src/model/validate.rs
+@@ -0,0 +1,155 @@
++//! Validation and normalisation of user-supplied entry fields.
++//!
++//! Every command that creates or changes entries goes through these
++//! functions so the ledger never contains values that `add` would reject.
++
++use crate::error::{Error, Result};
++use crate::model::Entry;
++use crate::util::{Date, Money};
++
++pub const MAX_CATEGORY_LEN: usize = 32;
++pub const MAX_PAYEE_LEN: usize = 64;
++pub const MAX_NOTE_LEN: usize = 200;
++pub const MAX_TAG_LEN: usize = 16;
++pub const MAX_AMOUNT_CENTS: i64 = 100_000_000;
++pub const MIN_YEAR: i32 = 1970;
++pub const MAX_YEAR: i32 = 2100;
++
++/// Categories are lower-cased and restricted to `[a-z0-9_-]`.
++pub fn category(raw: &str) -> Result<String> {
++    let name = raw.trim().to_lowercase();
++    if name.is_empty() {
++        return Err(Error::invalid("category must not be empty"));
++    }
++    if name.chars().count() > MAX_CATEGORY_LEN {
++        return Err(Error::invalid(format!(
++            "category is longer than {MAX_CATEGORY_LEN} characters"
++        )));
++    }
++    if !name
++        .chars()
++        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '_')
++    {
++        return Err(Error::invalid(format!(
++            "category '{name}' may only contain letters, digits, '-' and '_'"
++        )));
++    }
++    Ok(name)
++}
++
++pub fn amount(value: Money) -> Result<Money> {
++    if value.cents() <= 0 {
++        return Err(Error::invalid("amount must be greater than zero"));
++    }
++    if value.cents() > MAX_AMOUNT_CENTS {
++        return Err(Error::invalid(format!(
++            "amount exceeds the maximum of {}",
++            Money(MAX_AMOUNT_CENTS).to_decimal()
++        )));
++    }
++    Ok(value)
++}
++
++pub fn payee(raw: &str) -> Result<String> {
++    let p = raw.trim();
++    if p.chars().any(char::is_control) {
++        return Err(Error::invalid("payee must not contain control characters"));
++    }
++    if p.chars().count() > MAX_PAYEE_LEN {
++        return Err(Error::invalid(format!(
++            "payee is longer than {MAX_PAYEE_LEN} characters"
++        )));
++    }
++    Ok(p.to_string())
++}
++
++pub fn note(raw: &str) -> Result<String> {
++    let n = raw.trim();
++    if n.chars().count() > MAX_NOTE_LEN {
++        return Err(Error::invalid(format!(
++            "note is longer than {MAX_NOTE_LEN} characters"
++        )));
++    }
++    Ok(n.to_string())
++}
++
++/// Tags are lower-cased, may be written with a leading `#`, and are de-duplicated
++/// keeping the first occurrence.
++pub fn tags(raw: &[String]) -> Result<Vec<String>> {
++    let mut out: Vec<String> = Vec::new();
++    for t in raw {
++        let tag = t.trim().trim_start_matches('#').to_lowercase();
++        if tag.is_empty() {
++            return Err(Error::invalid("tag must not be empty"));
++        }
++        if tag.chars().count() > MAX_TAG_LEN {
++            return Err(Error::invalid(format!(
++                "tag '{tag}' is longer than {MAX_TAG_LEN} characters"
++            )));
++        }
++        if !tag
++            .chars()
++            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
++        {
++            return Err(Error::invalid(format!(
++                "tag '{tag}' may only contain letters, digits and '-'"
++            )));
++        }
++        if !out.contains(&tag) {
++            out.push(tag);
++        }
++    }
++    Ok(out)
++}
++
++pub fn date(d: Date) -> Result<Date> {
++    if d.year() < MIN_YEAR || d.year() > MAX_YEAR {
++        return Err(Error::invalid(format!(
++            "date {d} is outside the supported range ({MIN_YEAR}-{MAX_YEAR})"
++        )));
++    }
++    Ok(d)
++}
++
++/// Normalise every field of `e` in place, or report the first problem.
++pub fn entry(e: &mut Entry) -> Result<()> {
++    e.date = date(e.date)?;
++    e.amount = amount(e.amount)?;
++    e.category = category(&e.category)?;
++    e.payee = payee(&e.payee)?;
++    e.note = note(&e.note)?;
++    e.tags = tags(&e.tags)?;
++    Ok(())
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    #[test]
++    fn category_rules() {
++        assert_eq!(category("  Groceries ").unwrap(), "groceries");
++        assert!(category("").is_err());
++        assert!(category("eating out").is_err());
++        assert!(category(&"x".repeat(33)).is_err());
++        assert_eq!(category("car_2-fuel").unwrap(), "car_2-fuel");
++    }
++
++    #[test]
++    fn amount_rules() {
++        assert!(amount(Money(0)).is_err());
++        assert!(amount(Money(-5)).is_err());
++        assert!(amount(Money(MAX_AMOUNT_CENTS + 1)).is_err());
++        assert_eq!(amount(Money(1)).unwrap(), Money(1));
++    }
++
++    #[test]
++    fn tag_rules() {
++        let raw: Vec<String> = ["#Food", "food", "home"]
++            .iter()
++            .map(|s| s.to_string())
++            .collect();
++        assert_eq!(tags(&raw).unwrap(), vec!["food", "home"]);
++        assert!(tags(&["a b".to_string()]).is_err());
++    }
++}
+diff --git a/tests/cli_entries.rs b/tests/cli_entries.rs
+index 7411d90..d9176df 100644
+--- a/tests/cli_entries.rs
++++ b/tests/cli_entries.rs
+@@ -231,3 +231,41 @@ fn corrupt_ledger_reports_line() {
+     assert_eq!(code, 1);
+     assert!(err.contains("ledger.txt:3: invalid amount 'five'"), "{err}");
+ }
++
++#[test]
++fn every_command_applies_the_same_validation() {
++    let t = Tally::new();
++    t.ok(&["add", "2026-01-03", "12.50", "groceries"]);
++    t.ok(&[
++        "edit",
++        "1",
++        "--category",
++        " Dining ",
++        "--payee",
++        "  Shop  ",
++        "--tag",
++        "#Food",
++    ]);
++    assert!(t
++        .read("ledger.txt")
++        .contains("1|2026-01-03|expense|12.50|dining|Shop||food\n"));
++    let (code, err) = t.fail(&["edit", "1", "--amount", "0"]);
++    assert_eq!(code, 1);
++    assert!(err.contains("amount must be greater than zero"), "{err}");
++    let (_, err) = t.fail(&["edit", "1", "--date", "1969-12-31"]);
++    assert!(err.contains("outside the supported range"), "{err}");
++    let (_, err) = t.fail(&["rename-category", "dining", "Eating Out"]);
++    assert!(
++        err.contains("category 'eating out' may only contain"),
++        "{err}"
++    );
++    t.ok(&["rename-category", "dining", &"c".repeat(32)]);
++    let bank = t.write(
++        "bank.csv",
++        "Date,Description,Amount\n03/01/2026,Cafe,-3.50\n",
++    );
++    t.ok(&["import", bank.to_str().unwrap(), "--category", "Bank"]);
++    assert!(t
++        .read("ledger.txt")
++        .contains("2|2026-01-03|expense|3.50|bank|Cafe||\n"));
++}

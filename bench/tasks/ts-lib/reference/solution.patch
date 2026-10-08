@@ -1,0 +1,548 @@
+diff --git a/package.json b/package.json
+new file mode 100644
+index 0000000..f213f97
+--- /dev/null
++++ b/package.json
+@@ -0,0 +1,11 @@
++{
++  "name": "ward",
++  "version": "0.1.0",
++  "description": "A tiny, dependency-free schema validation library",
++  "type": "module",
++  "exports": "./src/index.ts",
++  "scripts": {
++    "test": "node --test test/",
++    "typecheck": "tsc --noEmit -p ."
++  }
++}
+diff --git a/src/array.ts b/src/array.ts
+new file mode 100644
+index 0000000..c54ca71
+--- /dev/null
++++ b/src/array.ts
+@@ -0,0 +1,42 @@
++import { fail, typeName, type Issue, type PathSegment, type RunResult } from "./issues.ts";
++import { TypedSchema, type Schema } from "./schema.ts";
++
++type LengthCheck = { test: (length: number) => boolean; message: string };
++
++export class ArraySchema<T> extends TypedSchema<T[]> {
++  readonly element: Schema<T>;
++  private readonly checks: readonly LengthCheck[];
++
++  constructor(element: Schema<T>, checks: readonly LengthCheck[] = []) {
++    super();
++    this.element = element;
++    this.checks = checks;
++  }
++
++  min(n: number, message?: string): ArraySchema<T> {
++    return new ArraySchema(this.element, [
++      ...this.checks,
++      { test: (len) => len >= n, message: message ?? `Array must contain at least ${n} element(s)` },
++    ]);
++  }
++
++  max(n: number, message?: string): ArraySchema<T> {
++    return new ArraySchema(this.element, [
++      ...this.checks,
++      { test: (len) => len <= n, message: message ?? `Array must contain at most ${n} element(s)` },
++    ]);
++  }
++
++  protected check(input: unknown, path: PathSegment[]): RunResult<T[]> {
++    if (!Array.isArray(input)) return fail(path, `Expected array, received ${typeName(input)}`);
++    const out: T[] = [];
++    const issues: Issue[] = [];
++    input.forEach((item: unknown, i: number) => {
++      const r = this.element.run(item, [...path, i]);
++      if (r.ok) out.push(r.value);
++      else issues.push(...r.issues);
++    });
++    for (const c of this.checks) if (!c.test(input.length)) issues.push({ path, message: c.message });
++    return issues.length ? { ok: false, issues } : { ok: true, value: out };
++  }
++}
+diff --git a/src/index.ts b/src/index.ts
+new file mode 100644
+index 0000000..88a2518
+--- /dev/null
++++ b/src/index.ts
+@@ -0,0 +1,21 @@
++import { ArraySchema } from "./array.ts";
++import { ObjectSchema, type Shape } from "./object.ts";
++import { BooleanSchema, EnumSchema, LiteralSchema, NumberSchema, StringSchema, type Primitive } from "./primitives.ts";
++import type { Schema } from "./schema.ts";
++import { UnionSchema, type UnionOptions } from "./union.ts";
++
++export { formatPath, ValidationError, type Issue, type PathSegment } from "./issues.ts";
++export { Schema, type Infer, type SafeParseResult } from "./schema.ts";
++export type { ObjectOutput, Shape } from "./object.ts";
++export { ArraySchema, BooleanSchema, EnumSchema, LiteralSchema, NumberSchema, ObjectSchema, StringSchema, UnionSchema };
++
++export const s = {
++  string: (): StringSchema => new StringSchema(),
++  number: (): NumberSchema => new NumberSchema(),
++  boolean: (): BooleanSchema => new BooleanSchema(),
++  literal: <const T extends Primitive>(value: T): LiteralSchema<T> => new LiteralSchema(value),
++  enum: <const T extends readonly [string, ...string[]]>(values: T): EnumSchema<T[number]> => new EnumSchema(values),
++  object: <S extends Shape>(shape: S): ObjectSchema<S> => new ObjectSchema(shape),
++  array: <T>(element: Schema<T>): ArraySchema<T> => new ArraySchema(element),
++  union: <const O extends UnionOptions>(options: O): UnionSchema<O> => new UnionSchema(options),
++};
+diff --git a/src/issues.ts b/src/issues.ts
+new file mode 100644
+index 0000000..3e42d5c
+--- /dev/null
++++ b/src/issues.ts
+@@ -0,0 +1,46 @@
++export type PathSegment = string | number;
++
++/** One validation problem: where it happened and what went wrong. */
++export interface Issue {
++  path: PathSegment[];
++  message: string;
++}
++
++/** Formats a path like `user.tags[2].name`; the empty path is `(root)`. */
++export function formatPath(path: readonly PathSegment[]): string {
++  if (path.length === 0) return "(root)";
++  let out = "";
++  for (const seg of path) {
++    if (typeof seg === "number") out += `[${seg}]`;
++    else out += out === "" ? seg : `.${seg}`;
++  }
++  return out;
++}
++
++export class ValidationError extends Error {
++  readonly issues: Issue[];
++
++  constructor(issues: Issue[]) {
++    super(issues.map((i) => `${formatPath(i.path)}: ${i.message}`).join("\n"));
++    this.name = "ValidationError";
++    this.issues = issues;
++  }
++}
++
++/** Describes the kind of an unexpected input for "received ..." messages. */
++export function typeName(value: unknown): string {
++  if (value === null) return "null";
++  if (Array.isArray(value)) return "array";
++  if (typeof value === "number" && Number.isNaN(value)) return "nan";
++  return typeof value;
++}
++
++export type RunResult<T> = { ok: true; value: T } | { ok: false; issues: Issue[] };
++
++export function ok<T>(value: T): RunResult<T> {
++  return { ok: true, value };
++}
++
++export function fail<T>(path: PathSegment[], message: string): RunResult<T> {
++  return { ok: false, issues: [{ path, message }] };
++}
+diff --git a/src/object.ts b/src/object.ts
+new file mode 100644
+index 0000000..53d5bfd
+--- /dev/null
++++ b/src/object.ts
+@@ -0,0 +1,51 @@
++import { fail, typeName, type Issue, type PathSegment, type RunResult } from "./issues.ts";
++import { TypedSchema, type Infer, type Schema } from "./schema.ts";
++
++export type Shape = { [key: string]: Schema<unknown> };
++
++type OptionalKeys<S extends Shape> = { [K in keyof S]: undefined extends Infer<S[K]> ? K : never }[keyof S];
++type RequiredKeys<S extends Shape> = Exclude<keyof S, OptionalKeys<S>>;
++type Flatten<T> = { [K in keyof T]: T[K] } & {};
++
++/** Keys whose schema accepts `undefined` become optional properties. */
++export type ObjectOutput<S extends Shape> = Flatten<
++  { [K in OptionalKeys<S>]?: Infer<S[K]> } & { [K in RequiredKeys<S>]: Infer<S[K]> }
++>;
++
++export class ObjectSchema<S extends Shape> extends TypedSchema<ObjectOutput<S>> {
++  readonly shape: S;
++  private readonly rejectUnknown: boolean;
++
++  constructor(shape: S, rejectUnknown = false) {
++    super();
++    this.shape = shape;
++    this.rejectUnknown = rejectUnknown;
++  }
++
++  /** Report unknown keys instead of silently dropping them. */
++  strict(): ObjectSchema<S> {
++    return new ObjectSchema(this.shape, true);
++  }
++
++  protected check(input: unknown, path: PathSegment[]): RunResult<ObjectOutput<S>> {
++    if (typeof input !== "object" || input === null || Array.isArray(input)) {
++      return fail(path, `Expected object, received ${typeName(input)}`);
++    }
++    const record = input as Record<string, unknown>;
++    const out: Record<string, unknown> = {};
++    const issues: Issue[] = [];
++    for (const key of Object.keys(this.shape)) {
++      const present = Object.prototype.hasOwnProperty.call(record, key);
++      const r = this.shape[key]!.run(present ? record[key] : undefined, [...path, key]);
++      if (!r.ok) issues.push(...r.issues);
++      else if (present || r.value !== undefined) out[key] = r.value;
++    }
++    if (this.rejectUnknown) {
++      const unknown = Object.keys(record).filter((k) => !Object.prototype.hasOwnProperty.call(this.shape, k));
++      if (unknown.length) {
++        issues.push({ path, message: `Unrecognized key(s) in object: ${unknown.map((k) => `'${k}'`).join(", ")}` });
++      }
++    }
++    return issues.length ? { ok: false, issues } : { ok: true, value: out as ObjectOutput<S> };
++  }
++}
+diff --git a/src/primitives.ts b/src/primitives.ts
+new file mode 100644
+index 0000000..ff65181
+--- /dev/null
++++ b/src/primitives.ts
+@@ -0,0 +1,121 @@
++import { fail, ok, typeName, type Issue, type PathSegment, type RunResult } from "./issues.ts";
++import { TypedSchema } from "./schema.ts";
++
++type Check<T> = { test: (value: T) => boolean; message: string };
++
++function runChecks<T>(value: T, checks: readonly Check<T>[], path: PathSegment[]): RunResult<T> {
++  const issues: Issue[] = checks.filter((c) => !c.test(value)).map((c) => ({ path, message: c.message }));
++  return issues.length ? { ok: false, issues } : ok(value);
++}
++
++const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
++
++export class StringSchema extends TypedSchema<string> {
++  private readonly checks: readonly Check<string>[];
++  private readonly trims: boolean;
++
++  constructor(checks: readonly Check<string>[] = [], trims = false) {
++    super();
++    this.checks = checks;
++    this.trims = trims;
++  }
++
++  private with(test: (v: string) => boolean, message: string): StringSchema {
++    return new StringSchema([...this.checks, { test, message }], this.trims);
++  }
++
++  min(n: number, message?: string): StringSchema {
++    return this.with((v) => v.length >= n, message ?? `String must contain at least ${n} character(s)`);
++  }
++  max(n: number, message?: string): StringSchema {
++    return this.with((v) => v.length <= n, message ?? `String must contain at most ${n} character(s)`);
++  }
++  length(n: number, message?: string): StringSchema {
++    return this.with((v) => v.length === n, message ?? `String must contain exactly ${n} character(s)`);
++  }
++  email(message?: string): StringSchema {
++    return this.with((v) => EMAIL.test(v), message ?? "Invalid email");
++  }
++  regex(pattern: RegExp, message?: string): StringSchema {
++    return this.with((v) => {
++      pattern.lastIndex = 0;
++      return pattern.test(v);
++    }, message ?? "Invalid string");
++  }
++  trim(): StringSchema {
++    return new StringSchema(this.checks, true);
++  }
++
++  protected check(input: unknown, path: PathSegment[]): RunResult<string> {
++    if (typeof input !== "string") return fail(path, `Expected string, received ${typeName(input)}`);
++    return runChecks(this.trims ? input.trim() : input, this.checks, path);
++  }
++}
++
++export class NumberSchema extends TypedSchema<number> {
++  private readonly checks: readonly Check<number>[];
++
++  constructor(checks: readonly Check<number>[] = []) {
++    super();
++    this.checks = checks;
++  }
++
++  private with(test: (v: number) => boolean, message: string): NumberSchema {
++    return new NumberSchema([...this.checks, { test, message }]);
++  }
++
++  int(message?: string): NumberSchema {
++    return this.with((v) => Number.isInteger(v), message ?? "Expected integer, received float");
++  }
++  min(n: number, message?: string): NumberSchema {
++    return this.with((v) => v >= n, message ?? `Number must be greater than or equal to ${n}`);
++  }
++  max(n: number, message?: string): NumberSchema {
++    return this.with((v) => v <= n, message ?? `Number must be less than or equal to ${n}`);
++  }
++  positive(message?: string): NumberSchema {
++    return this.with((v) => v > 0, message ?? "Number must be greater than 0");
++  }
++
++  protected check(input: unknown, path: PathSegment[]): RunResult<number> {
++    if (typeof input !== "number" || Number.isNaN(input)) {
++      return fail(path, `Expected number, received ${typeName(input)}`);
++    }
++    return runChecks(input, this.checks, path);
++  }
++}
++
++export class BooleanSchema extends TypedSchema<boolean> {
++  protected check(input: unknown, path: PathSegment[]): RunResult<boolean> {
++    return typeof input === "boolean" ? ok(input) : fail(path, `Expected boolean, received ${typeName(input)}`);
++  }
++}
++
++export type Primitive = string | number | boolean | null;
++
++export class LiteralSchema<T extends Primitive> extends TypedSchema<T> {
++  readonly value: T;
++  constructor(value: T) {
++    super();
++    this.value = value;
++  }
++  protected check(input: unknown, path: PathSegment[]): RunResult<T> {
++    return input === this.value
++      ? ok(this.value)
++      : fail(path, `Invalid literal value, expected ${JSON.stringify(this.value)}`);
++  }
++}
++
++export class EnumSchema<T extends string> extends TypedSchema<T> {
++  readonly options: readonly T[];
++  constructor(options: readonly T[]) {
++    super();
++    this.options = options;
++  }
++  protected check(input: unknown, path: PathSegment[]): RunResult<T> {
++    if (typeof input === "string" && (this.options as readonly string[]).includes(input)) return ok(input as T);
++    const expected = this.options.map((o) => `'${o}'`).join(" | ");
++    const received = typeof input === "string" ? `'${input}'` : typeName(input);
++    return fail(path, `Invalid enum value. Expected ${expected}, received ${received}`);
++  }
++}
+diff --git a/src/schema.ts b/src/schema.ts
+new file mode 100644
+index 0000000..3c2528c
+--- /dev/null
++++ b/src/schema.ts
+@@ -0,0 +1,104 @@
++import { fail, ok, ValidationError, type PathSegment, type RunResult } from "./issues.ts";
++
++export type SafeParseResult<T> =
++  | { success: true; data: T }
++  | { success: false; error: ValidationError };
++
++/** Base class of every schema. `T` is the type of a successfully parsed value. */
++export abstract class Schema<T> {
++  /** Validates `input` at `path`. Internal: use `parse` / `safeParse`. */
++  abstract run(input: unknown, path: PathSegment[]): RunResult<T>;
++
++  parse(input: unknown): T {
++    const r = this.run(input, []);
++    if (r.ok) return r.value;
++    throw new ValidationError(r.issues);
++  }
++
++  safeParse(input: unknown): SafeParseResult<T> {
++    const r = this.run(input, []);
++    return r.ok ? { success: true, data: r.value } : { success: false, error: new ValidationError(r.issues) };
++  }
++
++  optional(): Schema<T | undefined> {
++    return new Optional(this);
++  }
++
++  nullable(): Schema<T | null> {
++    return new Nullable(this);
++  }
++
++  default(value: Exclude<T, undefined>): Schema<Exclude<T, undefined>> {
++    return new Default(this, value);
++  }
++
++  refine(check: (value: T) => boolean, message = "Invalid input"): Schema<T> {
++    return new Refined(this, check, message);
++  }
++}
++
++/** Base for schemas that report "Required" when the input is `undefined`. */
++export abstract class TypedSchema<T> extends Schema<T> {
++  protected abstract check(input: unknown, path: PathSegment[]): RunResult<T>;
++
++  run(input: unknown, path: PathSegment[]): RunResult<T> {
++    if (input === undefined) return fail(path, "Required");
++    return this.check(input, path);
++  }
++}
++
++class Optional<T> extends Schema<T | undefined> {
++  private readonly inner: Schema<T>;
++  constructor(inner: Schema<T>) {
++    super();
++    this.inner = inner;
++  }
++  run(input: unknown, path: PathSegment[]): RunResult<T | undefined> {
++    return input === undefined ? ok(undefined) : this.inner.run(input, path);
++  }
++}
++
++class Nullable<T> extends Schema<T | null> {
++  private readonly inner: Schema<T>;
++  constructor(inner: Schema<T>) {
++    super();
++    this.inner = inner;
++  }
++  run(input: unknown, path: PathSegment[]): RunResult<T | null> {
++    return input === null ? ok(null) : this.inner.run(input, path);
++  }
++}
++
++class Default<T> extends Schema<Exclude<T, undefined>> {
++  private readonly inner: Schema<T>;
++  private readonly fallback: Exclude<T, undefined>;
++  constructor(inner: Schema<T>, fallback: Exclude<T, undefined>) {
++    super();
++    this.inner = inner;
++    this.fallback = fallback;
++  }
++  run(input: unknown, path: PathSegment[]): RunResult<Exclude<T, undefined>> {
++    if (input === undefined) return ok(this.fallback);
++    return this.inner.run(input, path) as RunResult<Exclude<T, undefined>>;
++  }
++}
++
++class Refined<T> extends Schema<T> {
++  private readonly inner: Schema<T>;
++  private readonly predicate: (value: T) => boolean;
++  private readonly message: string;
++  constructor(inner: Schema<T>, predicate: (value: T) => boolean, message: string) {
++    super();
++    this.inner = inner;
++    this.predicate = predicate;
++    this.message = message;
++  }
++  run(input: unknown, path: PathSegment[]): RunResult<T> {
++    const r = this.inner.run(input, path);
++    if (!r.ok || this.predicate(r.value)) return r;
++    return fail(path, this.message);
++  }
++}
++
++/** The output type of a schema. */
++export type Infer<S extends Schema<unknown>> = S extends Schema<infer T> ? T : never;
+diff --git a/src/union.ts b/src/union.ts
+new file mode 100644
+index 0000000..4063a73
+--- /dev/null
++++ b/src/union.ts
+@@ -0,0 +1,21 @@
++import { fail, type PathSegment, type RunResult } from "./issues.ts";
++import { Schema, type Infer } from "./schema.ts";
++
++export type UnionOptions = readonly [Schema<unknown>, ...Schema<unknown>[]];
++
++export class UnionSchema<O extends UnionOptions> extends Schema<Infer<O[number]>> {
++  readonly options: O;
++
++  constructor(options: O) {
++    super();
++    this.options = options;
++  }
++
++  run(input: unknown, path: PathSegment[]): RunResult<Infer<O[number]>> {
++    for (const option of this.options) {
++      const r = option.run(input, path);
++      if (r.ok) return r as RunResult<Infer<O[number]>>;
++    }
++    return fail(path, "Invalid input");
++  }
++}
+diff --git a/test/schemas.test.ts b/test/schemas.test.ts
+new file mode 100644
+index 0000000..a05910e
+--- /dev/null
++++ b/test/schemas.test.ts
+@@ -0,0 +1,53 @@
++import assert from "node:assert/strict";
++import { test } from "node:test";
++import { formatPath, s, ValidationError } from "../src/index.ts";
++
++test("primitives validate their type", () => {
++  assert.equal(s.string().parse("a"), "a");
++  assert.equal(s.number().int().parse(2), 2);
++  assert.equal(s.boolean().parse(true), true);
++  assert.throws(() => s.number().parse(NaN), { message: "(root): Expected number, received nan" });
++  assert.throws(() => s.string().parse(undefined), { message: "(root): Required" });
++});
++
++test("string checks report every failure in order", () => {
++  const r = s.string().email().min(10).safeParse("x@y");
++  assert.equal(r.success, false);
++  if (!r.success) {
++    assert.deepEqual(r.error.issues.map((i) => i.message), ["Invalid email", "String must contain at least 10 character(s)"]);
++  }
++  assert.equal(s.string().min(3).trim().safeParse("  a ").success, false);
++});
++
++test("objects strip unknown keys and apply defaults", () => {
++  const User = s.object({ id: s.number(), role: s.enum(["a", "b"]).default("a"), nick: s.string().optional() });
++  assert.deepStrictEqual(User.parse({ id: 1, x: 2 }), { id: 1, role: "a" });
++  assert.throws(() => User.strict().parse({ id: 1, x: 2 }), { message: "(root): Unrecognized key(s) in object: 'x'" });
++});
++
++test("nested issues carry full paths", () => {
++  const Order = s.object({ lines: s.array(s.object({ qty: s.number().positive() })).min(1) });
++  try {
++    Order.parse({ lines: [{ qty: 1 }, { qty: 0 }] });
++    assert.fail("should throw");
++  } catch (e) {
++    assert.ok(e instanceof ValidationError);
++    assert.deepEqual(e.issues, [{ path: ["lines", 1, "qty"], message: "Number must be greater than 0" }]);
++    assert.equal(e.message, "lines[1].qty: Number must be greater than 0");
++  }
++});
++
++test("union, literal, nullable and refine", () => {
++  const U = s.union([s.literal("x"), s.number()]);
++  assert.equal(U.parse(1), 1);
++  assert.throws(() => U.parse("y"), { message: "(root): Invalid input" });
++  assert.equal(s.string().nullable().parse(null), null);
++  const Even = s.number().refine((n) => n % 2 === 0, "Must be even");
++  assert.throws(() => Even.parse(3), { message: "(root): Must be even" });
++});
++
++test("formatPath", () => {
++  assert.equal(formatPath([]), "(root)");
++  assert.equal(formatPath(["a", 0, "b"]), "a[0].b");
++  assert.equal(formatPath([1, 2]), "[1][2]");
++});
+diff --git a/tsconfig.json b/tsconfig.json
+new file mode 100644
+index 0000000..c2b829f
+--- /dev/null
++++ b/tsconfig.json
+@@ -0,0 +1,18 @@
++{
++  "compilerOptions": {
++    "target": "es2024",
++    "lib": ["es2024"],
++    "module": "nodenext",
++    "moduleResolution": "nodenext",
++    "allowImportingTsExtensions": true,
++    "erasableSyntaxOnly": true,
++    "verbatimModuleSyntax": true,
++    "noEmit": true,
++    "strict": true,
++    "noUnusedLocals": true,
++    "noFallthroughCasesInSwitch": true,
++    "skipLibCheck": true,
++    "types": []
++  },
++  "include": ["src/**/*.ts"]
++}

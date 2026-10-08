@@ -10,6 +10,10 @@ import { runPlan } from '../lib/runner.mjs';
 import { meterTranscript } from '../lib/meter.mjs';
 import { tail } from '../lib/util.mjs';
 
+// Hooks under test must never touch the developer's real Claude Code settings (session start applies the
+// first-run lean default there).
+process.env.CLAUDE_CONFIG_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'tforge-test-cc-'));
+process.env.TFORGE_LEAN_DEFAULT = 'off';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const FAKE = path.join(HERE, 'fake-claude.mjs');
 fs.chmodSync(FAKE, 0o755);
@@ -308,18 +312,36 @@ test('meter counts each API call once and weighs columns by price', () => {
   assert.equal(s.weighted, 2 * (100 + 1250 + 1000 + 250));
 });
 
-test('context-watch warns once per band; handoff-load injects the handoff', () => {
+test('context budget warns once per band and holds one prompt; handoff-load injects the handoff', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tforge-hook-'));
   const tr = path.join(dir, 't.jsonl');
-  const big = { input_tokens: 5, cache_creation_input_tokens: 5000, cache_read_input_tokens: 90000, output_tokens: 1 };
-  fs.writeFileSync(tr, JSON.stringify({ type: 'assistant', message: { id: 'x', usage: big } }) + '\n');
+  const call = (id, read) => JSON.stringify({ type: 'assistant', message: { id, usage: { input_tokens: 5, cache_creation_input_tokens: 5000, cache_read_input_tokens: read, output_tokens: 1 } } });
+  fs.writeFileSync(tr, call('a', 25000) + '\n' + call('x', 90000) + '\n');
   const hook = path.join(HERE, '..', 'hooks', 'context-watch.mjs');
   const sid = 'test-' + process.pid + '-' + Date.now();
-  const input = JSON.stringify({ session_id: sid, transcript_path: tr, hook_event_name: 'PostToolUse' });
-  const first = spawnSync('node', [hook], { input, encoding: 'utf8' });
-  const out = JSON.parse(first.stdout);
-  assert.match(out.hookSpecificOutput.additionalContext, /~95k tokens/);
-  assert.equal(spawnSync('node', [hook], { input, encoding: 'utf8' }).stdout, '', 'same band stays silent');
+  const env0 = { ...process.env };
+  delete env0.TFORGE_BUDGET;
+  delete env0.TFORGE_WATCH;
+  const quiet = spawnSync('node', [hook], { input: JSON.stringify({ session_id: sid + 'q', transcript_path: tr, hook_event_name: 'PostToolUse' }), encoding: 'utf8', env: env0 });
+  const q = JSON.parse(quiet.stdout);
+  assert.match(q.systemMessage, /budget 50k/, 'the user sees the warning');
+  assert.equal(q.hookSpecificOutput, undefined, 'nothing enters the model context by default');
+  env0.TFORGE_WATCH_INJECT = '1';
+  const run = (o) => spawnSync('node', [hook], { input: JSON.stringify({ session_id: sid, transcript_path: tr, ...o }), encoding: 'utf8', env: env0 });
+  const out = JSON.parse(run({ hook_event_name: 'PostToolUse' }).stdout);
+  assert.match(out.hookSpecificOutput.additionalContext, /~95k tokens, over the 50k budget/);
+  assert.equal(run({ hook_event_name: 'PostToolUse' }).stdout, '', 'same band stays silent');
+  const held = JSON.parse(run({ hook_event_name: 'UserPromptSubmit', prompt: 'next thing' }).stdout);
+  assert.equal(held.decision, 'block');
+  assert.match(held.reason, /\/clear/);
+  assert.equal(run({ hook_event_name: 'UserPromptSubmit', prompt: 'next thing' }).stdout, '', 're-sent prompt goes through');
+  assert.equal(run({ hook_event_name: 'UserPromptSubmit', prompt: '/tokenforge:handoff' }).stdout, '', 'slash commands go through');
+
+  // A fixed part above the budget moves the limit to fixed + floor.
+  const tr2 = path.join(dir, 't2.jsonl');
+  fs.writeFileSync(tr2, call('a', 55000) + '\n' + call('b', 62000) + '\n');
+  const r2 = spawnSync('node', [hook], { input: JSON.stringify({ session_id: sid + 'b', transcript_path: tr2, hook_event_name: 'PostToolUse' }), encoding: 'utf8', env: env0 });
+  assert.match(JSON.parse(r2.stdout).hookSpecificOutput.additionalContext, /~67k tokens, near the 75k budget/);
 
   fs.mkdirSync(path.join(dir, '.forge'));
   fs.writeFileSync(path.join(dir, '.forge', 'HANDOFF.md'), '# Handoff: thing\n## Next\n1. do it\n');
@@ -328,7 +350,7 @@ test('context-watch warns once per band; handoff-load injects the handoff', () =
   const h = spawnSync('node', [ss], { input: JSON.stringify({ cwd: dir, source: 'clear' }), encoding: 'utf8', env });
   const ctx = JSON.parse(h.stdout).hookSpecificOutput.additionalContext;
   assert.match(ctx, /1\. do it/);
-  assert.match(ctx, /tokenforge terse\)/, 'terse full is the default');
+  assert.match(ctx, /^Reply terse: no preamble/, 'terse full is the default');
   assert.doesNotMatch(ctx, /tmap find <words>/, 'code-search hint is opt-in');
   const withMap = spawnSync('node', [ss], { input: JSON.stringify({ cwd: dir, source: 'startup' }), encoding: 'utf8', env: { ...env, TFORGE_MAP: '1' } });
   assert.match(JSON.parse(withMap.stdout).hookSpecificOutput.additionalContext, /tmap find <words>/);
@@ -340,7 +362,61 @@ test('context-watch warns once per band; handoff-load injects the handoff', () =
 
   const bin = path.join(HERE, '..', 'bin', 'tforge');
   assert.match(spawnSync('node', [bin, 'terse', 'off'], { encoding: 'utf8', env }).stdout, /terse: off/);
-  const off = spawnSync('node', [ss], { input: JSON.stringify({ cwd: '/nonexistent', source: 'startup' }), encoding: 'utf8', env });
-  assert.equal(off.stdout, '', 'terse off and no handoff: no output');
+  const off = spawnSync('node', [ss], { input: JSON.stringify({ cwd: '/nonexistent', source: 'startup' }), encoding: 'utf8', env: { ...env, TFORGE_KIT_POLICY: '0' } });
+  assert.equal(off.stdout, '', 'terse off, kit policy off and no handoff: no output');
   assert.match(spawnSync('node', [bin, 'terse', 'status'], { encoding: 'utf8', env: { ...env, TFORGE_TERSE: 'lite' } }).stdout, /lite \(from TFORGE_TERSE\)/);
+});
+
+test('checkpoint writes chunked snapshots and session-start reloads the newest two (TFORGE_RECALL=inject)', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tforge-ckpt-'));
+  const tr = path.join(dir, 't.jsonl');
+  let min = 0;
+  const ts = () => new Date(Date.UTC(2026, 9, 7, 10, min++)).toISOString();
+  const user = (t) => JSON.stringify({ type: 'user', timestamp: ts(), message: { role: 'user', content: t } });
+  const asst = (content, ctx = 0) => JSON.stringify({ type: 'assistant', timestamp: ts(), message: { content, usage: { input_tokens: 10, cache_read_input_tokens: ctx } } });
+  fs.writeFileSync(
+    tr,
+    [
+      user('<local-command-stdout></local-command-stdout>'),
+      user('add a budget'),
+      asst([{ type: 'tool_use', name: 'Edit', input: { file_path: path.join(dir, 'hooks', 'a.mjs') } }]),
+      JSON.stringify({ type: 'user', message: { content: [{ type: 'tool_result', content: 'ok' }] } }),
+      asst([{ type: 'text', text: 'Budget added.' }], 30000),
+    ].join('\n') + '\n',
+  );
+  const hook = path.join(HERE, '..', 'hooks', 'checkpoint.mjs');
+  const sid = 'ck' + process.pid + Date.now();
+  const input = JSON.stringify({ session_id: sid, transcript_path: tr, cwd: dir });
+  const env = { ...process.env, TFORGE_SNAPSHOT_PROMPTS: '2', TFORGE_RECALL: 'inject' };
+  const snapDir = path.join(dir, '.forge', 'snapshots');
+  const snaps = () => fs.readdirSync(snapDir).sort();
+  const read = (f) => fs.readFileSync(path.join(snapDir, f), 'utf8');
+  spawnSync('node', [hook], { input, encoding: 'utf8', env });
+  assert.equal(snaps().length, 1);
+  const first = read(snaps()[0]);
+  assert.match(first, /^<!-- tforge \{.*"ctx":30010.*\} -->\n/);
+  assert.match(first, /- add a budget/);
+  assert.match(first, /- hooks\/a\.mjs/);
+  assert.match(first, /## Last reply\nBudget added\./);
+  assert.doesNotMatch(first, /local-command/);
+  assert.match(fs.readFileSync(path.join(dir, '.forge', '.gitignore'), 'utf8'), /^snapshots\/$/m);
+
+  // Second request fills chunk 1 (limit 2); the third opens chunk 2; a compaction opens chunk 3.
+  fs.appendFileSync(tr, [user('second step'), asst([{ type: 'text', text: 'Done twice.' }]), user('third step'), asst([{ type: 'text', text: 'Third done.' }])].join('\n') + '\n');
+  spawnSync('node', [hook], { input, encoding: 'utf8', env });
+  assert.equal(snaps().length, 2);
+  assert.match(read(snaps()[0]), /- add a budget\n- second step/, 'incremental: chunk 1 completed in place');
+  assert.match(read(snaps()[1]), /- third step/);
+  fs.appendFileSync(tr, [JSON.stringify({ type: 'system', subtype: 'compact_boundary', timestamp: ts() }), user('after compact'), asst([{ type: 'text', text: 'Fourth.' }])].join('\n') + '\n');
+  spawnSync('node', [hook], { input, encoding: 'utf8', env });
+  assert.equal(snaps().length, 3);
+  assert.match(snaps()[2], /-003\.md$/);
+
+  const ss = path.join(HERE, '..', 'hooks', 'session-start.mjs');
+  const env2 = { ...process.env, XDG_CONFIG_HOME: dir, TFORGE_UI: '0', TFORGE_TERSE: 'off', TFORGE_RECALL: 'inject' };
+  const ctx = JSON.parse(spawnSync('node', [ss], { input: JSON.stringify({ cwd: dir, source: 'clear' }), encoding: 'utf8', env: env2 }).stdout).hookSpecificOutput.additionalContext;
+  assert.match(ctx, /snapshots of the previous session/);
+  assert.match(ctx, /third step[^]*after compact/, 'newest two, oldest first');
+  assert.doesNotMatch(ctx, /add a budget/, 'only two snapshots loaded');
+  assert.doesNotMatch(ctx, /<!-- tforge/, 'metadata line stripped');
 });

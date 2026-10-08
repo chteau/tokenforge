@@ -1,0 +1,551 @@
+diff --git a/README.md b/README.md
+index f099d49..c0015f1 100644
+--- a/README.md
++++ b/README.md
+@@ -1 +1,13 @@
+ # ssg — a small static site generator
++
++Turns a folder of Markdown posts into a static HTML blog. Plain Node.js, no dependencies.
++
++```
++node bin/ssg.mjs build <src> <out> [--drafts]
++node bin/ssg.mjs --help
++```
++
++Input: `site.json` (optional), `layouts/base.html`, `content/*.md`, `static/**`.
++Output: `posts/<slug>/index.html`, `index.html`, `tags/<tag>/index.html`, `feed.xml` and the static files.
++
++Run the tests with `node --test`.
+diff --git a/bin/ssg.mjs b/bin/ssg.mjs
+new file mode 100644
+index 0000000..7fcb810
+--- /dev/null
++++ b/bin/ssg.mjs
+@@ -0,0 +1,45 @@
++#!/usr/bin/env node
++import { existsSync, statSync } from "node:fs";
++import { build } from "../src/build.mjs";
++import { SsgError, EXIT_USAGE } from "../src/errors.mjs";
++
++const USAGE = `Usage:
++  ssg build <src> <out> [--drafts]   build the site in <src> into <out>
++  ssg --help                         show this help
++
++Options:
++  --drafts   include posts marked draft: true
++`;
++
++function parseArgs(argv) {
++  if (argv.includes("--help") || argv.includes("-h")) return { help: true };
++  if (argv.length === 0) throw new SsgError("no command given", EXIT_USAGE);
++  const [command, ...rest] = argv;
++  if (command !== "build") throw new SsgError(`unknown command: ${command}`, EXIT_USAGE);
++  const positional = [];
++  let drafts = false;
++  for (const arg of rest) {
++    if (arg === "--drafts") drafts = true;
++    else if (arg.startsWith("-")) throw new SsgError(`unknown option: ${arg}`, EXIT_USAGE);
++    else positional.push(arg);
++  }
++  if (positional.length !== 2) throw new SsgError("build needs exactly <src> and <out>", EXIT_USAGE);
++  const [src, out] = positional;
++  if (!existsSync(src) || !statSync(src).isDirectory()) throw new SsgError(`not a directory: ${src}`, EXIT_USAGE);
++  return { src, out, drafts };
++}
++
++try {
++  const args = parseArgs(process.argv.slice(2));
++  if (args.help) {
++    process.stdout.write(USAGE);
++  } else {
++    const { posts, tags } = build(args.src, args.out, { drafts: args.drafts });
++    process.stdout.write(`built ${posts} posts, ${tags} tags into ${args.out}\n`);
++  }
++} catch (err) {
++  if (!(err instanceof SsgError)) throw err;
++  process.stderr.write(`error: ${err.message}\n`);
++  if (err.exitCode === EXIT_USAGE) process.stderr.write(USAGE);
++  process.exitCode = err.exitCode;
++}
+diff --git a/package.json b/package.json
+new file mode 100644
+index 0000000..a1cfb7b
+--- /dev/null
++++ b/package.json
+@@ -0,0 +1,8 @@
++{
++  "name": "ssg",
++  "version": "1.0.0",
++  "private": true,
++  "type": "module",
++  "bin": { "ssg": "bin/ssg.mjs" },
++  "scripts": { "test": "node --test" }
++}
+diff --git a/src/build.mjs b/src/build.mjs
+new file mode 100644
+index 0000000..91e38bc
+--- /dev/null
++++ b/src/build.mjs
+@@ -0,0 +1,89 @@
++import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
++import { dirname, join } from "node:path";
++import { SsgError, EXIT_LAYOUT } from "./errors.mjs";
++import { escapeHtml } from "./escape.mjs";
++import { parseFrontMatter } from "./frontmatter.mjs";
++import { renderMarkdown } from "./markdown.mjs";
++import { postSlug, slugify } from "./slug.mjs";
++import { renderTemplate } from "./template.mjs";
++import { atomFeed, indexContent, postContent, sortPosts, tagContent } from "./pages.mjs";
++
++function readSite(src) {
++  const file = join(src, "site.json");
++  const site = { title: "Untitled Site", url: "" };
++  if (!existsSync(file)) return site;
++  let data;
++  try {
++    data = JSON.parse(readFileSync(file, "utf8"));
++  } catch (err) {
++    throw new SsgError(`site.json: invalid JSON (${err.message})`);
++  }
++  if (data === null || typeof data !== "object" || Array.isArray(data)) {
++    throw new SsgError("site.json: must contain a JSON object");
++  }
++  if (data.title !== undefined) site.title = String(data.title);
++  if (data.url !== undefined) site.url = String(data.url).replace(/\/$/, "");
++  return site;
++}
++
++function readPosts(src) {
++  const dir = join(src, "content");
++  if (!existsSync(dir)) return [];
++  const names = readdirSync(dir).filter((n) => n.endsWith(".md") && statSync(join(dir, n)).isFile()).sort();
++  const bySlug = new Map();
++  const posts = [];
++  for (const name of names) {
++    const meta = parseFrontMatter(readFileSync(join(dir, name), "utf8"), name);
++    const slug = postSlug(name);
++    if (bySlug.has(slug)) throw new SsgError(`${name}: duplicate slug "${slug}" (also used by ${bySlug.get(slug)})`);
++    bySlug.set(slug, name);
++    const seen = new Set();
++    const tags = [];
++    for (const tag of meta.tags) {
++      const s = slugify(tag);
++      if (seen.has(s)) continue;
++      seen.add(s);
++      tags.push({ name: tag, slug: s });
++    }
++    posts.push({ ...meta, slug, tags, html: renderMarkdown(meta.body) });
++  }
++  return posts;
++}
++
++function write(out, rel, text) {
++  const file = join(out, rel);
++  mkdirSync(dirname(file), { recursive: true });
++  writeFileSync(file, text);
++}
++
++/** Build the site in `src` into `out`. Throws SsgError on invalid input. */
++export function build(src, out, { drafts = false } = {}) {
++  const layoutFile = join(src, "layouts", "base.html");
++  if (!existsSync(layoutFile)) throw new SsgError(`missing layout file: ${layoutFile}`, EXIT_LAYOUT);
++  const layout = readFileSync(layoutFile, "utf8");
++  const site = readSite(src);
++  const posts = sortPosts(readPosts(src).filter((p) => drafts || !p.draft));
++
++  const page = (title, content) =>
++    renderTemplate(layout, { title: escapeHtml(title), site_title: escapeHtml(site.title), content });
++
++  mkdirSync(out, { recursive: true });
++  const staticDir = join(src, "static");
++  if (existsSync(staticDir)) cpSync(staticDir, out, { recursive: true });
++
++  for (const post of posts) write(out, join("posts", post.slug, "index.html"), page(post.title, postContent(post)));
++  write(out, "index.html", page(site.title, indexContent(site.title, posts)));
++
++  const tags = new Map();
++  for (const post of posts) {
++    for (const tag of post.tags) {
++      if (!tags.has(tag.slug)) tags.set(tag.slug, { name: tag.name, posts: [] });
++      tags.get(tag.slug).posts.push(post);
++    }
++  }
++  for (const [slug, tag] of tags) {
++    write(out, join("tags", slug, "index.html"), page(`Tag: ${tag.name}`, tagContent(tag.name, tag.posts)));
++  }
++  write(out, "feed.xml", atomFeed(site, posts));
++  return { posts: posts.length, tags: tags.size };
++}
+diff --git a/src/errors.mjs b/src/errors.mjs
+new file mode 100644
+index 0000000..7ae8251
+--- /dev/null
++++ b/src/errors.mjs
+@@ -0,0 +1,12 @@
++/** An error that maps to a process exit code. */
++export class SsgError extends Error {
++  constructor(message, exitCode = 1) {
++    super(message);
++    this.name = "SsgError";
++    this.exitCode = exitCode;
++  }
++}
++
++export const EXIT_CONTENT = 1;
++export const EXIT_USAGE = 2;
++export const EXIT_LAYOUT = 3;
+diff --git a/src/escape.mjs b/src/escape.mjs
+new file mode 100644
+index 0000000..fee113c
+--- /dev/null
++++ b/src/escape.mjs
+@@ -0,0 +1,6 @@
++const ENTITIES = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
++
++/** Escape text for HTML/XML content and attribute values. */
++export function escapeHtml(text) {
++  return String(text).replace(/[&<>"']/g, (ch) => ENTITIES[ch]);
++}
+diff --git a/src/frontmatter.mjs b/src/frontmatter.mjs
+new file mode 100644
+index 0000000..f36e750
+--- /dev/null
++++ b/src/frontmatter.mjs
+@@ -0,0 +1,62 @@
++import { SsgError } from "./errors.mjs";
++
++const KEYS = new Set(["title", "date", "tags", "draft"]);
++
++function unquote(value) {
++  if (value.length >= 2 && (value[0] === '"' || value[0] === "'") && value.at(-1) === value[0]) {
++    return value.slice(1, -1);
++  }
++  return value;
++}
++
++export function isValidDate(value) {
++  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
++  if (!m) return false;
++  const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
++  const dt = new Date(Date.UTC(y, mo - 1, d));
++  return dt.getUTCFullYear() === y && dt.getUTCMonth() === mo - 1 && dt.getUTCDate() === d;
++}
++
++function parseTags(raw, fail) {
++  if (!raw.startsWith("[") || !raw.endsWith("]")) fail("tags must be a list like [a, b]");
++  return raw.slice(1, -1).split(",").map((t) => t.trim()).filter(Boolean);
++}
++
++/**
++ * Split a post source into front matter and body. Pure: `name` is only used in messages.
++ * Returns { title, date, tags, draft, body }.
++ */
++export function parseFrontMatter(source, name) {
++  const fail = (msg) => {
++    throw new SsgError(`${name}: ${msg}`);
++  };
++  const lines = source.replace(/\r\n?/g, "\n").split("\n");
++  if (lines[0].trimEnd() !== "---") fail("missing front matter (first line must be ---)");
++  const end = lines.findIndex((l, i) => i > 0 && l.trimEnd() === "---");
++  if (end === -1) fail("front matter is not closed with ---");
++
++  const raw = {};
++  for (const line of lines.slice(1, end)) {
++    if (!line.trim()) continue;
++    const idx = line.indexOf(":");
++    if (idx === -1) fail(`invalid front matter line: ${line.trim()}`);
++    const key = line.slice(0, idx).trim();
++    const value = line.slice(idx + 1).trim();
++    if (!KEYS.has(key)) fail(`unknown front matter key: ${key}`);
++    if (Object.hasOwn(raw, key)) fail(`duplicate front matter key: ${key}`);
++    raw[key] = value;
++  }
++
++  const title = raw.title === undefined ? "" : unquote(raw.title);
++  if (!title) fail("missing title");
++  const date = raw.date === undefined ? "" : unquote(raw.date);
++  if (!isValidDate(date)) fail(`missing or invalid date: ${date}`);
++  const tags = raw.tags === undefined ? [] : parseTags(raw.tags, fail);
++  let draft = false;
++  if (raw.draft !== undefined) {
++    const v = unquote(raw.draft);
++    if (v !== "true" && v !== "false") fail(`draft must be true or false: ${v}`);
++    draft = v === "true";
++  }
++  return { title, date, tags, draft, body: lines.slice(end + 1).join("\n") };
++}
+diff --git a/src/markdown.mjs b/src/markdown.mjs
+new file mode 100644
+index 0000000..4c71755
+--- /dev/null
++++ b/src/markdown.mjs
+@@ -0,0 +1,63 @@
++import { escapeHtml } from "./escape.mjs";
++
++const FENCE = /^```/;
++const HEADING = /^(#{1,6}) (.*)$/;
++const UL_ITEM = /^[-*] (.*)$/;
++const OL_ITEM = /^\d+\. (.*)$/;
++
++/** Render inline Markdown (code spans, links, strong, emphasis) of a text fragment. */
++export function renderInline(text) {
++  const codes = [];
++  let out = escapeHtml(text).replace(/`([^`]+)`/g, (_, code) => {
++    codes.push(`<code>${code}</code>`);
++    return `\u0000${codes.length - 1}\u0000`;
++  });
++  out = out
++    .replace(/\[([^\]]*)\]\(([^)\s]+)\)/g, '<a href="$2">$1</a>')
++    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
++    .replace(/\*(.+?)\*/g, "<em>$1</em>");
++  return out.replace(/\u0000(\d+)\u0000/g, (_, i) => codes[Number(i)]);
++}
++
++function startsBlock(line) {
++  return FENCE.test(line) || HEADING.test(line) || UL_ITEM.test(line) || OL_ITEM.test(line);
++}
++
++/** Render a Markdown body to HTML (blocks joined with "\n"). */
++export function renderMarkdown(source) {
++  const lines = source.replace(/\r\n?/g, "\n").split("\n");
++  const blocks = [];
++  let i = 0;
++  while (i < lines.length) {
++    const line = lines[i];
++    if (!line.trim()) {
++      i++;
++    } else if (FENCE.test(line)) {
++      const lang = line.slice(3).trim();
++      const body = [];
++      i++;
++      while (i < lines.length && lines[i].trimEnd() !== "```") body.push(lines[i++]);
++      i++;
++      const open = lang ? `<pre><code class="language-${escapeHtml(lang)}">` : "<pre><code>";
++      blocks.push(`${open}${escapeHtml(body.join("\n"))}</code></pre>`);
++    } else if (HEADING.test(line)) {
++      const [, hashes, text] = HEADING.exec(line);
++      blocks.push(`<h${hashes.length}>${renderInline(text.trim())}</h${hashes.length}>`);
++      i++;
++    } else if (UL_ITEM.test(line) || OL_ITEM.test(line)) {
++      const re = UL_ITEM.test(line) ? UL_ITEM : OL_ITEM;
++      const tag = re === UL_ITEM ? "ul" : "ol";
++      const items = [];
++      while (i < lines.length && re.test(lines[i])) {
++        items.push(`<li>${renderInline(re.exec(lines[i])[1].trim())}</li>`);
++        i++;
++      }
++      blocks.push(`<${tag}>${items.join("")}</${tag}>`);
++    } else {
++      const para = [];
++      while (i < lines.length && lines[i].trim() && !startsBlock(lines[i])) para.push(lines[i++].trim());
++      blocks.push(`<p>${renderInline(para.join(" "))}</p>`);
++    }
++  }
++  return blocks.join("\n");
++}
+diff --git a/src/pages.mjs b/src/pages.mjs
+new file mode 100644
+index 0000000..e9c9de2
+--- /dev/null
++++ b/src/pages.mjs
+@@ -0,0 +1,65 @@
++import { escapeHtml } from "./escape.mjs";
++
++/** Sort posts: date descending, then slug ascending. */
++export function sortPosts(posts) {
++  return [...posts].sort((a, b) =>
++    a.date !== b.date ? (a.date < b.date ? 1 : -1) : a.slug < b.slug ? -1 : a.slug > b.slug ? 1 : 0,
++  );
++}
++
++function postItems(posts) {
++  return posts
++    .map(
++      (p) =>
++        `<li><a href="/posts/${p.slug}/">${escapeHtml(p.title)}</a> <time datetime="${p.date}">${p.date}</time></li>`,
++    )
++    .join("\n");
++}
++
++export function postContent(post) {
++  const parts = [
++    "<article>",
++    `<h1>${escapeHtml(post.title)}</h1>`,
++    `<p class="meta"><time datetime="${post.date}">${post.date}</time></p>`,
++  ];
++  if (post.tags.length) {
++    const items = post.tags.map((t) => `<li><a href="/tags/${t.slug}/">${escapeHtml(t.name)}</a></li>`);
++    parts.push(`<ul class="tags">${items.join("")}</ul>`);
++  }
++  parts.push(post.html, "</article>");
++  return parts.join("\n");
++}
++
++export function indexContent(siteTitle, posts) {
++  return `<h1>${escapeHtml(siteTitle)}</h1>\n<ul class="posts">\n${postItems(posts)}\n</ul>`;
++}
++
++export function tagContent(name, posts) {
++  return `<h1>Tag: ${escapeHtml(name)}</h1>\n<ul class="posts">\n${postItems(posts)}\n</ul>`;
++}
++
++export function atomFeed(site, posts) {
++  const url = site.url;
++  const entries = posts.slice(0, 10).map((p) =>
++    [
++      "<entry>",
++      `<title>${escapeHtml(p.title)}</title>`,
++      `<link href="${escapeHtml(url)}/posts/${p.slug}/"/>`,
++      `<id>${escapeHtml(url)}/posts/${p.slug}/</id>`,
++      `<updated>${p.date}T00:00:00Z</updated>`,
++      "</entry>",
++    ].join("\n"),
++  );
++  const updated = posts.length ? posts[0].date : "1970-01-01";
++  return [
++    '<?xml version="1.0" encoding="utf-8"?>',
++    '<feed xmlns="http://www.w3.org/2005/Atom">',
++    `<title>${escapeHtml(site.title)}</title>`,
++    `<link href="${escapeHtml(url)}/"/>`,
++    `<id>${escapeHtml(url)}/</id>`,
++    `<updated>${updated}T00:00:00Z</updated>`,
++    ...entries,
++    "</feed>",
++    "",
++  ].join("\n");
++}
+diff --git a/src/slug.mjs b/src/slug.mjs
+new file mode 100644
+index 0000000..38904e1
+--- /dev/null
++++ b/src/slug.mjs
+@@ -0,0 +1,10 @@
++/** Lower-case, collapse non [a-z0-9] runs to "-", trim dashes. */
++export function slugify(text) {
++  return String(text).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
++}
++
++/** Slug for a post file name such as "2024-03-01-Hello World!.md". */
++export function postSlug(fileName) {
++  const base = fileName.replace(/\.md$/, "").replace(/^\d{4}-\d{2}-\d{2}-/, "");
++  return slugify(base);
++}
+diff --git a/src/template.mjs b/src/template.mjs
+new file mode 100644
+index 0000000..87bf176
+--- /dev/null
++++ b/src/template.mjs
+@@ -0,0 +1,6 @@
++/** Single-pass {{ name }} substitution; unknown names become "". */
++export function renderTemplate(template, vars) {
++  return template.replace(/\{\{\s*([A-Za-z0-9_]+)\s*\}\}/g, (_, name) =>
++    Object.hasOwn(vars, name) ? String(vars[name]) : "",
++  );
++}
+diff --git a/test/build.test.mjs b/test/build.test.mjs
+new file mode 100644
+index 0000000..8865c2c
+--- /dev/null
++++ b/test/build.test.mjs
+@@ -0,0 +1,32 @@
++import { test } from "node:test";
++import assert from "node:assert/strict";
++import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
++import { tmpdir } from "node:os";
++import { join } from "node:path";
++import { build } from "../src/build.mjs";
++
++function site() {
++  const dir = mkdtempSync(join(tmpdir(), "ssg-test-"));
++  mkdirSync(join(dir, "layouts"));
++  mkdirSync(join(dir, "content"));
++  writeFileSync(join(dir, "layouts", "base.html"), "<title>{{ title }}</title>{{ content }}");
++  writeFileSync(join(dir, "content", "a.md"), "---\ntitle: A\ndate: 2024-01-01\ntags: [x]\n---\nHi");
++  writeFileSync(join(dir, "content", "b.md"), "---\ntitle: B\ndate: 2024-02-01\ndraft: true\n---\nHi");
++  return dir;
++}
++
++test("build writes posts, index, tags and feed; drafts optional", () => {
++  const src = site();
++  const out = join(src, "out");
++  assert.deepEqual(build(src, out), { posts: 1, tags: 1 });
++  assert.match(readFileSync(join(out, "index.html"), "utf8"), /\/posts\/a\//);
++  assert.match(readFileSync(join(out, "tags", "x", "index.html"), "utf8"), /Tag: x/);
++  assert.match(readFileSync(join(out, "feed.xml"), "utf8"), /<updated>2024-01-01T00:00:00Z<\/updated>/);
++  const out2 = join(src, "out2");
++  assert.deepEqual(build(src, out2, { drafts: true }), { posts: 2, tags: 1 });
++});
++
++test("missing layout raises exit code 3", () => {
++  const src = mkdtempSync(join(tmpdir(), "ssg-test-"));
++  assert.throws(() => build(src, join(src, "out")), (err) => err.exitCode === 3);
++});
+diff --git a/test/frontmatter.test.mjs b/test/frontmatter.test.mjs
+new file mode 100644
+index 0000000..d8fe74b
+--- /dev/null
++++ b/test/frontmatter.test.mjs
+@@ -0,0 +1,33 @@
++import { test } from "node:test";
++import assert from "node:assert/strict";
++import { parseFrontMatter } from "../src/frontmatter.mjs";
++import { postSlug, slugify } from "../src/slug.mjs";
++import { renderTemplate } from "../src/template.mjs";
++
++test("parses supported keys", () => {
++  const fm = parseFrontMatter("---\ntitle: 'A: b'\ndate: 2024-02-29\ntags: [x, , y ]\ndraft: true\n---\nbody", "a.md");
++  assert.deepEqual(fm, { title: "A: b", date: "2024-02-29", tags: ["x", "y"], draft: true, body: "body" });
++});
++
++test("rejects invalid front matter with the file name", () => {
++  const bad = [
++    "no front matter",
++    "---\ntitle: x\n",
++    "---\ntitle: x\ndate: 2023-02-29\n---\n",
++    "---\ntitle: x\ndate: 2024-01-01\nfoo: 1\n---\n",
++    "---\ntitle: x\ntitle: y\ndate: 2024-01-01\n---\n",
++    "---\ndate: 2024-01-01\n---\n",
++    "---\ntitle: x\ndate: 2024-01-01\ntags: a\n---\n",
++    "---\ntitle: x\ndate: 2024-01-01\ndraft: no\n---\n",
++  ];
++  for (const src of bad) assert.throws(() => parseFrontMatter(src, "bad.md"), /bad\.md/);
++});
++
++test("slugs", () => {
++  assert.equal(slugify("  Hello, World!  "), "hello-world");
++  assert.equal(postSlug("2024-03-01-Hello World!.md"), "hello-world");
++});
++
++test("template substitution is single pass", () => {
++  assert.equal(renderTemplate("{{title}}|{{ content }}|{{ nope }}", { title: "T", content: "{{ title }}" }), "T|{{ title }}|");
++});
+diff --git a/test/markdown.test.mjs b/test/markdown.test.mjs
+new file mode 100644
+index 0000000..925521f
+--- /dev/null
++++ b/test/markdown.test.mjs
+@@ -0,0 +1,24 @@
++import { test } from "node:test";
++import assert from "node:assert/strict";
++import { renderInline, renderMarkdown } from "../src/markdown.mjs";
++import { escapeHtml } from "../src/escape.mjs";
++
++test("escapeHtml escapes the five special characters", () => {
++  assert.equal(escapeHtml(`<a href="x">&'</a>`), "&lt;a href=&quot;x&quot;&gt;&amp;&#39;&lt;/a&gt;");
++});
++
++test("inline: strong, em, links, code spans", () => {
++  assert.equal(renderInline("**a** *b*"), "<strong>a</strong> <em>b</em>");
++  assert.equal(renderInline("[x *y*](http://e.com?a=1&b=2)"), '<a href="http://e.com?a=1&amp;b=2">x <em>y</em></a>');
++  assert.equal(renderInline("`*no* <b>`"), "<code>*no* &lt;b&gt;</code>");
++});
++
++test("blocks: headings, paragraphs, lists", () => {
++  assert.equal(renderMarkdown("# H\ntext\nmore\n\n- a\n* b\n1. c"), "<h1>H</h1>\n<p>text more</p>\n<ul><li>a</li><li>b</li></ul>\n<ol><li>c</li></ol>");
++  assert.equal(renderMarkdown("#no"), "<p>#no</p>");
++});
++
++test("fenced code keeps whitespace and escapes", () => {
++  assert.equal(renderMarkdown("```js\n  a < b\n```"), '<pre><code class="language-js">  a &lt; b</code></pre>');
++  assert.equal(renderMarkdown("```\n# x"), "<pre><code># x</code></pre>");
++});

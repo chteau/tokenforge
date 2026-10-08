@@ -1,0 +1,36 @@
+{
+  "title": "Kestrel Freight API",
+  "version": "2.3.0",
+  "basePath": "/v2",
+  "models": {
+    "Address": { "country": "string", "postcode": "string", "city?": "string", "line1?": "string", "residential?": "boolean" },
+    "Dimensions": { "lengthCm": "number", "widthCm": "number", "heightCm": "number" },
+    "Parcel": { "kind?": "'parcel' | 'pallet' | 'document'", "weightGrams": "number", "dimensions?": "Dimensions", "declaredValue?": "number" },
+    "LineItem": { "code": "string", "label": "string", "amount": "number" },
+    "QuoteRequest": { "origin": "Address", "destination": "Address", "parcels": "Parcel[]", "service": "'economy' | 'standard' | 'express' | 'sameday'", "reference?": "string" },
+    "Quote": { "id": "string", "tenantId": "string", "status": "'open' | 'accepted' | 'expired' | 'void'", "createdAt": "string", "expiresAt": "string", "origin": "Address", "destination": "Address", "parcels": "Parcel[]", "service": "string", "carrier": "string", "transitDays": "number", "currency": "string", "lineItems": "LineItem[]", "total": "number", "pricingProfile": "string", "reference?": "string" },
+    "QuoteList": { "data": "Quote[]" },
+    "ShipmentRequest": { "quoteId": "string", "option?": "string" },
+    "Shipment": { "id": "string", "tenantId": "string", "quoteId": "string", "status": "string", "flags": "string[]", "carrier": "string", "serviceCode": "string", "trackingNumber": "string", "labelUrl": "string", "origin": "Address", "destination": "Address", "parcels": "Parcel[]", "service": "string", "total": "number", "currency": "string", "createdAt": "string", "updatedAt": "string", "lastEventAt?": "string" },
+    "TrackingEvent": { "id": "string", "at": "string", "rawStatus": "string", "status": "string", "location?": "string" },
+    "Tracking": { "shipmentId": "string", "status": "string", "events": "TrackingEvent[]" },
+    "ApiError": { "error": "{ code: string; message: string; details?: unknown }", "requestId?": "string" }
+  },
+  "clients": {
+    "quotes": [
+      { "name": "createQuote", "method": "POST", "path": "/quotes", "body": "QuoteRequest", "returns": "Quote", "doc": "Price a shipment request. The returned quote includes every line item that will be charged." },
+      { "name": "listQuotes", "method": "GET", "path": "/quotes", "query": ["status"], "returns": "QuoteList", "doc": "List recent quotes for the calling account." },
+      { "name": "getQuote", "method": "GET", "path": "/quotes/{id}", "returns": "Quote", "doc": "Fetch one quote." },
+      { "name": "acceptQuote", "method": "POST", "path": "/quotes/{id}/accept", "returns": "Quote", "doc": "Accept an open quote." }
+    ],
+    "shipments": [
+      { "name": "createShipment", "method": "POST", "path": "/shipments", "body": "ShipmentRequest", "returns": "Shipment", "doc": "Book a shipment from an accepted or open quote." },
+      { "name": "getShipment", "method": "GET", "path": "/shipments/{id}", "returns": "Shipment", "doc": "Fetch one shipment." },
+      { "name": "cancelShipment", "method": "POST", "path": "/shipments/{id}/cancel", "returns": "Shipment", "doc": "Cancel a booked shipment." },
+      { "name": "releaseHold", "method": "POST", "path": "/shipments/{id}/release-hold", "returns": "Shipment", "doc": "Release a customs hold once paperwork is uploaded." }
+    ],
+    "tracking": [
+      { "name": "getTracking", "method": "GET", "path": "/shipments/{id}/tracking", "query": ["refresh"], "returns": "Tracking", "doc": "Tracking history for a shipment." }
+    ]
+  }
+}

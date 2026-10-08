@@ -1,0 +1,11 @@
+{
+  "id": "vite-landing",
+  "title": "Build the Orbitly landing page (Vite + TypeScript)",
+  "category": "greenfield",
+  "language": "typescript",
+  "rubric": "coding",
+  "timeout_s": 2400,
+  "relevant_files": [],
+  "allowed_change_globs": ["**"],
+  "reference_diff_lines": 374
+}

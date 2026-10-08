@@ -1,0 +1,25 @@
+{
+  "id": "cross-module-debug",
+  "title": "Overview shows a stale balance after receiving a transfer",
+  "category": "debugging",
+  "language": "typescript",
+  "rubric": "debugging",
+  "timeout_s": 1500,
+  "relevant_files": [
+    "packages/transfers/src/transfer-service.ts",
+    "packages/shared/src/events.ts",
+    "server/deps.ts",
+    "server/cache/summary-cache.ts",
+    "server/services/dashboard-service.ts",
+    "server/routes/dashboard-routes.ts",
+    "tests/api/dashboard.api.test.ts"
+  ],
+  "allowed_change_globs": [
+    "packages/transfers/**",
+    "packages/shared/**",
+    "packages/accounts/**",
+    "server/**",
+    "tests/**"
+  ],
+  "reference_diff_lines": 18
+}

@@ -1,6 +1,6 @@
 [package]
 name = "tmap"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 description = "Fast code map for coding agents: ranked symbol search, outline trees, call edges"
 license = "MIT"
@@ -18,6 +18,15 @@ ignore = "0.4"
 rayon = "1"
 serde = { version = "1", features = ["derive"] }
 bincode = "1"
+# kit (ported token-surgeon tools)
+regex = "1"
+serde_json = { version = "1", features = ["preserve_order"] }
+toml = { version = "0.8", features = ["preserve_order"] }
+zip = { version = "2", default-features = false, features = ["deflate"] }
+similar = "2"
+ureq = "2"
+rusqlite = { version = "0.32", features = ["bundled"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif"] }
 
 [profile.release]
 opt-level = 3

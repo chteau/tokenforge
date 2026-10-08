@@ -1,0 +1,11 @@
+{
+  "id": "node-ssg",
+  "title": "Build a small static site generator CLI in Node.js",
+  "category": "greenfield",
+  "language": "javascript",
+  "rubric": "coding",
+  "timeout_s": 2400,
+  "relevant_files": [],
+  "allowed_change_globs": ["**"],
+  "reference_diff_lines": 467
+}

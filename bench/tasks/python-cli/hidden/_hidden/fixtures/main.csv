@@ -1,0 +1,17 @@
+Amount , Date,Merchant,Note,CATEGORY
+-54.20,2026-01-03,Green Grocer,weekly,Groceries
+2500.00,2026-01-05,ACME Corp,,Salary
+-12.5,2026-01-09,"Cafe Lune, Downtown",,Dining
+-80,2026-01-15,  Green Grocer  ,,groceries
+-30.00,2026-01-20,Bookshop,,
+0,2026-01-21,Bank,fee waived,Fees
+
+-950,2026-02-01,City Rent,,Housing
+-45.10,2026-02-03,Green Grocer,,Groceries
+-22.40,2026-02-10,Cafe Lune,,Dining
+2500.00,2026-02-05,ACME Corp,,Salary
++15.00,2026-02-12,Green Grocer,refund,Groceries
+-950,2026-03-01,City Rent,,Housing
+-260.00,2026-03-04,Green Grocer,,Groceries
+-61.35,2026-03-08,"Cafe Lune, Downtown",,Dining
+-30.00,2026-03-09,Bookshop,,Books

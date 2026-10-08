@@ -1,0 +1,23 @@
+{
+  "books": [
+    {"id": 1, "isbn": "9781111111111", "title": "Moss and Stone", "author": "Petra Lind", "year": 2004, "copies": 2},
+    {"id": 2, "isbn": "9781111111128", "title": "atlas of Winds", "author": "Omar Reyes", "year": 1987, "copies": 1},
+    {"id": 3, "isbn": "9781111111135", "title": "Beacon Street", "author": "petra lindqvist", "year": 2015, "copies": 1},
+    {"id": 4, "isbn": "9781111111142", "title": "Copper Valley", "author": "Jun Ito", "year": 2015, "copies": 3},
+    {"id": 5, "isbn": "9781111111159", "title": "Zephyr", "author": "Ana Ruiz", "year": 1999, "copies": 1},
+    {"id": 6, "isbn": "9781111111166", "title": "Moss and Stone", "author": "Kai Berg", "year": 2010, "copies": 1}
+  ],
+  "members": [
+    {"id": 1, "name": "Ada Brook", "email": "ada@example.org"},
+    {"id": 2, "name": "Ben Hollis", "email": "ben@example.org"},
+    {"id": 3, "name": "Cara Diaz", "email": "cara@example.org"},
+    {"id": 4, "name": "Dev Patel", "email": "dev@example.org"}
+  ],
+  "loans": [
+    {"id": 1, "bookId": 1, "memberId": 3, "loanedAt": "2026-03-18T10:00:00Z", "dueAt": "2026-04-01T10:00:00Z", "returnedAt": "2026-04-04T23:00:00Z"},
+    {"id": 2, "bookId": 2, "memberId": 1, "loanedAt": "2026-05-01T12:00:00Z", "dueAt": "2026-05-15T12:00:00Z", "returnedAt": null},
+    {"id": 3, "bookId": 3, "memberId": 2, "loanedAt": "2025-12-27T09:00:00Z", "dueAt": "2026-01-10T09:00:00Z", "returnedAt": null},
+    {"id": 4, "bookId": 4, "memberId": 3, "loanedAt": "2026-05-06T08:00:00Z", "dueAt": "2026-05-20T08:00:00Z", "returnedAt": null},
+    {"id": 5, "bookId": 1, "memberId": 1, "loanedAt": "2026-03-01T09:00:00Z", "dueAt": "2026-03-15T09:00:00Z", "returnedAt": "2026-03-15T23:59:00Z"}
+  ]
+}

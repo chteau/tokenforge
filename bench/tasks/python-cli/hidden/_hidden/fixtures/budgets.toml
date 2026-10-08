@@ -1,0 +1,8 @@
+[budgets]
+Groceries = 300
+dining = 50.5
+housing = 950
+travel = 100
+
+[settings]
+warn_ratio = 0.75

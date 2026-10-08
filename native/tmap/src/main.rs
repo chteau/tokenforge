@@ -1,4 +1,5 @@
 mod index;
+mod kit;
 mod query;
 
 use std::io::Write;
@@ -23,6 +24,7 @@ Usage: tmap <command> [args] [-C DIR]
   json               whole map as JSON: files (path, lines, symbols, top names) and file-to-file call edges
   index [--force]    build or refresh the index and print stats
   stats              index size and location
+  kit <tool> [args]  token-saving tools: diff, debug, check, test, edit, jx, web, ... (tmap kit --help)
 
 The index refreshes itself on every command: only changed files are re-parsed.
 Languages: Rust, TypeScript/TSX, JavaScript, Python, Go.";
@@ -135,7 +137,28 @@ fn run() -> Result<String, String> {
     })
 }
 
+/// Die quietly on a closed pipe (`tmap ... | head`) instead of panicking in println!.
+#[cfg(unix)]
+fn reset_sigpipe() {
+    extern "C" {
+        fn signal(sig: i32, handler: usize) -> usize;
+    }
+    // SIGPIPE is 13 on Linux and macOS; 0 is SIG_DFL.
+    unsafe {
+        signal(13, 0);
+    }
+}
+
+#[cfg(not(unix))]
+fn reset_sigpipe() {}
+
 fn main() -> ExitCode {
+    reset_sigpipe();
+    let argv: Vec<String> = std::env::args().skip(1).collect();
+    if argv.first().map(String::as_str) == Some("kit") {
+        let code = kit::main(argv[1..].to_vec());
+        return ExitCode::from(code.clamp(0, 255) as u8);
+    }
     match run() {
         Ok(out) => {
             let _ = std::io::stdout().lock().write_all(out.as_bytes());

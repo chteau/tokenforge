@@ -1,0 +1,41 @@
+diff --git a/packages/transfers/src/transfer-service.ts b/packages/transfers/src/transfer-service.ts
+index 084581d..fa39610 100644
+--- a/packages/transfers/src/transfer-service.ts
++++ b/packages/transfers/src/transfer-service.ts
+@@ -165,7 +165,7 @@ export function createTransferService(deps: TransferServiceDeps): TransferServic
+       transfer = transfers.update({ ...transfer, status: "completed", completedAt: clock.now().toISOString() });
+ 
+       events.emit("accountsChanged", {
+-        changes: [from, to].map((account) => ({ ownerId: actor.userId, accountId: account.id })),
++        changes: [from, to].map((account) => ({ ownerId: account.ownerId, accountId: account.id })),
+         reason: "transfer",
+       });
+ 
+diff --git a/tests/api/dashboard.api.test.ts b/tests/api/dashboard.api.test.ts
+index d6e0485..4bc2f3a 100644
+--- a/tests/api/dashboard.api.test.ts
++++ b/tests/api/dashboard.api.test.ts
+@@ -47,6 +47,23 @@ describe("dashboard API", () => {
+     assert.equal(balanceOf(body, "QM-1000-0002"), 501_874 + 10_000);
+   });
+ 
++  it("refreshes the recipient's dashboard after a transfer from another customer", async () => {
++    const t = setup();
++    const alice = await t.login("alice");
++    const bob = await t.login("bob");
++    await bob.get("/api/dashboard");
++    await alice.post(
++      "/api/transfers",
++      { fromAccountId: t.accountId("QM-1000-0001"), toAccount: "QM-1000-0005", amount: "15.00" },
++      { "idempotency-key": idemKey() },
++    );
++    const body = (await bob.get("/api/dashboard")).json();
++    assert.equal(balanceOf(body, "QM-1000-0005"), 36_500 + 1_500);
++    const before = t.deps.caches.summary.stats();
++    await bob.get("/api/dashboard");
++    assert.equal(t.deps.caches.summary.stats().hits, before.hits + 1, "summary is cached again");
++  });
++
+   it("refreshes after an admin deposit", async () => {
+     const t = setup();
+     const carol = await t.login("carol");

@@ -2,6 +2,7 @@
 name: meter
 description: Show token usage of recent Claude Code sessions and tforge worker runs (calls, average and peak context, cache, output). Use when asked how many tokens a session or build used, or to compare two approaches.
 argument-hint: "[--last N | --all | transcript.jsonl ...]"
+disable-model-invocation: true
 ---
 
 # meter

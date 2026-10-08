@@ -1,0 +1,849 @@
+diff --git a/apps/web/views/scheduled-transfers.ts b/apps/web/views/scheduled-transfers.ts
+new file mode 100644
+index 0000000..c679d32
+--- /dev/null
++++ b/apps/web/views/scheduled-transfers.ts
+@@ -0,0 +1,71 @@
++import type { Account } from "../../../packages/accounts/src/types.ts";
++import type { ScheduledTransfer } from "../../../packages/transfers/src/scheduled-types.ts";
++import { html } from "../html.ts";
++import { dateTime, money, statusBadge } from "./format.ts";
++import { layout } from "./layout.ts";
++import { type TransferFormValues, fieldError } from "./transfer-form.ts";
++
++export interface ScheduledTransfersModel {
++  user: { displayName: string; timezone: string; unreadNotifications: number };
++  accounts: Account[];
++  scheduled: ScheduledTransfer[];
++  values: TransferFormValues & { scheduledDate?: string };
++  errors: Record<string, string>;
++  idempotencyKey: string;
++}
++
++export function renderScheduledTransfersPage(model: ScheduledTransfersModel): string {
++  const { user, values, errors } = model;
++  const names = new Map(model.accounts.map((a) => [a.id, `${a.name} (${a.number})`]));
++  return layout(
++    {
++      title: "Scheduled transfers",
++      nav: "transfers",
++      user,
++      flash: errors["form"] ? { kind: "error", message: errors["form"] } : undefined,
++    },
++    html`<h1>Scheduled transfers</h1>
++    <section class="card">
++      ${model.scheduled.length === 0
++        ? html`<p class="empty">No scheduled transfers.</p>`
++        : html`<table class="scheduled-transfers">
++            <thead><tr><th>Date</th><th>From</th><th>To</th><th>Memo</th><th>Status</th><th class="num">Amount</th><th></th></tr></thead>
++            <tbody>
++              ${model.scheduled.map(
++                (s) => html`<tr data-scheduled-id="${s.id}">
++                  <td>${s.scheduledDate}<br><small>${dateTime(s.executeAt, user.timezone)}</small></td>
++                  <td>${names.get(s.fromAccountId) ?? s.fromAccountId}</td>
++                  <td>${names.get(s.toAccountId) ?? s.toAccountId}</td>
++                  <td>${s.memo}</td>
++                  <td>${statusBadge(s.status)}${s.failureReason ? html`<br><small>${s.failureReason}</small>` : ""}</td>
++                  <td class="num">${money(s.amountMinor, s.currency)}</td>
++                  <td>${s.status === "scheduled"
++                    ? html`<form method="post" action="/transfers/scheduled/${s.id}/cancel"><button type="submit">Cancel</button></form>`
++                    : ""}</td>
++                </tr>`,
++              )}
++            </tbody>
++          </table>`}
++    </section>
++    <section class="card narrow">
++      <h2>Schedule a transfer</h2>
++      <p class="muted">Scheduled transfers run at 09:00 (${user.timezone}) on the chosen date.</p>
++      <form method="post" action="/transfers/scheduled" class="stack">
++        <input type="hidden" name="idempotencyKey" value="${model.idempotencyKey}">
++        <label>From
++          <select name="fromAccountId" required>
++            ${model.accounts
++              .filter((a) => a.status === "active")
++              .map((a) => html`<option value="${a.id}"${a.id === values.fromAccountId ? html` selected` : ""}>${a.name} (${a.number})</option>`)}
++          </select>
++          ${fieldError(errors, "fromAccountId")}
++        </label>
++        <label>To account number <input name="toAccount" required value="${values.toAccount ?? ""}">${fieldError(errors, "toAccount")}</label>
++        <label>Amount <input name="amount" inputmode="decimal" required value="${values.amount ?? ""}">${fieldError(errors, "amount")}</label>
++        <label>Date <input type="date" name="scheduledDate" required value="${values.scheduledDate ?? ""}">${fieldError(errors, "scheduledDate")}</label>
++        <label>Memo <small>(optional)</small> <input name="memo" maxlength="140" value="${values.memo ?? ""}">${fieldError(errors, "memo")}</label>
++        <button type="submit" class="primary">Schedule transfer</button>
++      </form>
++    </section>`,
++  );
++}
+diff --git a/apps/web/views/transfers.ts b/apps/web/views/transfers.ts
+index ed55d25..a845901 100644
+--- a/apps/web/views/transfers.ts
++++ b/apps/web/views/transfers.ts
+@@ -23,7 +23,10 @@ export function renderTransfersPage(model: TransfersViewModel): string {
+     },
+     html`<header class="page-header">
+       <h1>Transfers</h1>
+-      <a class="button" href="/transfers/new">New transfer</a>
++      <span>
++        <a href="/transfers/scheduled">Scheduled transfers</a>
++        <a class="button" href="/transfers/new">New transfer</a>
++      </span>
+     </header>
+     <section class="card">
+       ${model.transfers.length === 0
+diff --git a/packages/notifications/src/types.ts b/packages/notifications/src/types.ts
+index d6acdb6..2463a70 100644
+--- a/packages/notifications/src/types.ts
++++ b/packages/notifications/src/types.ts
+@@ -2,6 +2,7 @@ export type NotificationKind =
+   | "transfer_sent"
+   | "transfer_received"
+   | "transfer_reversed"
++  | "scheduled_transfer_failed"
+   | "deposit"
+   | "card_frozen"
+   | "card_replaced"
+diff --git a/packages/shared/src/ids.ts b/packages/shared/src/ids.ts
+index 73433ef..af3f787 100644
+--- a/packages/shared/src/ids.ts
++++ b/packages/shared/src/ids.ts
+@@ -1,6 +1,6 @@
+ import { randomUUID } from "node:crypto";
+ 
+-export type IdPrefix = "usr" | "acc" | "txn" | "trf" | "ntf" | "crd" | "tkt" | "msg" | "stm" | "eml" | "req";
++export type IdPrefix = "usr" | "acc" | "txn" | "trf" | "ntf" | "crd" | "tkt" | "msg" | "stm" | "eml" | "req" | "sch";
+ 
+ export interface IdGenerator {
+   next(prefix: IdPrefix): string;
+diff --git a/packages/transfers/src/index.ts b/packages/transfers/src/index.ts
+index d49f804..8447220 100644
+--- a/packages/transfers/src/index.ts
++++ b/packages/transfers/src/index.ts
+@@ -2,3 +2,5 @@ export * from "./types.ts";
+ export * from "./status.ts";
+ export * from "./limits.ts";
+ export * from "./transfer-service.ts";
++export * from "./scheduled-types.ts";
++export * from "./scheduled-service.ts";
+diff --git a/packages/transfers/src/scheduled-service.ts b/packages/transfers/src/scheduled-service.ts
+new file mode 100644
+index 0000000..5b49a94
+--- /dev/null
++++ b/packages/transfers/src/scheduled-service.ts
+@@ -0,0 +1,158 @@
++import type { NotificationService } from "../../notifications/src/notification-service.ts";
++import type { Actor, UserRepository } from "../../auth/src/types.ts";
++import { toActor } from "../../auth/src/types.ts";
++import type { Clock } from "../../shared/src/clock.ts";
++import { addDays, compareIsoDates, localDateString, parseIsoDate, zonedDateTimeToInstant } from "../../shared/src/dates.ts";
++import { isDomainError, notFound, validationError } from "../../shared/src/errors.ts";
++import { DomainError } from "../../shared/src/errors.ts";
++import type { IdGenerator } from "../../shared/src/ids.ts";
++import { formatDecimal, formatMoney } from "../../shared/src/money.ts";
++import { type ScheduledTransfer, type ScheduledTransferRepository, assertScheduledTransition } from "./scheduled-types.ts";
++import { type TransferService, assertIdempotencyKey, fingerprint } from "./transfer-service.ts";
++import type { CreateTransferInput } from "./types.ts";
++
++/** Local wall-clock time at which scheduled transfers run. */
++export const EXECUTION_TIME = "09:00";
++export const MAX_SCHEDULE_AHEAD_DAYS = 365;
++
++export interface ScheduleTransferInput extends Omit<CreateTransferInput, "channel"> {
++  scheduledDate: string;
++}
++
++export interface RunSummary {
++  processed: number;
++  completed: number;
++  failed: number;
++}
++
++export interface ScheduledTransferService {
++  schedule(actor: Actor, input: ScheduleTransferInput): { scheduledTransfer: ScheduledTransfer; replayed: boolean };
++  list(actor: Actor): ScheduledTransfer[];
++  get(actor: Actor, id: string): ScheduledTransfer;
++  cancel(actor: Actor, id: string): ScheduledTransfer;
++  /** Execute every due scheduled transfer through the regular transfer service. */
++  runDue(): RunSummary;
++}
++
++export interface ScheduledTransferDeps {
++  scheduled: ScheduledTransferRepository;
++  transfers: TransferService;
++  users: UserRepository;
++  notifications: NotificationService;
++  clock: Clock;
++  ids: IdGenerator;
++}
++
++export function createScheduledTransferService(deps: ScheduledTransferDeps): ScheduledTransferService {
++  const { scheduled, transfers, users, notifications, clock, ids } = deps;
++
++  function owned(actor: Actor, id: string): ScheduledTransfer {
++    const row = scheduled.findById(id);
++    if (!row || row.userId !== actor.userId) throw notFound("Scheduled transfer");
++    return row;
++  }
++
++  function executeAtFor(scheduledDate: string, timezone: string, now: Date): Date {
++    if (!parseIsoDate(scheduledDate)) {
++      throw validationError([{ field: "scheduledDate", message: "must be a valid date (YYYY-MM-DD)" }]);
++    }
++    const executeAt = zonedDateTimeToInstant(scheduledDate, EXECUTION_TIME, timezone);
++    if (executeAt.getTime() <= now.getTime()) {
++      throw validationError([{ field: "scheduledDate", message: `must be in the future (transfers run at ${EXECUTION_TIME} local time)` }]);
++    }
++    const latest = addDays(localDateString(now, timezone), MAX_SCHEDULE_AHEAD_DAYS);
++    if (compareIsoDates(scheduledDate, latest) > 0) {
++      throw validationError([{ field: "scheduledDate", message: `must be at most ${MAX_SCHEDULE_AHEAD_DAYS} days ahead` }]);
++    }
++    return executeAt;
++  }
++
++  function finish(row: ScheduledTransfer, changes: Partial<ScheduledTransfer> & Pick<ScheduledTransfer, "status">): ScheduledTransfer {
++    assertScheduledTransition(row.status, changes.status);
++    return scheduled.update({ ...row, ...changes, updatedAt: clock.now().toISOString() });
++  }
++
++  return {
++    schedule(actor, input) {
++      assertIdempotencyKey(input.idempotencyKey);
++      const prepared = transfers.prepare(actor, input);
++      const requestHash = fingerprint({
++        from: prepared.from.id,
++        to: prepared.to.id,
++        amountMinor: prepared.amountMinor,
++        memo: prepared.memo,
++        scheduledDate: input.scheduledDate,
++      });
++      const existing = scheduled.findByIdempotencyKey(actor.userId, input.idempotencyKey);
++      if (existing) {
++        if (existing.requestHash !== requestHash) {
++          throw new DomainError("IDEMPOTENCY_CONFLICT", "Idempotency key was already used for a different scheduled transfer");
++        }
++        return { scheduledTransfer: existing, replayed: true };
++      }
++      const now = clock.now();
++      const executeAt = executeAtFor(input.scheduledDate, actor.timezone, now);
++      const row = scheduled.insert({
++        id: ids.next("sch"),
++        userId: actor.userId,
++        fromAccountId: prepared.from.id,
++        toAccountId: prepared.to.id,
++        amountMinor: prepared.amountMinor,
++        currency: prepared.from.currency,
++        memo: prepared.memo,
++        scheduledDate: input.scheduledDate,
++        timezone: actor.timezone,
++        executeAt: executeAt.toISOString(),
++        status: "scheduled",
++        transferId: null,
++        failureReason: null,
++        idempotencyKey: input.idempotencyKey,
++        requestHash,
++        createdAt: now.toISOString(),
++        updatedAt: now.toISOString(),
++      });
++      return { scheduledTransfer: row, replayed: false };
++    },
++
++    list(actor) {
++      return scheduled.listByUser(actor.userId);
++    },
++
++    get: owned,
++
++    cancel(actor, id) {
++      return finish(owned(actor, id), { status: "cancelled" });
++    },
++
++    runDue() {
++      const summary: RunSummary = { processed: 0, completed: 0, failed: 0 };
++      for (const row of scheduled.listDue(clock.now())) {
++        summary.processed += 1;
++        const user = users.findById(row.userId);
++        try {
++          if (!user) throw notFound("User");
++          const { transfer } = transfers.createTransfer(toActor(user), {
++            fromAccountId: row.fromAccountId,
++            toAccount: row.toAccountId,
++            amount: formatDecimal(row.amountMinor, row.currency),
++            memo: row.memo,
++            idempotencyKey: `scheduled:${row.id}`,
++            channel: "scheduled",
++          });
++          finish(row, { status: "completed", transferId: transfer.id });
++          summary.completed += 1;
++        } catch (error) {
++          if (!isDomainError(error)) throw error;
++          finish(row, { status: "failed", failureReason: error.code });
++          summary.failed += 1;
++          notifications.notify(row.userId, {
++            kind: "scheduled_transfer_failed",
++            title: "Scheduled transfer failed",
++            body: `Your scheduled transfer of ${formatMoney(row.amountMinor, row.currency)} on ${row.scheduledDate} could not be made: ${error.message}.`,
++          });
++        }
++      }
++      return summary;
++    },
++  };
++}
+diff --git a/packages/transfers/src/scheduled-types.ts b/packages/transfers/src/scheduled-types.ts
+new file mode 100644
+index 0000000..aca880d
+--- /dev/null
++++ b/packages/transfers/src/scheduled-types.ts
+@@ -0,0 +1,48 @@
++import { invalidTransition } from "../../shared/src/errors.ts";
++import type { Currency } from "../../shared/src/money.ts";
++
++export type ScheduledTransferStatus = "scheduled" | "completed" | "failed" | "cancelled";
++
++export interface ScheduledTransfer {
++  id: string;
++  userId: string;
++  fromAccountId: string;
++  toAccountId: string;
++  amountMinor: number;
++  currency: Currency;
++  memo: string;
++  /** Calendar date in `timezone` on which the transfer runs. */
++  scheduledDate: string;
++  timezone: string;
++  /** The instant of EXECUTION_TIME on scheduledDate in timezone (UTC ISO). */
++  executeAt: string;
++  status: ScheduledTransferStatus;
++  transferId: string | null;
++  failureReason: string | null;
++  idempotencyKey: string;
++  requestHash: string;
++  createdAt: string;
++  updatedAt: string;
++}
++
++export interface ScheduledTransferRepository {
++  insert(row: ScheduledTransfer): ScheduledTransfer;
++  update(row: ScheduledTransfer): ScheduledTransfer;
++  findById(id: string): ScheduledTransfer | undefined;
++  findByIdempotencyKey(userId: string, key: string): ScheduledTransfer | undefined;
++  /** Sorted by executeAt, then createdAt. */
++  listByUser(userId: string): ScheduledTransfer[];
++  /** Status "scheduled" with executeAt <= now, sorted by executeAt, then createdAt. */
++  listDue(now: Date): ScheduledTransfer[];
++}
++
++const NEXT: Record<ScheduledTransferStatus, readonly ScheduledTransferStatus[]> = {
++  scheduled: ["completed", "failed", "cancelled"],
++  completed: [],
++  failed: [],
++  cancelled: [],
++};
++
++export function assertScheduledTransition(from: ScheduledTransferStatus, to: ScheduledTransferStatus): void {
++  if (!NEXT[from].includes(to)) throw invalidTransition("scheduled transfer", from, to);
++}
+diff --git a/packages/transfers/src/transfer-service.ts b/packages/transfers/src/transfer-service.ts
+index fa39610..a1dad1e 100644
+--- a/packages/transfers/src/transfer-service.ts
++++ b/packages/transfers/src/transfer-service.ts
+@@ -57,6 +57,12 @@ export interface TransferServiceDeps {
+   events: EventBus<DomainEvents>;
+ }
+ 
++export function assertIdempotencyKey(key: string): void {
++  if (!IDEMPOTENCY_KEY.test(key)) {
++    throw validationError([{ field: "idempotencyKey", message: "must be 8-64 characters of A-Z a-z 0-9 _ : . -" }]);
++  }
++}
++
+ export function fingerprint(parts: Record<string, string | number>): string {
+   return createHash("sha256").update(JSON.stringify(parts)).digest("hex");
+ }
+@@ -96,9 +102,7 @@ export function createTransferService(deps: TransferServiceDeps): TransferServic
+     prepare,
+ 
+     createTransfer(actor, input) {
+-      if (!IDEMPOTENCY_KEY.test(input.idempotencyKey)) {
+-        throw validationError([{ field: "idempotencyKey", message: "must be 8-64 characters of A-Z a-z 0-9 _ : . -" }]);
+-      }
++      assertIdempotencyKey(input.idempotencyKey);
+       const prepared = prepare(actor, input);
+       const { from, to, amountMinor, memo } = prepared;
+       const requestHash = fingerprint({ from: from.id, to: to.id, amountMinor, memo });
+diff --git a/packages/transfers/src/types.ts b/packages/transfers/src/types.ts
+index b0f6526..f06de97 100644
+--- a/packages/transfers/src/types.ts
++++ b/packages/transfers/src/types.ts
+@@ -1,7 +1,7 @@
+ import type { Currency } from "../../shared/src/money.ts";
+ import type { TransferStatus } from "./status.ts";
+ 
+-export type TransferChannel = "api" | "web";
++export type TransferChannel = "api" | "web" | "scheduled";
+ 
+ export interface Transfer {
+   id: string;
+diff --git a/server/app.ts b/server/app.ts
+index 295234b..7ae6d76 100644
+--- a/server/app.ts
++++ b/server/app.ts
+@@ -15,6 +15,7 @@ import { notificationRoutes } from "./routes/notification-routes.ts";
+ import { statementRoutes } from "./routes/statement-routes.ts";
+ import { supportRoutes } from "./routes/support-routes.ts";
+ import { transactionRoutes } from "./routes/transaction-routes.ts";
++import { scheduledTransferRoutes } from "./routes/scheduled-transfer-routes.ts";
+ import { transferRoutes } from "./routes/transfer-routes.ts";
+ import { webRoutes } from "./routes/web-routes.ts";
+ 
+@@ -51,6 +52,7 @@ export function createApp(deps: AppDeps): App {
+     ...accountRoutes(),
+     ...transactionRoutes(),
+     ...transferRoutes(),
++    ...scheduledTransferRoutes(),
+     ...cardRoutes(),
+     ...statementRoutes(),
+     ...notificationRoutes(),
+diff --git a/server/deps.ts b/server/deps.ts
+index 2ae9746..13a7175 100644
+--- a/server/deps.ts
++++ b/server/deps.ts
+@@ -25,6 +25,8 @@ import type { TicketRepository } from "../packages/support/src/types.ts";
+ import { createLedger, type Ledger } from "../packages/transactions/src/ledger.ts";
+ import { createTransactionService, type TransactionService } from "../packages/transactions/src/transaction-service.ts";
+ import type { LedgerRepository } from "../packages/transactions/src/types.ts";
++import { createScheduledTransferService, type ScheduledTransferService } from "../packages/transfers/src/scheduled-service.ts";
++import type { ScheduledTransferRepository } from "../packages/transfers/src/scheduled-types.ts";
+ import { createTransferService, type TransferService } from "../packages/transfers/src/transfer-service.ts";
+ import type { TransferRepository } from "../packages/transfers/src/types.ts";
+ import { applySeed } from "../seed/apply-seed.ts";
+@@ -36,6 +38,7 @@ import { createJsonFileStore, createNullStore, type DataStore } from "./reposito
+ import { createMemoryAccountRepository } from "./repositories/memory/accounts.ts";
+ import { createMemoryCardRepository } from "./repositories/memory/cards.ts";
+ import { createMemoryLedgerRepository } from "./repositories/memory/ledger.ts";
++import { createMemoryScheduledTransferRepository } from "./repositories/memory/scheduled-transfers.ts";
+ import { createMemoryNotificationRepository, createMemoryOutboxRepository } from "./repositories/memory/notifications.ts";
+ import { createMemorySessionRepository } from "./repositories/memory/sessions.ts";
+ import { createMemoryTicketRepository } from "./repositories/memory/tickets.ts";
+@@ -49,6 +52,7 @@ export interface Repositories {
+   accounts: AccountRepository;
+   ledger: LedgerRepository;
+   transfers: TransferRepository;
++  scheduledTransfers: ScheduledTransferRepository;
+   notifications: NotificationRepository;
+   outbox: OutboxRepository;
+   cards: CardRepository;
+@@ -61,6 +65,7 @@ export interface Services {
+   accounts: AccountService;
+   transactions: TransactionService;
+   transfers: TransferService;
++  scheduledTransfers: ScheduledTransferService;
+   notifications: NotificationService;
+   cards: CardService;
+   statements: StatementService;
+@@ -105,6 +110,7 @@ export function createDeps(options: CreateDepsOptions = {}): AppDeps {
+   const accountsRepo = createMemoryAccountRepository();
+   const ledgerRepo = createMemoryLedgerRepository();
+   const transfersRepo = createMemoryTransferRepository();
++  const scheduledRepo = createMemoryScheduledTransferRepository();
+   const notificationsRepo = createMemoryNotificationRepository();
+   const outbox = createMemoryOutboxRepository();
+   const cardsRepo = createMemoryCardRepository();
+@@ -116,6 +122,7 @@ export function createDeps(options: CreateDepsOptions = {}): AppDeps {
+   store.register("accounts", accountsRepo);
+   store.register("ledger", ledgerRepo);
+   store.register("transfers", transfersRepo);
++  store.register("scheduledTransfers", scheduledRepo);
+   store.register("notifications", notificationsRepo);
+   store.register("outbox", outbox);
+   store.register("cards", cardsRepo);
+@@ -142,6 +149,14 @@ export function createDeps(options: CreateDepsOptions = {}): AppDeps {
+     ids,
+     events,
+   });
++  const scheduledTransfers = createScheduledTransferService({
++    scheduled: scheduledRepo,
++    transfers,
++    users,
++    notifications,
++    clock,
++    ids,
++  });
+   const cards = createCardService({ cards: cardsRepo, accounts, notifications, clock, ids });
+   const statements = createStatementService({ accounts, entries: ledgerRepo, users, clock });
+   const tickets = createTicketService({ tickets: ticketsRepo, notifications, clock, ids });
+@@ -168,6 +183,7 @@ export function createDeps(options: CreateDepsOptions = {}): AppDeps {
+       accounts: accountsRepo,
+       ledger: ledgerRepo,
+       transfers: transfersRepo,
++      scheduledTransfers: scheduledRepo,
+       notifications: notificationsRepo,
+       outbox,
+       cards: cardsRepo,
+@@ -176,7 +192,7 @@ export function createDeps(options: CreateDepsOptions = {}): AppDeps {
+     ledger,
+     caches: { summary: summaryCache },
+     mail: createMemoryTransport(),
+-    services: { auth, sessions, accounts, transactions, transfers, notifications, cards, statements, tickets, dashboard },
++    services: { auth, sessions, accounts, transactions, transfers, scheduledTransfers, notifications, cards, statements, tickets, dashboard },
+   };
+ 
+   const loaded = store.load();
+diff --git a/server/repositories/memory/scheduled-transfers.ts b/server/repositories/memory/scheduled-transfers.ts
+new file mode 100644
+index 0000000..0ae501c
+--- /dev/null
++++ b/server/repositories/memory/scheduled-transfers.ts
+@@ -0,0 +1,22 @@
++import type { ScheduledTransfer, ScheduledTransferRepository } from "../../../packages/transfers/src/scheduled-types.ts";
++import { type Persistable, createTable } from "./table.ts";
++
++const byExecution = (a: ScheduledTransfer, b: ScheduledTransfer): number =>
++  a.executeAt.localeCompare(b.executeAt) || a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id);
++
++export function createMemoryScheduledTransferRepository(): ScheduledTransferRepository & Persistable {
++  const table = createTable<ScheduledTransfer>("scheduledTransfers", (s) => s.id);
++  return {
++    insert: (row) => table.insert(row),
++    update: (row) => table.update(row),
++    findById: (id) => table.get(id),
++    findByIdempotencyKey: (userId, key) => table.find((s) => s.userId === userId && s.idempotencyKey === key),
++    listByUser: (userId) => table.filter((s) => s.userId === userId).sort(byExecution),
++    listDue: (now) => {
++      const cutoff = now.toISOString();
++      return table.filter((s) => s.status === "scheduled" && s.executeAt <= cutoff).sort(byExecution);
++    },
++    snapshot: () => table.snapshot(),
++    restore: (rows) => table.restore(rows),
++  };
++}
+diff --git a/server/routes/presenters.ts b/server/routes/presenters.ts
+index 06a48bc..e742a9d 100644
+--- a/server/routes/presenters.ts
++++ b/server/routes/presenters.ts
+@@ -5,6 +5,7 @@ import type { Account } from "../../packages/accounts/src/types.ts";
+ import type { Card } from "../../packages/cards/src/types.ts";
+ import { formatDecimal } from "../../packages/shared/src/money.ts";
+ import type { LedgerEntry } from "../../packages/transactions/src/types.ts";
++import type { ScheduledTransfer } from "../../packages/transfers/src/scheduled-types.ts";
+ import type { Transfer } from "../../packages/transfers/src/types.ts";
+ 
+ export function presentAccount(a: Account) {
+@@ -67,3 +68,22 @@ export function presentCard(c: Card) {
+     monthlySpendLimitMinor: c.monthlySpendLimitMinor,
+   };
+ }
++
++export function presentScheduledTransfer(s: ScheduledTransfer) {
++  return {
++    id: s.id,
++    fromAccountId: s.fromAccountId,
++    toAccountId: s.toAccountId,
++    amountMinor: s.amountMinor,
++    amount: formatDecimal(s.amountMinor, s.currency),
++    currency: s.currency,
++    memo: s.memo,
++    scheduledDate: s.scheduledDate,
++    timezone: s.timezone,
++    executeAt: s.executeAt,
++    status: s.status,
++    transferId: s.transferId,
++    failureReason: s.failureReason,
++    createdAt: s.createdAt,
++  };
++}
+diff --git a/server/routes/scheduled-transfer-routes.ts b/server/routes/scheduled-transfer-routes.ts
+new file mode 100644
+index 0000000..721453a
+--- /dev/null
++++ b/server/routes/scheduled-transfer-routes.ts
+@@ -0,0 +1,42 @@
++import { validationError } from "../../packages/shared/src/errors.ts";
++import { parseOrThrow, v } from "../../packages/shared/src/validation.ts";
++import { json } from "../http/response.ts";
++import type { Route } from "../http/types.ts";
++import { api, header } from "./helpers.ts";
++import { presentScheduledTransfer } from "./presenters.ts";
++import { transferFields } from "./transfer-routes.ts";
++
++const scheduleSchema = v.object({ ...transferFields, scheduledDate: v.isoDate() });
++
++export function scheduledTransferRoutes(): Route[] {
++  return [
++    api("POST", "/api/scheduled-transfers", "user", (ctx) => {
++      const input = parseOrThrow(scheduleSchema, ctx.body);
++      const idempotencyKey = header(ctx, "idempotency-key");
++      if (!idempotencyKey) throw validationError([{ field: "Idempotency-Key", message: "header is required" }]);
++      const { scheduledTransfer, replayed } = ctx.deps.services.scheduledTransfers.schedule(ctx.actor, {
++        ...input,
++        idempotencyKey,
++      });
++      return json(replayed ? 200 : 201, { scheduledTransfer: presentScheduledTransfer(scheduledTransfer), replayed });
++    }),
++
++    api("GET", "/api/scheduled-transfers", "user", (ctx) => {
++      return json(200, { items: ctx.deps.services.scheduledTransfers.list(ctx.actor).map(presentScheduledTransfer) });
++    }),
++
++    api("GET", "/api/scheduled-transfers/:id", "user", (ctx) => {
++      const row = ctx.deps.services.scheduledTransfers.get(ctx.actor, ctx.params["id"] ?? "");
++      return json(200, { scheduledTransfer: presentScheduledTransfer(row) });
++    }),
++
++    api("DELETE", "/api/scheduled-transfers/:id", "user", (ctx) => {
++      const row = ctx.deps.services.scheduledTransfers.cancel(ctx.actor, ctx.params["id"] ?? "");
++      return json(200, { scheduledTransfer: presentScheduledTransfer(row) });
++    }),
++
++    api("POST", "/api/admin/scheduled-transfers/run", ["admin"], (ctx) => {
++      return json(200, ctx.deps.services.scheduledTransfers.runDue());
++    }),
++  ];
++}
+diff --git a/server/routes/transfer-routes.ts b/server/routes/transfer-routes.ts
+index d1003d6..ade7195 100644
+--- a/server/routes/transfer-routes.ts
++++ b/server/routes/transfer-routes.ts
+@@ -7,12 +7,14 @@ import type { Route } from "../http/types.ts";
+ import { api, header } from "./helpers.ts";
+ import { presentAccount, presentTransfer } from "./presenters.ts";
+ 
+-export const transferBodySchema = v.object({
++export const transferFields = {
+   fromAccountId: v.id("acc"),
+   toAccount: v.string({ min: 1, max: 40 }),
+   amount: v.decimalString(),
+   memo: v.optional(v.string({ max: MAX_MEMO_LENGTH })),
+-});
++};
++
++export const transferBodySchema = v.object(transferFields);
+ 
+ const reverseSchema = v.object({ reason: v.string({ min: 3, max: 200 }) });
+ 
+diff --git a/server/routes/web-routes.ts b/server/routes/web-routes.ts
+index 9e25ca0..2ed6604 100644
+--- a/server/routes/web-routes.ts
++++ b/server/routes/web-routes.ts
+@@ -11,12 +11,13 @@ import { renderCardsPage } from "../../apps/web/views/cards.ts";
+ import { renderDashboard } from "../../apps/web/views/dashboard.ts";
+ import { renderLoginPage } from "../../apps/web/views/login.ts";
+ import { renderNotificationsPage } from "../../apps/web/views/notifications.ts";
++import { renderScheduledTransfersPage } from "../../apps/web/views/scheduled-transfers.ts";
+ import { renderTransactionsPage } from "../../apps/web/views/transactions.ts";
+ import { type TransferFormValues, renderTransferForm } from "../../apps/web/views/transfer-form.ts";
+ import { renderTransfersPage } from "../../apps/web/views/transfers.ts";
+ import type { Actor } from "../../packages/auth/src/types.ts";
+ import { SESSION_TTL_MS } from "../../packages/auth/src/sessions.ts";
+-import { isDomainError } from "../../packages/shared/src/errors.ts";
++import { type DomainError, isDomainError } from "../../packages/shared/src/errors.ts";
+ import { parseOrThrow, queryToObject } from "../../packages/shared/src/validation.ts";
+ import { statusForCode } from "../http/error-map.ts";
+ import { SESSION_COOKIE } from "../http/request.ts";
+@@ -55,6 +56,13 @@ function str(value: unknown): string {
+   return typeof value === "string" ? value : "";
+ }
+ 
++function errorFields(error: DomainError): Record<string, string> {
++  const errors: Record<string, string> = {};
++  for (const d of error.details ?? []) if (d.field) errors[d.field] = d.message;
++  if (Object.keys(errors).length === 0 || error.code !== "VALIDATION_ERROR") errors["form"] = error.message;
++  return errors;
++}
++
+ export function webRoutes(): Route[] {
+   return [
+     publicWeb("GET", "/", (ctx) => redirect(ctx.cookies[SESSION_COOKIE] ? "/dashboard" : "/login", 302)),
+@@ -158,9 +166,7 @@ export function webRoutes(): Route[] {
+         return redirect(`/transfers?created=${encodeURIComponent(transfer.id)}`);
+       } catch (error) {
+         if (!isDomainError(error)) throw error;
+-        const errors: Record<string, string> = {};
+-        for (const d of error.details ?? []) if (d.field) errors[d.field] = d.message;
+-        if (Object.keys(errors).length === 0 || error.code !== "VALIDATION_ERROR") errors["form"] = error.message;
++        const errors = errorFields(error);
+         return html(
+           statusForCode(error.code),
+           renderTransferForm({
+@@ -174,6 +180,54 @@ export function webRoutes(): Route[] {
+       }
+     }),
+ 
++    web("GET", "/transfers/scheduled", "user", (ctx) => {
++      return html(
++        200,
++        renderScheduledTransfersPage({
++          user: viewUser(ctx, ctx.actor),
++          accounts: ctx.deps.services.accounts.listForUser(ctx.actor),
++          scheduled: ctx.deps.services.scheduledTransfers.list(ctx.actor),
++          values: {},
++          errors: {},
++          idempotencyKey: `web-${randomUUID()}`,
++        }),
++      );
++    }),
++
++    web("POST", "/transfers/scheduled", "user", (ctx) => {
++      const form = bodyRecord(ctx);
++      const values = {
++        fromAccountId: str(form["fromAccountId"]),
++        toAccount: str(form["toAccount"]),
++        amount: str(form["amount"]),
++        memo: str(form["memo"]),
++        scheduledDate: str(form["scheduledDate"]),
++      };
++      const idempotencyKey = str(form["idempotencyKey"]) || `web-${randomUUID()}`;
++      try {
++        ctx.deps.services.scheduledTransfers.schedule(ctx.actor, { ...values, idempotencyKey });
++        return redirect("/transfers/scheduled");
++      } catch (error) {
++        if (!isDomainError(error)) throw error;
++        return html(
++          statusForCode(error.code),
++          renderScheduledTransfersPage({
++            user: viewUser(ctx, ctx.actor),
++            accounts: ctx.deps.services.accounts.listForUser(ctx.actor),
++            scheduled: ctx.deps.services.scheduledTransfers.list(ctx.actor),
++            values,
++            errors: errorFields(error),
++            idempotencyKey,
++          }),
++        );
++      }
++    }),
++
++    web("POST", "/transfers/scheduled/:id/cancel", "user", (ctx) => {
++      ctx.deps.services.scheduledTransfers.cancel(ctx.actor, ctx.params["id"] ?? "");
++      return redirect("/transfers/scheduled");
++    }),
++
+     web("GET", "/cards", "user", (ctx) => {
+       const accounts = ctx.deps.services.accounts.listForUser(ctx.actor);
+       return html(
+diff --git a/tests/api/scheduled-transfers.api.test.ts b/tests/api/scheduled-transfers.api.test.ts
+new file mode 100644
+index 0000000..1d57cce
+--- /dev/null
++++ b/tests/api/scheduled-transfers.api.test.ts
+@@ -0,0 +1,121 @@
++import assert from "node:assert/strict";
++import { describe, it } from "node:test";
++import { idemKey, setup } from "../support/harness.ts";
++
++async function scheduleAs(t: ReturnType<typeof setup>, username: "alice" | "bob", body: Record<string, unknown>, key = idemKey("sch")) {
++  const client = await t.login(username);
++  return client.post("/api/scheduled-transfers", body, { "idempotency-key": key });
++}
++
++async function runExecutor(t: ReturnType<typeof setup>) {
++  const olive = await t.login("olive");
++  return olive.post("/api/admin/scheduled-transfers/run");
++}
++
++describe("scheduled transfers API", () => {
++  it("schedules at 09:00 in the customer's time zone, across DST", async () => {
++    const t = setup();
++    const from = t.accountId("QM-1000-0001");
++    const before = await scheduleAs(t, "alice", { fromAccountId: from, toAccount: "QM-1000-0005", amount: "25.00", scheduledDate: "2026-10-30" });
++    assert.equal(before.status, 201);
++    assert.equal(before.json().scheduledTransfer.executeAt, "2026-10-30T13:00:00.000Z");
++    const after = await scheduleAs(t, "alice", { fromAccountId: from, toAccount: "QM-1000-0005", amount: "25.00", scheduledDate: "2026-11-02" });
++    assert.equal(after.json().scheduledTransfer.executeAt, "2026-11-02T14:00:00.000Z");
++  });
++
++  it("rejects past, too distant and impossible dates", async () => {
++    const t = setup();
++    const from = t.accountId("QM-1000-0001");
++    for (const scheduledDate of ["2026-10-07", "2026-02-30", "2027-10-08"]) {
++      const res = await scheduleAs(t, "alice", { fromAccountId: from, toAccount: "QM-1000-0002", amount: "1.00", scheduledDate });
++      assert.equal(res.status, 400, scheduledDate);
++      assert.equal(res.json().error.details[0].field, "scheduledDate");
++    }
++  });
++
++  it("is idempotent per key", async () => {
++    const t = setup();
++    const body = { fromAccountId: t.accountId("QM-1000-0001"), toAccount: "QM-1000-0002", amount: "9.00", scheduledDate: "2026-10-12" };
++    const key = idemKey("sch");
++    assert.equal((await scheduleAs(t, "alice", body, key)).status, 201);
++    assert.equal((await scheduleAs(t, "alice", body, key)).status, 200);
++    assert.equal((await scheduleAs(t, "alice", { ...body, amount: "10.00" }, key)).status, 409);
++  });
++
++  it("lets only the owner cancel, and only before execution", async () => {
++    const t = setup();
++    const created = await scheduleAs(t, "alice", {
++      fromAccountId: t.accountId("QM-1000-0001"),
++      toAccount: "QM-1000-0002",
++      amount: "3.00",
++      scheduledDate: "2026-10-09",
++    });
++    const id = created.json().scheduledTransfer.id;
++    const bob = await t.login("bob");
++    assert.equal((await bob.delete(`/api/scheduled-transfers/${id}`)).status, 404);
++    const alice = await t.login("alice");
++    assert.equal((await alice.delete(`/api/scheduled-transfers/${id}`)).json().scheduledTransfer.status, "cancelled");
++    assert.equal((await alice.delete(`/api/scheduled-transfers/${id}`)).status, 409);
++  });
++});
++
++describe("scheduled transfer executor", () => {
++  it("executes due transfers once through the transfer service", async () => {
++    const t = setup();
++    const created = await scheduleAs(t, "alice", {
++      fromAccountId: t.accountId("QM-1000-0001"),
++      toAccount: "QM-1000-0005",
++      amount: "25.00",
++      scheduledDate: "2026-10-09",
++    });
++    const id = created.json().scheduledTransfer.id;
++    assert.equal((await runExecutor(t)).json().processed, 0);
++    t.clock.set("2026-10-09T13:00:00.000Z");
++    assert.deepEqual((await runExecutor(t)).json(), { processed: 1, completed: 1, failed: 0 });
++    assert.deepEqual((await runExecutor(t)).json(), { processed: 0, completed: 0, failed: 0 });
++    const alice = await t.login("alice");
++    const row = (await alice.get(`/api/scheduled-transfers/${id}`)).json().scheduledTransfer;
++    assert.equal(row.status, "completed");
++    const transfer = (await alice.get(`/api/transfers/${row.transferId}`)).json().transfer;
++    assert.equal(transfer.channel, "scheduled");
++    assert.equal(t.deps.repos.accounts.findByNumber("QM-1000-0005")?.balanceMinor, 36_500 + 2500);
++  });
++
++  it("marks transfers failed when funds are short at execution and notifies the owner", async () => {
++    const t = setup();
++    await scheduleAs(t, "bob", {
++      fromAccountId: t.accountId("QM-1000-0005"),
++      toAccount: "QM-1000-0001",
++      amount: "400.00",
++      scheduledDate: "2026-10-09",
++    });
++    t.clock.set("2026-10-09T08:00:00.000Z");
++    assert.deepEqual((await runExecutor(t)).json(), { processed: 1, completed: 0, failed: 1 });
++    const bob = await t.login("bob");
++    const [row] = (await bob.get("/api/scheduled-transfers")).json().items;
++    assert.equal(row.status, "failed");
++    assert.equal(row.failureReason, "INSUFFICIENT_FUNDS");
++    assert.equal((await bob.get("/api/notifications")).json().items[0].kind, "scheduled_transfer_failed");
++  });
++});
++
++describe("scheduled transfers page", () => {
++  it("creates and cancels through forms", async () => {
++    const t = setup();
++    const alice = await t.login("alice");
++    const created = await alice.form("/transfers/scheduled", {
++      fromAccountId: t.accountId("QM-1000-0001"),
++      toAccount: "QM-1000-0002",
++      amount: "8.00",
++      scheduledDate: "2026-10-20",
++      memo: "Weekly saving",
++      idempotencyKey: "web-test-key-1",
++    });
++    assert.equal(created.status, 303);
++    const page = await alice.page("/transfers/scheduled");
++    assert.match(page.body, /Weekly saving/);
++    const id = (await alice.get("/api/scheduled-transfers")).json().items[0].id;
++    assert.equal((await alice.form(`/transfers/scheduled/${id}/cancel`, {})).status, 303);
++    assert.equal((await alice.get(`/api/scheduled-transfers/${id}`)).json().scheduledTransfer.status, "cancelled");
++  });
++});

@@ -1,0 +1,12 @@
+{
+  "id": "rust-cli",
+  "title": "Add monthly budgets to the tally ledger CLI",
+  "category": "greenfield",
+  "language": "rust",
+  "rubric": "coding",
+  "timeout_s": 1800,
+  "relevant_files": ["src/cli/**", "src/commands/**", "src/store/**", "src/config.rs", "src/output/**",
+                     "src/model/validate.rs", "src/report/**", "src/util/date.rs", "tests/common/mod.rs", "README.md"],
+  "allowed_change_globs": ["src/**", "tests/**", "README.md", "Cargo.lock"],
+  "reference_diff_lines": 431
+}

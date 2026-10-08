@@ -1,35 +1,110 @@
 // PreToolUse for Grep and Read: answer code lookups from the tmap index instead of raw search output or whole files.
 // Escape hatch: repeating the identical call goes through, so literal-text searches and full reads stay possible.
+// onBashGrep (called by kit-router.mjs for Bash) does the same for `grep`/`rg`/`git grep` of one code identifier.
 import { spawnSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
+
 import { existingBinary } from '../lib/tmapbin.mjs';
+import { deny, exeName, isMain, seenBefore, splitPipes, splitSegments, tokenize } from '../lib/hookutil.mjs';
 
 const CODE_EXT = /\.(rs|ts|mts|cts|tsx|js|jsx|mjs|cjs|py|pyi|go)$/;
 const BIG_FILE_LINES = Number(process.env.TFORGE_READ_OUTLINE_LINES) || 250;
 const REGEX_WORDS = new Set(['fn', 'def', 'class', 'struct', 'impl', 'pub', 'let', 'const', 'function', 'async', 'self', 'this', 'return', 'type', 'enum', 'trait', 'mod', 'use', 'import', 'from', 'export', 'new']);
 
-function deny(event, reason) {
-  process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: event, permissionDecision: 'deny', permissionDecisionReason: reason } }));
+const COMMON = new Set(['warn', 'warning', 'error', 'errors', 'todo', 'fixme', 'panic', 'debug', 'info', 'test', 'tests', 'unwrap', 'expect', 'print',
+  'println', 'console', 'return', 'async', 'await', 'import', 'export', 'class', 'struct', 'function', 'const', 'static', 'public', 'private',
+  'string', 'number', 'true', 'false', 'null', 'none', 'self', 'this', 'main', 'init', 'new']);
+const DOC_EXT = /\.(md|txt|json|ya?ml|toml|lock|log|csv|html?|xml|ini|cfg|env|sql)$|(^|[\\/])(README|CHANGELOG|LICENSE)/i;
+
+// A bare code identifier (snake_case, camelCase, PascalCase with 2+ humps, a::b, name( ), not prose
+// or a literal-text pattern. Returns the symbol or null. Stricter than patternWords: Bash greps are
+// often deliberate literal searches.
+export function symbolLike(p) {
+  p = String(p || '').trim()
+    .replace(/^(\\b|\\<|\^)|(\\b|\\>|\$)$/g, '')
+    .replace(/\\?\([\w\s,&*.:]*\\?\)$/, '')
+    .replace(/(\\\(|\()$/, '')
+    .replace(/^(fn|def|func|function|class|struct|enum|trait|interface|type|impl)\s+/, '');
+  if (!/^[A-Za-z_][A-Za-z0-9_]*(::[A-Za-z_][A-Za-z0-9_]*)*$/.test(p)) return null;
+  const last = p.split('::').pop();
+  if (last.length < 4 || COMMON.has(last.toLowerCase())) return null;
+  if (last.replace(/^_+|_+$/g, '').includes('_') || /[a-z][A-Z]/.test(last) || p.includes('::')) return last;
+  if (/^[A-Z][a-z0-9]+([A-Z][a-z0-9]*)+$/.test(last)) return last;
+  return null;
 }
 
-// First call is redirected; an identical second call in the same session is let through.
-function seenBefore(sessionId, key) {
-  const dir = path.join(os.tmpdir(), `tokenforge-${process.getuid?.() ?? 'u'}`);
-  const file = path.join(dir, `${String(sessionId).replace(/[^a-zA-Z0-9_-]/g, '')}-redirect.json`);
-  let seen = [];
+// tokens of `grep|egrep|rg|git grep ...` -> { sym, refs } or null (case-insensitive, inverted, several
+// patterns, file targets, doc/config targets and paths outside cwd are left alone).
+export function parseGrep(t, cwd) {
+  let args;
+  if (exeName(t[0]) === 'git' && t[1] === 'grep') args = t.slice(2);
+  else if (['grep', 'egrep', 'rg'].includes(exeName(t[0]))) args = t.slice(1);
+  else return null;
+  const pats = [];
+  const paths = [];
+  let refs = false;
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === '--') {
+      paths.push(...args.slice(i + 1));
+      break;
+    }
+    if (a === '-e' || a === '--regexp') {
+      pats.push(args[++i] ?? '');
+      continue;
+    }
+    if (['-i', '--ignore-case', '-v', '--invert-match', '-f', '-P', '-z', '-L', '--files-without-match', '-F', '--fixed-strings'].includes(a)) return null;
+    if (/^-[a-zA-Z]*[ivF]/.test(a) && !a.startsWith('--')) return null;
+    if (['-l', '-c', '--count', '--files-with-matches'].includes(a) || /^-[a-zA-Z]*[lc][a-zA-Z]*$/.test(a)) refs = true;
+    if (/^--(include|glob|type)=/.test(a) && DOC_EXT.test(a.split('=')[1].replace(/\*/g, ''))) return null;
+    if (['-g', '--glob', '-t', '--type', '--include', '-A', '-B', '-C', '-m', '--max-count', '--exclude', '--exclude-dir'].includes(a)) {
+      if (['-g', '--glob', '--include'].includes(a) && DOC_EXT.test(String(args[i + 1] || '').replace(/\*/g, ''))) return null;
+      i++;
+      continue;
+    }
+    if (a.startsWith('-')) continue;
+    if (!pats.length) pats.push(a);
+    else paths.push(a);
+  }
+  if (pats.length !== 1) return null;
+  const root = path.resolve(cwd);
+  for (const p of paths) {
+    const ap = path.resolve(cwd, p);
+    if (p.startsWith('~') || DOC_EXT.test(p) || (ap !== root && !ap.startsWith(root + path.sep))) return null;
+    // a grep aimed at specific files wants those lines, not a repo-wide symbol answer
+    if (!isDir(ap)) return null;
+  }
+  const sym = symbolLike(pats[0]);
+  return sym ? { sym, refs } : null;
+}
+
+function isDir(p) {
   try {
-    seen = JSON.parse(fs.readFileSync(file, 'utf8'));
-  } catch {}
-  const h = createHash('sha1').update(key).digest('hex').slice(0, 16);
-  if (seen.includes(h)) return true;
-  try {
-    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-    fs.writeFileSync(file, JSON.stringify([...seen.slice(-200), h]));
-  } catch {}
-  return false;
+    return fs.statSync(p).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+// Bash: a command that is just one identifier grep (optionally `| head`) is answered by `tkit ctx`.
+export function onBashGrep(input, bin = existingBinary()) {
+  const cmd = String(input.tool_input?.command || '');
+  const segs = splitSegments(cmd);
+  if (!bin || !segs || segs.filter(([t]) => t.trim()).length !== 1) return;
+  const pipes = splitPipes(segs[0][0]);
+  if (pipes.length > 2 || (pipes[1] && !/^\s*(head|tail)(\s+-n?\s*\d+|\s+-\d+)?\s*$/.test(pipes[1]))) return;
+  const toks = tokenize(pipes[0]);
+  const cwd = input.cwd || process.cwd();
+  const hit = toks && parseGrep(toks.filter((x) => !/^[A-Za-z_]\w*=/.test(x)), cwd);
+  if (!hit || seenBefore(input.session_id, `bashgrep\0${cmd}`)) return;
+  const out = tmap(bin, ['kit', 'ctx', ...(hit.refs ? ['--refs'] : []), hit.sym], cwd);
+  if (!out) return;
+  deny(
+    'PreToolUse',
+    `tokenforge: \`${hit.sym}\` is a code identifier, so the code index answered (tkit ctx${hit.refs ? ' --refs' : ''} ${hit.sym}), cheaper than grep output:\n${out}\n` +
+      'Follow with `tkit ctx SYM`, `tmap callers SYM` or a Read of the line range. For literal text, prefix TFORGE_RAW=1 or repeat the same command.',
+  );
 }
 
 function tmap(bin, args, cwd) {
@@ -106,4 +181,4 @@ function main() {
   else if (input.tool_name === 'Read') onRead(input, bin);
 }
 
-main();
+if (isMain(import.meta.url)) main();

@@ -1,0 +1,861 @@
+diff --git a/LibraryApi.sln b/LibraryApi.sln
+new file mode 100644
+index 0000000..d5f4052
+--- /dev/null
++++ b/LibraryApi.sln
+@@ -0,0 +1,36 @@
++﻿
++Microsoft Visual Studio Solution File, Format Version 12.00
++# Visual Studio Version 17
++VisualStudioVersion = 17.0.31903.59
++MinimumVisualStudioVersion = 10.0.40219.1
++Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{78661A5F-C7AD-4002-800A-A2B7718E9E2F}"
++EndProject
++Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LibraryApi.Tests", "tests\LibraryApi.Tests\LibraryApi.Tests.csproj", "{C8911FEB-A3D4-4D8D-95A6-DE8AE813AAF0}"
++EndProject
++Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{E919949D-B35F-4F70-A4E9-6775290529AE}"
++EndProject
++Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LibraryApi", "src\LibraryApi\LibraryApi.csproj", "{B2009F13-B6BD-4E39-AD3B-D5197960B22D}"
++EndProject
++Global
++	GlobalSection(SolutionConfigurationPlatforms) = preSolution
++		Debug|Any CPU = Debug|Any CPU
++		Release|Any CPU = Release|Any CPU
++	EndGlobalSection
++	GlobalSection(SolutionProperties) = preSolution
++		HideSolutionNode = FALSE
++	EndGlobalSection
++	GlobalSection(ProjectConfigurationPlatforms) = postSolution
++		{C8911FEB-A3D4-4D8D-95A6-DE8AE813AAF0}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
++		{C8911FEB-A3D4-4D8D-95A6-DE8AE813AAF0}.Debug|Any CPU.Build.0 = Debug|Any CPU
++		{C8911FEB-A3D4-4D8D-95A6-DE8AE813AAF0}.Release|Any CPU.ActiveCfg = Release|Any CPU
++		{C8911FEB-A3D4-4D8D-95A6-DE8AE813AAF0}.Release|Any CPU.Build.0 = Release|Any CPU
++		{B2009F13-B6BD-4E39-AD3B-D5197960B22D}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
++		{B2009F13-B6BD-4E39-AD3B-D5197960B22D}.Debug|Any CPU.Build.0 = Debug|Any CPU
++		{B2009F13-B6BD-4E39-AD3B-D5197960B22D}.Release|Any CPU.ActiveCfg = Release|Any CPU
++		{B2009F13-B6BD-4E39-AD3B-D5197960B22D}.Release|Any CPU.Build.0 = Release|Any CPU
++	EndGlobalSection
++	GlobalSection(NestedProjects) = preSolution
++		{C8911FEB-A3D4-4D8D-95A6-DE8AE813AAF0} = {78661A5F-C7AD-4002-800A-A2B7718E9E2F}
++		{B2009F13-B6BD-4E39-AD3B-D5197960B22D} = {E919949D-B35F-4F70-A4E9-6775290529AE}
++	EndGlobalSection
++EndGlobal
+diff --git a/data/seed.json b/data/seed.json
+new file mode 100644
+index 0000000..fe7f2a2
+--- /dev/null
++++ b/data/seed.json
+@@ -0,0 +1,15 @@
++{
++  "books": [
++    {"id": 1, "isbn": "9780000000011", "title": "The Silent Orchard", "author": "Mara Quill", "year": 2011, "copies": 2},
++    {"id": 2, "isbn": "9780000000028", "title": "Rivers of Bronze", "author": "Tomas Ewe", "year": 1998, "copies": 1},
++    {"id": 3, "isbn": "9780000000035", "title": "Small Lanterns", "author": "Ines Varga", "year": 2019, "copies": 3}
++  ],
++  "members": [
++    {"id": 1, "name": "Ada Brook", "email": "ada@example.org"},
++    {"id": 2, "name": "Ben Hollis", "email": "ben@example.org"}
++  ],
++  "loans": [
++    {"id": 1, "bookId": 1, "memberId": 1, "loanedAt": "2026-02-01T10:00:00Z", "dueAt": "2026-02-15T10:00:00Z", "returnedAt": "2026-02-18T16:30:00Z"},
++    {"id": 2, "bookId": 2, "memberId": 2, "loanedAt": "2026-02-20T09:00:00Z", "dueAt": "2026-03-06T09:00:00Z", "returnedAt": null}
++  ]
++}
+diff --git a/src/LibraryApi/Clock.cs b/src/LibraryApi/Clock.cs
+new file mode 100644
+index 0000000..f21e7ac
+--- /dev/null
++++ b/src/LibraryApi/Clock.cs
+@@ -0,0 +1,31 @@
++using System.Globalization;
++
++namespace LibraryApi;
++
++/// <summary>Source of the current UTC time; every time-dependent rule asks this.</summary>
++public interface IClock
++{
++    DateTime UtcNow { get; }
++}
++
++public sealed class SystemClock : IClock
++{
++    public DateTime UtcNow => DateTime.UtcNow;
++}
++
++public sealed class FixedClock(DateTime instant) : IClock
++{
++    public DateTime UtcNow { get; } = DateTime.SpecifyKind(instant, DateTimeKind.Utc);
++
++    public static bool TryParse(string text, out FixedClock? clock)
++    {
++        clock = null;
++        if (!DateTime.TryParse(text, CultureInfo.InvariantCulture,
++                DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out var parsed))
++        {
++            return false;
++        }
++        clock = new FixedClock(parsed);
++        return true;
++    }
++}
+diff --git a/src/LibraryApi/Domain/LoanRules.cs b/src/LibraryApi/Domain/LoanRules.cs
+new file mode 100644
+index 0000000..84aca7e
+--- /dev/null
++++ b/src/LibraryApi/Domain/LoanRules.cs
+@@ -0,0 +1,25 @@
++namespace LibraryApi.Domain;
++
++public static class LoanRules
++{
++    public const int LoanDays = 14;
++    public const int MaxActiveLoans = 3;
++    public const int FinePerDayCents = 25;
++    public const int FineCapCents = 1000;
++
++    public static int DaysOverdue(Loan loan, DateTime now)
++    {
++        var end = loan.ReturnedAt ?? now;
++        return Math.Max(0, (end.Date - loan.DueAt.Date).Days);
++    }
++
++    public static int FineCents(Loan loan, DateTime now) =>
++        Math.Min(FineCapCents, FinePerDayCents * DaysOverdue(loan, now));
++
++    public static string Status(Loan loan, DateTime now) =>
++        loan.ReturnedAt is not null ? "returned" : DaysOverdue(loan, now) > 0 ? "overdue" : "active";
++
++    public static LoanView View(Loan loan, DateTime now) =>
++        new(loan.Id, loan.BookId, loan.MemberId, loan.LoanedAt, loan.DueAt, loan.ReturnedAt,
++            Status(loan, now), DaysOverdue(loan, now), FineCents(loan, now));
++}
+diff --git a/src/LibraryApi/Domain/Models.cs b/src/LibraryApi/Domain/Models.cs
+new file mode 100644
+index 0000000..0c0862a
+--- /dev/null
++++ b/src/LibraryApi/Domain/Models.cs
+@@ -0,0 +1,46 @@
++namespace LibraryApi.Domain;
++
++public sealed record Book(int Id, string Isbn, string Title, string Author, int Year, int Copies);
++
++public sealed record Member(int Id, string Name, string Email);
++
++public sealed record Loan(int Id, int BookId, int MemberId, DateTime LoanedAt, DateTime DueAt, DateTime? ReturnedAt);
++
++public sealed class SeedData
++{
++    public List<Book> Books { get; set; } = [];
++    public List<Member> Members { get; set; } = [];
++    public List<Loan> Loans { get; set; } = [];
++}
++
++public sealed record BookInput(string? Isbn, string? Title, string? Author, int Year, int Copies);
++
++public sealed record MemberInput(string? Name, string? Email);
++
++public sealed record LoanInput(int BookId, int MemberId);
++
++public sealed record BookView(int Id, string Isbn, string Title, string Author, int Year, int Copies, int AvailableCopies);
++
++public sealed record MemberView(int Id, string Name, string Email, int ActiveLoans, int TotalFinesCents);
++
++public sealed record LoanView(int Id, int BookId, int MemberId, DateTime LoanedAt, DateTime DueAt, DateTime? ReturnedAt,
++    string Status, int DaysOverdue, int FineCents);
++
++public sealed record PageView<T>(IReadOnlyList<T> Items, int Page, int PageSize, int TotalItems, int TotalPages)
++{
++    public static PageView<T> Create(IReadOnlyList<T> all, int page, int pageSize)
++    {
++        var items = all.Skip((page - 1) * pageSize).Take(pageSize).ToList();
++        var totalPages = (all.Count + pageSize - 1) / pageSize;
++        return new PageView<T>(items, page, pageSize, all.Count, totalPages);
++    }
++}
++
++public enum Outcome { Ok, NotFound, Conflict }
++
++public readonly record struct Result<T>(Outcome Outcome, T? Value, string? Detail)
++{
++    public static Result<T> Ok(T value) => new(Outcome.Ok, value, null);
++    public static Result<T> NotFound(string detail) => new(Outcome.NotFound, default, detail);
++    public static Result<T> Conflict(string detail) => new(Outcome.Conflict, default, detail);
++}
+diff --git a/src/LibraryApi/Domain/Validation.cs b/src/LibraryApi/Domain/Validation.cs
+new file mode 100644
+index 0000000..25d94df
+--- /dev/null
++++ b/src/LibraryApi/Domain/Validation.cs
+@@ -0,0 +1,83 @@
++namespace LibraryApi.Domain;
++
++public static class Validation
++{
++    public static Dictionary<string, string[]> Book(BookInput input)
++    {
++        var errors = new Dictionary<string, string[]>();
++        if (input.Isbn is null || input.Isbn.Length != 13 || !input.Isbn.All(char.IsAsciiDigit))
++        {
++            errors["isbn"] = ["must be exactly 13 digits"];
++        }
++        RequireText(errors, "title", input.Title, 200);
++        RequireText(errors, "author", input.Author, 100);
++        if (input.Year is < 1450 or > 2100)
++        {
++            errors["year"] = ["must be between 1450 and 2100"];
++        }
++        if (input.Copies is < 1 or > 100)
++        {
++            errors["copies"] = ["must be between 1 and 100"];
++        }
++        return errors;
++    }
++
++    public static Dictionary<string, string[]> Member(MemberInput input)
++    {
++        var errors = new Dictionary<string, string[]>();
++        RequireText(errors, "name", input.Name, 100);
++        if (!IsEmail(input.Email))
++        {
++            errors["email"] = ["must be a valid email address"];
++        }
++        return errors;
++    }
++
++    public static Dictionary<string, string[]> Loan(LoanInput input)
++    {
++        var errors = new Dictionary<string, string[]>();
++        if (input.BookId < 1)
++        {
++            errors["bookId"] = ["must be a positive integer"];
++        }
++        if (input.MemberId < 1)
++        {
++            errors["memberId"] = ["must be a positive integer"];
++        }
++        return errors;
++    }
++
++    private static void RequireText(Dictionary<string, string[]> errors, string field, string? value, int max)
++    {
++        if (string.IsNullOrWhiteSpace(value))
++        {
++            errors[field] = ["is required"];
++        }
++        else if (value.Length > max)
++        {
++            errors[field] = [$"must be at most {max} characters"];
++        }
++    }
++
++    private static bool IsEmail(string? email)
++    {
++        if (string.IsNullOrEmpty(email) || email.Length > 254 || email.Any(char.IsWhiteSpace))
++        {
++            return false;
++        }
++        var parts = email.Split('@');
++        if (parts.Length != 2 || parts[0].Length == 0)
++        {
++            return false;
++        }
++        var domain = parts[1];
++        for (var i = 1; i < domain.Length - 1; i++)
++        {
++            if (domain[i] == '.')
++            {
++                return true;
++            }
++        }
++        return false;
++    }
++}
+diff --git a/src/LibraryApi/Endpoints/BookEndpoints.cs b/src/LibraryApi/Endpoints/BookEndpoints.cs
+new file mode 100644
+index 0000000..9fac1ee
+--- /dev/null
++++ b/src/LibraryApi/Endpoints/BookEndpoints.cs
+@@ -0,0 +1,40 @@
++using LibraryApi.Domain;
++using LibraryApi.Storage;
++
++namespace LibraryApi.Endpoints;
++
++public static class BookEndpoints
++{
++    public static void MapBooks(this WebApplication app)
++    {
++        app.MapGet("/books", (HttpRequest req, LibraryStore store) =>
++        {
++            var q = new Http.Query(req.Query);
++            var sort = q.OneOf("sort", "id", "id", "-id", "title", "-title", "year", "-year")!;
++            var available = q.OneOf("available", null, "true", "false");
++            var paging = q.Page();
++            if (q.Errors.Count > 0) return Results.ValidationProblem(q.Errors);
++            var books = store.ListBooks(q.Text("author"), available is null ? null : available == "true",
++                sort.TrimStart('-'), sort.StartsWith('-'));
++            return Results.Ok(PageView<BookView>.Create(books, paging.Page, paging.PageSize));
++        });
++
++        app.MapGet("/books/{id}", (string id, LibraryStore store) =>
++            int.TryParse(id, out var n) && store.GetBook(n) is { } book
++                ? Results.Ok(book)
++                : Http.NotFound($"book {id} not found"));
++
++        app.MapPost("/books", async (HttpRequest req, LibraryStore store) =>
++        {
++            if (await Http.ReadBodyAsync<BookInput>(req) is not { } input) return Http.MalformedBody();
++            var errors = Validation.Book(input);
++            if (errors.Count > 0) return Results.ValidationProblem(errors);
++            return Http.From(store.AddBook(input), b => Results.Created($"/books/{b.Id}", b));
++        });
++
++        app.MapDelete("/books/{id}", (string id, LibraryStore store) =>
++            int.TryParse(id, out var n)
++                ? Http.From(store.DeleteBook(n), _ => Results.NoContent())
++                : Http.NotFound($"book {id} not found"));
++    }
++}
+diff --git a/src/LibraryApi/Endpoints/Http.cs b/src/LibraryApi/Endpoints/Http.cs
+new file mode 100644
+index 0000000..0207eb1
+--- /dev/null
++++ b/src/LibraryApi/Endpoints/Http.cs
+@@ -0,0 +1,73 @@
++using System.Text.Json;
++using System.Text.Json.Serialization;
++using LibraryApi.Domain;
++
++namespace LibraryApi.Endpoints;
++
++/// <summary>Shared HTTP plumbing: body reading, query parsing and problem responses.</summary>
++public static class Http
++{
++    private static readonly JsonSerializerOptions ReadOptions = new(JsonSerializerDefaults.Web)
++    {
++        NumberHandling = JsonNumberHandling.Strict,
++    };
++
++    public static async Task<T?> ReadBodyAsync<T>(HttpRequest request) where T : class
++    {
++        try
++        {
++            return await JsonSerializer.DeserializeAsync<T>(request.Body, ReadOptions, request.HttpContext.RequestAborted);
++        }
++        catch (JsonException)
++        {
++            return null;
++        }
++    }
++
++    public static IResult MalformedBody() =>
++        Results.Problem(statusCode: StatusCodes.Status400BadRequest, detail: "request body must be a valid JSON object");
++
++    public static IResult NotFound(string detail) =>
++        Results.Problem(statusCode: StatusCodes.Status404NotFound, detail: detail);
++
++    public static IResult From<T>(Result<T> result, Func<T, IResult> ok) => result.Outcome switch
++    {
++        Outcome.Ok => ok(result.Value!),
++        Outcome.NotFound => NotFound(result.Detail!),
++        _ => Results.Problem(statusCode: StatusCodes.Status409Conflict, detail: result.Detail),
++    };
++
++    /// <summary>Collects query-parameter errors; empty values count as absent.</summary>
++    public sealed class Query(IQueryCollection query)
++    {
++        public Dictionary<string, string[]> Errors { get; } = new();
++
++        public string? Text(string name)
++        {
++            var v = query[name].ToString();
++            return v.Length == 0 ? null : v;
++        }
++
++        public int? Int(string name, int min, int max, int? fallback)
++        {
++            var v = Text(name);
++            if (v is null) return fallback;
++            if (int.TryParse(v, out var n) && n >= min && n <= max) return n;
++            Errors[name] = [max == int.MaxValue ? $"must be an integer >= {min}" : $"must be between {min} and {max}"];
++            return fallback;
++        }
++
++        public string? OneOf(string name, string? fallback, params string[] allowed)
++        {
++            var v = Text(name);
++            if (v is null) return fallback;
++            if (allowed.Contains(v)) return v;
++            Errors[name] = [$"must be one of {string.Join(", ", allowed)}"];
++            return fallback;
++        }
++
++        public PageArgs Page() => new(Int("page", 1, int.MaxValue, 1)!.Value, Int("pageSize", 1, 50, 10)!.Value);
++    }
++
++    public readonly record struct PageArgs(int Page, int PageSize);
++}
+diff --git a/src/LibraryApi/Endpoints/LoanEndpoints.cs b/src/LibraryApi/Endpoints/LoanEndpoints.cs
+new file mode 100644
+index 0000000..bb8b23b
+--- /dev/null
++++ b/src/LibraryApi/Endpoints/LoanEndpoints.cs
+@@ -0,0 +1,40 @@
++using LibraryApi.Domain;
++using LibraryApi.Storage;
++
++namespace LibraryApi.Endpoints;
++
++public static class LoanEndpoints
++{
++    public static void MapLoans(this WebApplication app)
++    {
++        app.MapGet("/loans", (HttpRequest req, LibraryStore store) =>
++        {
++            var q = new Http.Query(req.Query);
++            var memberId = q.Int("memberId", 1, int.MaxValue, null);
++            var bookId = q.Int("bookId", 1, int.MaxValue, null);
++            var status = q.OneOf("status", null, "active", "overdue", "returned");
++            var paging = q.Page();
++            if (q.Errors.Count > 0) return Results.ValidationProblem(q.Errors);
++            var loans = store.ListLoans(memberId, bookId, status);
++            return Results.Ok(PageView<LoanView>.Create(loans, paging.Page, paging.PageSize));
++        });
++
++        app.MapGet("/loans/{id}", (string id, LibraryStore store) =>
++            int.TryParse(id, out var n) && store.GetLoan(n) is { } loan
++                ? Results.Ok(loan)
++                : Http.NotFound($"loan {id} not found"));
++
++        app.MapPost("/loans", async (HttpRequest req, LibraryStore store) =>
++        {
++            if (await Http.ReadBodyAsync<LoanInput>(req) is not { } input) return Http.MalformedBody();
++            var errors = Validation.Loan(input);
++            if (errors.Count > 0) return Results.ValidationProblem(errors);
++            return Http.From(store.AddLoan(input), l => Results.Created($"/loans/{l.Id}", l));
++        });
++
++        app.MapPost("/loans/{id}/return", (string id, LibraryStore store) =>
++            int.TryParse(id, out var n)
++                ? Http.From(store.ReturnLoan(n), Results.Ok)
++                : Http.NotFound($"loan {id} not found"));
++    }
++}
+diff --git a/src/LibraryApi/Endpoints/MemberEndpoints.cs b/src/LibraryApi/Endpoints/MemberEndpoints.cs
+new file mode 100644
+index 0000000..38ce3da
+--- /dev/null
++++ b/src/LibraryApi/Endpoints/MemberEndpoints.cs
+@@ -0,0 +1,23 @@
++using LibraryApi.Domain;
++using LibraryApi.Storage;
++
++namespace LibraryApi.Endpoints;
++
++public static class MemberEndpoints
++{
++    public static void MapMembers(this WebApplication app)
++    {
++        app.MapGet("/members/{id}", (string id, LibraryStore store) =>
++            int.TryParse(id, out var n) && store.GetMember(n) is { } member
++                ? Results.Ok(member)
++                : Http.NotFound($"member {id} not found"));
++
++        app.MapPost("/members", async (HttpRequest req, LibraryStore store) =>
++        {
++            if (await Http.ReadBodyAsync<MemberInput>(req) is not { } input) return Http.MalformedBody();
++            var errors = Validation.Member(input);
++            if (errors.Count > 0) return Results.ValidationProblem(errors);
++            return Http.From(store.AddMember(input), m => Results.Created($"/members/{m.Id}", m));
++        });
++    }
++}
+diff --git a/src/LibraryApi/LibraryApi.csproj b/src/LibraryApi/LibraryApi.csproj
+new file mode 100644
+index 0000000..3ea8229
+--- /dev/null
++++ b/src/LibraryApi/LibraryApi.csproj
+@@ -0,0 +1,11 @@
++<Project Sdk="Microsoft.NET.Sdk.Web">
++
++  <PropertyGroup>
++    <TargetFramework>net8.0</TargetFramework>
++    <Nullable>enable</Nullable>
++    <ImplicitUsings>enable</ImplicitUsings>
++    <AssemblyName>LibraryApi</AssemblyName>
++    <RootNamespace>LibraryApi</RootNamespace>
++  </PropertyGroup>
++
++</Project>
+diff --git a/src/LibraryApi/Program.cs b/src/LibraryApi/Program.cs
+new file mode 100644
+index 0000000..81f1213
+--- /dev/null
++++ b/src/LibraryApi/Program.cs
+@@ -0,0 +1,68 @@
++using System.Text.Json;
++using LibraryApi;
++using LibraryApi.Domain;
++using LibraryApi.Endpoints;
++using LibraryApi.Storage;
++
++var builder = WebApplication.CreateBuilder(args);
++var config = builder.Configuration;
++
++static string? Setting(IConfiguration config, string arg, string env)
++{
++    var value = config[arg];
++    if (string.IsNullOrEmpty(value)) value = config[env];
++    return string.IsNullOrEmpty(value) ? null : value;
++}
++
++IClock clock = new SystemClock();
++if (Setting(config, "now", "LIBRARY_NOW") is { } nowText)
++{
++    if (!FixedClock.TryParse(nowText, out var fixedClock))
++    {
++        Console.Error.WriteLine($"invalid --now value: {nowText}");
++        return 1;
++    }
++    clock = fixedClock!;
++}
++
++var seedPath = Setting(config, "seed", "LIBRARY_SEED") ?? Path.Combine("data", "seed.json");
++SeedData seed;
++try
++{
++    seed = JsonSerializer.Deserialize<SeedData>(File.ReadAllText(seedPath), new JsonSerializerOptions(JsonSerializerDefaults.Web))
++        ?? throw new JsonException("seed file is empty");
++}
++catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
++{
++    Console.Error.WriteLine($"cannot load seed file {seedPath}: {ex.Message}");
++    return 1;
++}
++
++var apiKey = Setting(config, "LIBRARY_API_KEY", "LIBRARY_API_KEY") ?? "dev-key";
++
++builder.Services.AddSingleton(clock);
++builder.Services.AddSingleton(new LibraryStore(seed, clock));
++builder.Services.AddProblemDetails();
++
++var app = builder.Build();
++
++// Write routes (POST/DELETE) need the API key; checked before routing, binding or lookups.
++app.Use(async (ctx, next) =>
++{
++    if ((HttpMethods.IsPost(ctx.Request.Method) || HttpMethods.IsDelete(ctx.Request.Method))
++        && ctx.Request.Headers["X-Api-Key"].ToString() != apiKey)
++    {
++        await Results.Problem(statusCode: StatusCodes.Status401Unauthorized, detail: "missing or invalid API key")
++            .ExecuteAsync(ctx);
++        return;
++    }
++    await next(ctx);
++});
++
++app.MapGet("/health", (IClock c) => Results.Ok(new { status = "ok", now = c.UtcNow }));
++app.MapBooks();
++app.MapMembers();
++app.MapLoans();
++
++app.Run();
++return 0;
+diff --git a/src/LibraryApi/Storage/LibraryStore.cs b/src/LibraryApi/Storage/LibraryStore.cs
+new file mode 100644
+index 0000000..cd3f126
+--- /dev/null
++++ b/src/LibraryApi/Storage/LibraryStore.cs
+@@ -0,0 +1,179 @@
++using LibraryApi.Domain;
++
++namespace LibraryApi.Storage;
++
++/// <summary>In-memory library data. Every operation runs under one lock so rules stay consistent.</summary>
++public sealed class LibraryStore
++{
++    private readonly object _gate = new();
++    private readonly IClock _clock;
++    private readonly SortedDictionary<int, Book> _books = new();
++    private readonly SortedDictionary<int, Member> _members = new();
++    private readonly SortedDictionary<int, Loan> _loans = new();
++    private int _nextBookId;
++    private int _nextMemberId;
++    private int _nextLoanId;
++
++    public LibraryStore(SeedData seed, IClock clock)
++    {
++        _clock = clock;
++        foreach (var b in seed.Books) _books[b.Id] = b;
++        foreach (var m in seed.Members) _members[m.Id] = m;
++        foreach (var l in seed.Loans) _loans[l.Id] = l;
++        _nextBookId = _books.Keys.DefaultIfEmpty(0).Max() + 1;
++        _nextMemberId = _members.Keys.DefaultIfEmpty(0).Max() + 1;
++        _nextLoanId = _loans.Keys.DefaultIfEmpty(0).Max() + 1;
++    }
++
++    public List<BookView> ListBooks(string? author, bool? available, string sort, bool descending)
++    {
++        lock (_gate)
++        {
++            IEnumerable<BookView> q = _books.Values.Select(BookViewOf);
++            if (!string.IsNullOrEmpty(author))
++            {
++                q = q.Where(b => b.Author.Contains(author, StringComparison.OrdinalIgnoreCase));
++            }
++            if (available is bool want)
++            {
++                q = q.Where(b => (b.AvailableCopies > 0) == want);
++            }
++            var list = q.ToList();
++            int Compare(BookView a, BookView b)
++            {
++                var c = sort switch
++                {
++                    "title" => string.CompareOrdinal(a.Title, b.Title),
++                    "year" => a.Year.CompareTo(b.Year),
++                    _ => a.Id.CompareTo(b.Id),
++                };
++                return c != 0 ? (descending ? -c : c) : a.Id.CompareTo(b.Id);
++            }
++            list.Sort(Compare);
++            return list;
++        }
++    }
++
++    public BookView? GetBook(int id)
++    {
++        lock (_gate) return _books.TryGetValue(id, out var b) ? BookViewOf(b) : null;
++    }
++
++    public Result<BookView> AddBook(BookInput input)
++    {
++        lock (_gate)
++        {
++            if (_books.Values.Any(b => b.Isbn == input.Isbn))
++            {
++                return Result<BookView>.Conflict($"a book with isbn {input.Isbn} already exists");
++            }
++            var book = new Book(_nextBookId++, input.Isbn!, input.Title!, input.Author!, input.Year, input.Copies);
++            _books[book.Id] = book;
++            return Result<BookView>.Ok(BookViewOf(book));
++        }
++    }
++
++    public Result<bool> DeleteBook(int id)
++    {
++        lock (_gate)
++        {
++            if (!_books.ContainsKey(id)) return Result<bool>.NotFound($"book {id} not found");
++            if (_loans.Values.Any(l => l.BookId == id && l.ReturnedAt is null))
++            {
++                return Result<bool>.Conflict($"book {id} has unreturned loans");
++            }
++            _books.Remove(id);
++            return Result<bool>.Ok(true);
++        }
++    }
++
++    public MemberView? GetMember(int id)
++    {
++        lock (_gate) return _members.TryGetValue(id, out var m) ? MemberViewOf(m) : null;
++    }
++
++    public Result<MemberView> AddMember(MemberInput input)
++    {
++        lock (_gate)
++        {
++            if (_members.Values.Any(m => string.Equals(m.Email, input.Email, StringComparison.OrdinalIgnoreCase)))
++            {
++                return Result<MemberView>.Conflict($"a member with email {input.Email} already exists");
++            }
++            var member = new Member(_nextMemberId++, input.Name!, input.Email!);
++            _members[member.Id] = member;
++            return Result<MemberView>.Ok(MemberViewOf(member));
++        }
++    }
++
++    public List<LoanView> ListLoans(int? memberId, int? bookId, string? status)
++    {
++        lock (_gate)
++        {
++            var now = _clock.UtcNow;
++            return _loans.Values
++                .Where(l => memberId is null || l.MemberId == memberId)
++                .Where(l => bookId is null || l.BookId == bookId)
++                .Select(l => LoanRules.View(l, now))
++                .Where(v => status is null || v.Status == status)
++                .ToList();
++        }
++    }
++
++    public LoanView? GetLoan(int id)
++    {
++        lock (_gate) return _loans.TryGetValue(id, out var l) ? LoanRules.View(l, _clock.UtcNow) : null;
++    }
++
++    public Result<LoanView> AddLoan(LoanInput input)
++    {
++        lock (_gate)
++        {
++            var now = _clock.UtcNow;
++            if (!_members.ContainsKey(input.MemberId)) return Result<LoanView>.NotFound($"member {input.MemberId} not found");
++            if (!_books.TryGetValue(input.BookId, out var book)) return Result<LoanView>.NotFound($"book {input.BookId} not found");
++            var open = _loans.Values.Where(l => l.MemberId == input.MemberId && l.ReturnedAt is null).ToList();
++            if (open.Any(l => LoanRules.DaysOverdue(l, now) > 0))
++            {
++                return Result<LoanView>.Conflict($"member {input.MemberId} has overdue loans");
++            }
++            if (open.Count >= LoanRules.MaxActiveLoans)
++            {
++                return Result<LoanView>.Conflict($"member {input.MemberId} already has {LoanRules.MaxActiveLoans} unreturned loans");
++            }
++            if (Available(book) <= 0)
++            {
++                return Result<LoanView>.Conflict($"book {book.Id} has no available copy");
++            }
++            var loan = new Loan(_nextLoanId++, book.Id, input.MemberId, now, now.AddDays(LoanRules.LoanDays), null);
++            _loans[loan.Id] = loan;
++            return Result<LoanView>.Ok(LoanRules.View(loan, now));
++        }
++    }
++
++    public Result<LoanView> ReturnLoan(int id)
++    {
++        lock (_gate)
++        {
++            var now = _clock.UtcNow;
++            if (!_loans.TryGetValue(id, out var loan)) return Result<LoanView>.NotFound($"loan {id} not found");
++            if (loan.ReturnedAt is not null) return Result<LoanView>.Conflict($"loan {id} was already returned");
++            loan = loan with { ReturnedAt = now };
++            _loans[id] = loan;
++            return Result<LoanView>.Ok(LoanRules.View(loan, now));
++        }
++    }
++
++    private int Available(Book book) =>
++        book.Copies - _loans.Values.Count(l => l.BookId == book.Id && l.ReturnedAt is null);
++
++    private BookView BookViewOf(Book b) => new(b.Id, b.Isbn, b.Title, b.Author, b.Year, b.Copies, Available(b));
++
++    private MemberView MemberViewOf(Member m)
++    {
++        var now = _clock.UtcNow;
++        var loans = _loans.Values.Where(l => l.MemberId == m.Id).ToList();
++        return new MemberView(m.Id, m.Name, m.Email, loans.Count(l => l.ReturnedAt is null),
++            loans.Sum(l => LoanRules.FineCents(l, now)));
++    }
++}
+diff --git a/tests/LibraryApi.Tests/LibraryApi.Tests.csproj b/tests/LibraryApi.Tests/LibraryApi.Tests.csproj
+new file mode 100644
+index 0000000..216767f
+--- /dev/null
++++ b/tests/LibraryApi.Tests/LibraryApi.Tests.csproj
+@@ -0,0 +1,25 @@
++<Project Sdk="Microsoft.NET.Sdk">
++
++  <PropertyGroup>
++    <TargetFramework>net8.0</TargetFramework>
++    <ImplicitUsings>enable</ImplicitUsings>
++    <Nullable>enable</Nullable>
++    <IsPackable>false</IsPackable>
++    <IsTestProject>true</IsTestProject>
++  </PropertyGroup>
++
++  <ItemGroup>
++    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.8.0" />
++    <PackageReference Include="xunit" Version="2.5.3" />
++    <PackageReference Include="xunit.runner.visualstudio" Version="2.5.3" />
++  </ItemGroup>
++
++  <ItemGroup>
++    <Using Include="Xunit" />
++  </ItemGroup>
++
++  <ItemGroup>
++    <ProjectReference Include="..\..\src\LibraryApi\LibraryApi.csproj" />
++  </ItemGroup>
++
++</Project>
+diff --git a/tests/LibraryApi.Tests/LoanRulesTests.cs b/tests/LibraryApi.Tests/LoanRulesTests.cs
+new file mode 100644
+index 0000000..f74990c
+--- /dev/null
++++ b/tests/LibraryApi.Tests/LoanRulesTests.cs
+@@ -0,0 +1,76 @@
++using LibraryApi;
++using LibraryApi.Domain;
++using LibraryApi.Storage;
++
++namespace LibraryApi.Tests;
++
++public class LoanRulesTests
++{
++    private static readonly DateTime Now = new(2026, 3, 10, 9, 0, 0, DateTimeKind.Utc);
++
++    private static Loan LoanDue(DateTime due, DateTime? returned = null) =>
++        new(1, 1, 1, due.AddDays(-14), due, returned);
++
++    [Fact]
++    public void LoanDueTodayIsNotOverdue()
++    {
++        var loan = LoanDue(Now.AddHours(-2));
++        Assert.Equal(0, LoanRules.DaysOverdue(loan, Now));
++        Assert.Equal("active", LoanRules.Status(loan, Now));
++    }
++
++    [Fact]
++    public void FineIsChargedPerCalendarDayAndCapped()
++    {
++        Assert.Equal(100, LoanRules.FineCents(LoanDue(Now.AddDays(-4)), Now));
++        Assert.Equal(1000, LoanRules.FineCents(LoanDue(Now.AddDays(-90)), Now));
++    }
++
++    [Fact]
++    public void ReturnedLoanFineIsFixedAtReturnTime()
++    {
++        var due = Now.AddDays(-10);
++        var loan = LoanDue(due, due.AddDays(2));
++        Assert.Equal(50, LoanRules.FineCents(loan, Now));
++        Assert.Equal("returned", LoanRules.Status(loan, Now));
++    }
++}
++
++public class LibraryStoreTests
++{
++    private static readonly FixedClock Clock = new(new DateTime(2026, 3, 10, 9, 0, 0, DateTimeKind.Utc));
++
++    private static LibraryStore NewStore() => new(new SeedData
++    {
++        Books = [new Book(1, "9780000000011", "A", "Author", 2000, 1)],
++        Members = [new Member(1, "Ada", "ada@example.org")],
++    }, Clock);
++
++    [Fact]
++    public void LoanUsesClockAndBlocksLastCopy()
++    {
++        var store = NewStore();
++        var first = store.AddLoan(new LoanInput(1, 1));
++        Assert.Equal(Outcome.Ok, first.Outcome);
++        Assert.Equal(Clock.UtcNow.AddDays(14), first.Value!.DueAt);
++        Assert.Equal(Outcome.Conflict, store.AddLoan(new LoanInput(1, 1)).Outcome);
++    }
++
++    [Fact]
++    public void DuplicateIsbnAndEmailConflict()
++    {
++        var store = NewStore();
++        Assert.Equal(Outcome.Conflict, store.AddBook(new BookInput("9780000000011", "B", "C", 2001, 1)).Outcome);
++        Assert.Equal(Outcome.Conflict, store.AddMember(new MemberInput("X", "ADA@example.org")).Outcome);
++    }
++
++    [Theory]
++    [InlineData("a@example.org", true)]
++    [InlineData("a@example", false)]
++    [InlineData("a@b@example.org", false)]
++    [InlineData("a b@example.org", false)]
++    public void EmailValidation(string email, bool valid)
++    {
++        Assert.Equal(valid, Validation.Member(new MemberInput("Name", email)).Count == 0);
++    }
++}

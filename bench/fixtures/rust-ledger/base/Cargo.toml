@@ -1,0 +1,12 @@
+[package]
+name = "tally"
+version = "0.4.2"
+edition = "2021"
+description = "A small plain-text expense ledger for the command line"
+license = "MIT"
+publish = false
+
+[dependencies]
+
+[profile.dev]
+debug = false

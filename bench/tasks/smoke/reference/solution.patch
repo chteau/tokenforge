@@ -1,0 +1,21 @@
+--- a/textutil/slug.py
++++ b/textutil/slug.py
+@@ -3,5 +3,5 @@ import re
+ 
+ def slugify(text: str) -> str:
+     """Lowercase, replace non-alphanumerics with '-', trim dashes."""
+-    s = re.sub(r"[^a-z0-9]", "-", text.lower())
++    s = re.sub(r"[^a-z0-9]+", "-", text.lower())
+     return s.strip("-")
+--- a/tests/test_slug.py
++++ b/tests/test_slug.py
+@@ -9,6 +9,9 @@ class SlugTest(unittest.TestCase):
+     def test_trim(self):
+         self.assertEqual(slugify("  Hi  "), "hi")
+ 
++    def test_collapse(self):
++        self.assertEqual(slugify("a  --  b"), "a-b")
++
+ 
+ if __name__ == "__main__":
+     unittest.main()

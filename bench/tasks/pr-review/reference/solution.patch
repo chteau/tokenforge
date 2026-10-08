@@ -1,0 +1,56 @@
+diff --git a/review.json b/review.json
+new file mode 100644
+--- /dev/null
++++ b/review.json
+@@ -0,0 +1,51 @@
++[
++  {
++    "file": "internal/services/exports.go",
++    "line": 93,
++    "severity": "critical",
++    "title": "Any user can export another customer's invoices",
++    "explanation": "customer_id from the request body is used as-is without checking the caller's role. A regular user can pass any customer ID and download that customer's invoices. Elsewhere (ListInvoices) non billing admins are always forced to their own customer ID; the same authorization rule is missing here. Only billing_admin should be allowed to set customer_id."
++  },
++  {
++    "file": "internal/services/exports.go",
++    "line": 109,
++    "severity": "high",
++    "title": "Path traversal via file_name",
++    "explanation": "file_name is only length-checked and then joined into the export directory. A value such as ../../etc/cron.d/x writes a file outside the export directory (and the download endpoint later serves whatever path was stored). Validate the name against a strict pattern or use filepath.Base and verify the result stays inside s.dir."
++  },
++  {
++    "file": "internal/services/exports.go",
++    "line": 110,
++    "severity": "high",
++    "title": "Data race on the jobs map and job fields",
++    "explanation": "s.jobs is written from request goroutines, read from GetExport/OpenDownload and the *Job is mutated by the background goroutine in run() without any mutex. Concurrent map writes can crash the process and status reads are racy (go test -race flags it). Protect the map and job updates with a sync.RWMutex or store jobs in a repository with atomic Update."
++  },
++  {
++    "file": "internal/services/exports.go",
++    "line": 234,
++    "severity": "high",
++    "title": "Error message leaks the expected HMAC signature",
++    "explanation": "On a signature mismatch the error returned to the client includes the expected signature. Anyone who knows an export ID can request the download URL with a bogus sig, read the correct one from the 403 response and forge a valid link, bypassing the signed-link protection entirely. Return a generic message."
++  },
++  {
++    "file": "internal/handlers/exports.go",
++    "line": 24,
++    "severity": "medium",
++    "title": "Create handler maps every service error to 500",
++    "explanation": "createInvoiceExport writes StatusInternalServerError with err.Error() instead of calling h.fail. Validation errors (422), the feature flag check (403) and others become 500s, and unclassified internal errors are echoed to the client. Use the existing responder error mapping."
++  },
++  {
++    "file": "internal/services/exports.go",
++    "line": 217,
++    "severity": "medium",
++    "title": "Download links never expire by default",
++    "explanation": "When ExportLinkTTL is zero (the default when EXPORT_LINK_TTL is unset) expires is 0, and OpenDownload skips the expiry check for 0, so signed links stay valid forever. Use a safe default TTL and reject links without an expiry."
++  },
++  {
++    "file": "internal/services/exports.go",
++    "line": 153,
++    "severity": "medium",
++    "title": "Inclusive 'to' date drops invoices from the last day (off-by-one)",
++    "explanation": "to is parsed as midnight at the start of the end date and the filter keeps only invoices created before it, so everything created on the last day of the range is excluded even though the API documents both dates as inclusive. Compare against to.AddDate(0, 0, 1)."
++  }
++]

@@ -1,0 +1,4 @@
+[budgets]
+groceries = 300
+[settings]
+warn_ratio = 1.5

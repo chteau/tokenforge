@@ -1,0 +1,644 @@
+diff --git a/README.md b/README.md
+index 8b1b87b..f3b43fe 100644
+--- a/README.md
++++ b/README.md
+@@ -59,6 +59,10 @@ Global options, accepted anywhere on the command line:
+ | `report monthly [--year YYYY]` | Totals per month with a grand total. |
+ | `report categories [--filter EXPR] [--month M \| --from D --to D]` | Spending breakdown by category, largest first, with each category's share of spending. |
+ | `import FILE [--category C] [--dry-run]` | Import a bank CSV export. |
++| `budget set CATEGORY AMOUNT` | Set (or replace) the monthly spending limit of a category. |
++| `budget list` | Show all budgets. |
++| `budget remove CATEGORY` | Delete a budget. |
++| `budget status [--month YYYY-MM]` | Compare each budget with the month's expenses (default: current month). |
+ | `config` | Show every configuration key, its value and where it came from. |
+ 
+ ### Values
+@@ -118,12 +122,24 @@ skip_duplicates = true     ; skip rows matching an existing entry
+ 
+ [cache]
+ enabled = true
++
++[budget]
++warn_percent = 80          ; budget status turns to "warning" at this share
+ ```
+ 
+ Any key can be overridden from the environment as
+ `TALLY_<SECTION>_<KEY>`, for example `TALLY_OUTPUT_FORMAT=json`.
+ Unknown keys are an error.
+ 
++## Budgets
++
++Budgets are monthly spending limits per category, stored in `budgets.txt`.
++`tally budget status` shows, for each budgeted category, the limit, what was
++spent in the month (expenses only), what remains, the share used, and a
++status: `ok`, `warning` once spending reaches `budget.warn_percent` of the
++limit, or `over` when spending exceeds it. Renaming a category moves its
++budget along with its entries.
++
+ ## Importing bank exports
+ 
+ `tally import` reads the CSV format most banks offer:
+diff --git a/src/cli/help.rs b/src/cli/help.rs
+index 87af390..1f9e243 100644
+--- a/src/cli/help.rs
++++ b/src/cli/help.rs
+@@ -15,6 +15,7 @@ commands:
+   report categories [selection]       spending breakdown by category
+   import FILE [--category C] [--dry-run]
+                                       import a bank CSV export
++  budget set|list|remove|status       monthly spending limits per category
+   config                              show the effective configuration
+   help [COMMAND]                      show help
+ 
+@@ -56,6 +57,17 @@ usage: tally report monthly [--year YYYY]
+ usage: tally import FILE [--category C] [--dry-run]
+ 
+ FILE is a bank CSV export with Date (DD/MM/YYYY), Description and Amount columns.
++"
++        }
++        "budget" => {
++            "\
++usage: tally budget set CATEGORY AMOUNT
++       tally budget list
++       tally budget remove CATEGORY
++       tally budget status [--month YYYY-MM]
++
++A budget is a monthly spending limit for one category. `status` compares each
++limit with the expenses of the month (default: the current month).
+ "
+         }
+         "remove" => "usage: tally remove ID\n",
+diff --git a/src/cli/mod.rs b/src/cli/mod.rs
+index ee73826..af89794 100644
+--- a/src/cli/mod.rs
++++ b/src/cli/mod.rs
+@@ -33,6 +33,7 @@ pub enum Command {
+     Categories,
+     Report(ReportArgs),
+     Import(ImportArgs),
++    Budget(BudgetArgs),
+     Config,
+     Help { topic: Option<String> },
+     Version,
+@@ -108,6 +109,14 @@ pub enum ReportArgs {
+     Categories(Selection),
+ }
+ 
++#[derive(Debug, Clone, PartialEq)]
++pub enum BudgetArgs {
++    Set { category: String, amount: Money },
++    List,
++    Remove { category: String },
++    Status { month: Option<YearMonth> },
++}
++
+ #[derive(Debug, Clone, PartialEq)]
+ pub struct ImportArgs {
+     pub path: PathBuf,
+diff --git a/src/cli/parser.rs b/src/cli/parser.rs
+index e8689fb..d7bc48b 100644
+--- a/src/cli/parser.rs
++++ b/src/cli/parser.rs
+@@ -2,7 +2,8 @@ use std::path::PathBuf;
+ use std::str::FromStr;
+ 
+ use super::{
+-    AddArgs, Command, EditArgs, ImportArgs, Invocation, ListArgs, ReportArgs, Selection, SortKey,
++    AddArgs, BudgetArgs, Command, EditArgs, ImportArgs, Invocation, ListArgs, ReportArgs,
++    Selection, SortKey,
+ };
+ use crate::error::{Error, Result};
+ use crate::model::Kind;
+@@ -261,6 +262,7 @@ fn parse_command(name: &str, rest: &[String]) -> Result<Command> {
+                 dry_run: a.flag("dry-run"),
+             }))
+         }
++        "budget" => parse_budget(rest),
+         "config" => {
+             Args::split("config", rest, &[])?.expect_positionals(&[])?;
+             Ok(Command::Config)
+@@ -409,6 +411,49 @@ fn parse_report(rest: &[String]) -> Result<Command> {
+     }
+ }
+ 
++fn parse_budget(rest: &[String]) -> Result<Command> {
++    let Some(action) = rest.first() else {
++        return Err(Error::usage(
++            "'budget' needs an action: set, list, remove or status",
++        ));
++    };
++    let rest = &rest[1..];
++    let args = match action.as_str() {
++        "set" => {
++            let a = Args::split("budget set", rest, &[])?;
++            a.expect_positionals(&["CATEGORY", "AMOUNT"])?;
++            BudgetArgs::Set {
++                category: a.positionals[0].clone(),
++                amount: Money::parse(&a.positionals[1]).map_err(Error::Usage)?,
++            }
++        }
++        "list" => {
++            Args::split("budget list", rest, &[])?.expect_positionals(&[])?;
++            BudgetArgs::List
++        }
++        "remove" | "rm" => {
++            let a = Args::split("budget remove", rest, &[])?;
++            a.expect_positionals(&["CATEGORY"])?;
++            BudgetArgs::Remove {
++                category: a.positionals[0].clone(),
++            }
++        }
++        "status" => {
++            let a = Args::split("budget status", rest, &[("month", true)])?;
++            a.expect_positionals(&[])?;
++            BudgetArgs::Status {
++                month: a.typed::<YearMonth>("month")?,
++            }
++        }
++        other => {
++            return Err(Error::usage(format!(
++                "unknown budget action '{other}' (expected set, list, remove or status)"
++            )))
++        }
++    };
++    Ok(Command::Budget(args))
++}
++
+ #[cfg(test)]
+ mod tests {
+     use super::*;
+@@ -458,6 +503,22 @@ mod tests {
+         assert!(matches!(inv.command, Command::Add(a) if a.amount == Money(-500)));
+     }
+ 
++    #[test]
++    fn parses_budget_actions() {
++        let inv = parse(&argv("budget set Food 250")).unwrap();
++        assert!(matches!(
++            inv.command,
++            Command::Budget(BudgetArgs::Set { ref category, amount }) if category == "Food" && amount == Money(25000)
++        ));
++        let inv = parse(&argv("budget status --month 2026-02")).unwrap();
++        assert!(matches!(
++            inv.command,
++            Command::Budget(BudgetArgs::Status { month: Some(_) })
++        ));
++        assert_eq!(parse(&argv("budget")).unwrap_err().exit_code(), 2);
++        assert_eq!(parse(&argv("budget grow")).unwrap_err().exit_code(), 2);
++    }
++
+     #[test]
+     fn edit_tags() {
+         let inv = parse(&argv("edit 3 --clear-tags")).unwrap();
+diff --git a/src/commands/budget.rs b/src/commands/budget.rs
+new file mode 100644
+index 0000000..7e3060e
+--- /dev/null
++++ b/src/commands/budget.rs
+@@ -0,0 +1,51 @@
++use super::Context;
++use crate::cli::BudgetArgs;
++use crate::error::{Error, Result};
++use crate::model::validate;
++use crate::output::{Cell, Column, Table};
++use crate::report;
++use crate::util::Date;
++
++pub fn run(ctx: &mut Context, args: BudgetArgs) -> Result<()> {
++    let store = ctx.store()?;
++    match args {
++        BudgetArgs::Set { category, amount } => {
++            let category = validate::category(&category)?;
++            let amount = validate::amount(amount)?;
++            let mut budgets = store.load_budgets()?;
++            budgets.insert(category.clone(), amount);
++            store.save_budgets(&budgets)?;
++            ctx.say(&format!(
++                "set budget for '{category}' to {}",
++                amount.to_decimal()
++            ))
++        }
++        BudgetArgs::List => {
++            let budgets = store.load_budgets()?;
++            let mut table = Table::new(vec![Column::left("category"), Column::right("limit")]);
++            for (category, limit) in &budgets {
++                table.push(vec![Cell::text(category.clone()), Cell::Money(*limit)]);
++            }
++            ctx.render(&table)
++        }
++        BudgetArgs::Remove { category } => {
++            let category = category.trim().to_lowercase();
++            let mut budgets = store.load_budgets()?;
++            if budgets.remove(&category).is_none() {
++                return Err(Error::NotFound(format!(
++                    "no budget for category '{category}'"
++                )));
++            }
++            store.save_budgets(&budgets)?;
++            ctx.say(&format!("removed budget for '{category}'"))
++        }
++        BudgetArgs::Status { month } => {
++            let month = month.unwrap_or_else(|| Date::today_utc().year_month());
++            let budgets = store.load_budgets()?;
++            let ledger = store.load()?;
++            let warn = ctx.config.get_count("budget.warn_percent");
++            let table = report::budget_status(&budgets, &ledger.entries, month, warn);
++            ctx.render(&table)
++        }
++    }
++}
+diff --git a/src/commands/mod.rs b/src/commands/mod.rs
+index 18de862..a3e0667 100644
+--- a/src/commands/mod.rs
++++ b/src/commands/mod.rs
+@@ -1,6 +1,7 @@
+ //! One module per sub-command. Each exposes `run(ctx, args)`.
+ 
+ mod add;
++mod budget;
+ mod categories;
+ mod config;
+ mod edit;
+@@ -74,6 +75,7 @@ pub fn dispatch(command: Command, ctx: &mut Context) -> Result<()> {
+         Command::Categories => categories::run(ctx),
+         Command::Report(args) => report::run(ctx, args),
+         Command::Import(args) => import::run(ctx, args),
++        Command::Budget(args) => budget::run(ctx, args),
+         Command::Config => config::run(ctx),
+         Command::Help { .. } | Command::Version => Ok(()),
+     }
+diff --git a/src/commands/rename.rs b/src/commands/rename.rs
+index b7a96d0..9830a7a 100644
+--- a/src/commands/rename.rs
++++ b/src/commands/rename.rs
+@@ -20,6 +20,11 @@ pub fn run(ctx: &mut Context, from: &str, to: &str) -> Result<()> {
+         ledger.entries[pos].category = to.clone();
+     }
+     store.save(&ledger)?;
++    let mut budgets = store.load_budgets()?;
++    if let Some(limit) = budgets.remove(&from) {
++        budgets.entry(to.clone()).or_insert(limit);
++        store.save_budgets(&budgets)?;
++    }
+     ctx.say(&format!(
+         "renamed '{from}' to '{to}' ({})",
+         plural(positions.len(), "entry", "entries")
+diff --git a/src/config.rs b/src/config.rs
+index 5487ab7..d5dfdfc 100644
+--- a/src/config.rs
++++ b/src/config.rs
+@@ -39,6 +39,7 @@ const KEYS: &[(&str, &str, ValueKind)] = &[
+     ("import.default_category", "uncategorized", ValueKind::Text),
+     ("import.skip_duplicates", "true", ValueKind::Bool),
+     ("cache.enabled", "true", ValueKind::Bool),
++    ("budget.warn_percent", "80", ValueKind::Count),
+ ];
+ 
+ #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+diff --git a/src/report/mod.rs b/src/report/mod.rs
+index 3357634..3536fa4 100644
+--- a/src/report/mod.rs
++++ b/src/report/mod.rs
+@@ -5,7 +5,8 @@ use std::collections::BTreeMap;
+ use crate::cache::{Summary, Totals};
+ use crate::model::{Entry, Kind};
+ use crate::output::{percent_tenths, Cell, Column, Table};
+-use crate::util::Money;
++use crate::store::budgets::Budgets;
++use crate::util::{Money, YearMonth};
+ 
+ fn totals_cells(t: &Totals) -> Vec<Cell> {
+     vec![
+@@ -111,6 +112,61 @@ pub fn category_breakdown(entries: &[&Entry]) -> Table {
+     table
+ }
+ 
++/// Spending against each budget in `month`. `warn_percent` is the share of
++/// the limit from which a category is flagged as `warning`.
++pub fn budget_status(
++    budgets: &Budgets,
++    entries: &[Entry],
++    month: YearMonth,
++    warn_percent: usize,
++) -> Table {
++    let mut table = Table::new(vec![
++        Column::left("category"),
++        Column::right("limit"),
++        Column::right("spent"),
++        Column::right("remaining"),
++        Column::right("used"),
++        Column::left("status"),
++    ]);
++    let (mut total_limit, mut total_spent) = (Money::ZERO, Money::ZERO);
++    for (category, limit) in budgets {
++        let spent: Money = entries
++            .iter()
++            .filter(|e| {
++                e.kind == Kind::Expense && month.contains(e.date) && &e.category == category
++            })
++            .map(|e| e.amount)
++            .sum();
++        let used = percent_tenths(spent.cents(), limit.cents());
++        let status = if spent > *limit {
++            "over"
++        } else if spent.cents() * 100 >= limit.cents() * warn_percent as i64 {
++            "warning"
++        } else {
++            "ok"
++        };
++        table.push(vec![
++            Cell::text(category.clone()),
++            Cell::Money(*limit),
++            Cell::Money(spent),
++            Cell::Money(*limit - spent),
++            Cell::Percent(used),
++            Cell::text(status),
++        ]);
++        total_limit += *limit;
++        total_spent += spent;
++    }
++    table.footer = Some(vec![
++        Cell::text("total"),
++        Cell::Money(total_limit),
++        Cell::Money(total_spent),
++        Cell::Money(total_limit - total_spent),
++        Cell::Percent(percent_tenths(total_spent.cents(), total_limit.cents())),
++        Cell::Empty,
++    ]);
++    table
++}
++
+ #[cfg(test)]
+ mod tests {
+     use super::*;
+@@ -142,6 +198,26 @@ mod tests {
+         assert_eq!(t.rows[2][5], Cell::Percent(0));
+     }
+ 
++    #[test]
++    fn budget_status_flags_categories() {
++        let entries = [
++            e("food", Kind::Expense, 8000, "2026-03-02"),
++            e("food", Kind::Income, 5000, "2026-03-03"),
++            e("fun", Kind::Expense, 12000, "2026-03-04"),
++            e("fun", Kind::Expense, 99999, "2026-04-01"),
++        ];
++        let mut budgets = Budgets::new();
++        budgets.insert("food".into(), Money(10000));
++        budgets.insert("fun".into(), Money(10000));
++        budgets.insert("rent".into(), Money(10000));
++        let t = budget_status(&budgets, &entries, "2026-03".parse().unwrap(), 80);
++        assert_eq!(t.rows[0][5], Cell::text("warning"));
++        assert_eq!(t.rows[1][3], Cell::Money(Money(-2000)));
++        assert_eq!(t.rows[1][5], Cell::text("over"));
++        assert_eq!(t.rows[2][4], Cell::Percent(0));
++        assert_eq!(t.rows[2][5], Cell::text("ok"));
++    }
++
+     #[test]
+     fn monthly_filters_by_year() {
+         let entries = [
+diff --git a/src/store/budgets.rs b/src/store/budgets.rs
+new file mode 100644
+index 0000000..2298851
+--- /dev/null
++++ b/src/store/budgets.rs
+@@ -0,0 +1,68 @@
++//! Monthly budgets, stored in `<dir>/budgets.txt`:
++//!
++//! ```text
++//! # tally budgets v1
++//! groceries|300.00
++//! ```
++
++use std::collections::BTreeMap;
++use std::fs;
++use std::io::ErrorKind;
++use std::path::PathBuf;
++
++use super::{atomic, codec, Store};
++use crate::error::{Error, Result};
++use crate::util::Money;
++
++pub const BUDGETS_FILE: &str = "budgets.txt";
++const HEADER: &str = "# tally budgets v1";
++
++/// Monthly limit per category, sorted by category.
++pub type Budgets = BTreeMap<String, Money>;
++
++impl Store {
++    pub fn budgets_path(&self) -> PathBuf {
++        self.dir().join(BUDGETS_FILE)
++    }
++
++    /// All budgets; an absent file means no budgets.
++    pub fn load_budgets(&self) -> Result<Budgets> {
++        let path = self.budgets_path();
++        let text = match fs::read_to_string(&path) {
++            Ok(t) => t,
++            Err(e) if e.kind() == ErrorKind::NotFound => return Ok(Budgets::new()),
++            Err(e) => return Err(Error::io_at(path, e)),
++        };
++        let mut budgets = Budgets::new();
++        for (idx, line) in text.lines().enumerate() {
++            let line = line.trim_end_matches('\r');
++            if line.trim().is_empty() || line.starts_with('#') {
++                continue;
++            }
++            let corrupt = |message: String| Error::Corrupt {
++                path: path.clone(),
++                line: idx + 1,
++                message,
++            };
++            let fields = codec::split_fields(line).map_err(corrupt)?;
++            if fields.len() != 2 {
++                return Err(corrupt(format!(
++                    "expected 2 fields, found {}",
++                    fields.len()
++                )));
++            }
++            let limit = Money::parse(&fields[1]).map_err(corrupt)?;
++            budgets.insert(fields[0].clone(), limit);
++        }
++        Ok(budgets)
++    }
++
++    pub fn save_budgets(&self, budgets: &Budgets) -> Result<()> {
++        let mut out = format!("{HEADER}\n");
++        for (category, limit) in budgets {
++            out.push_str(&codec::join_fields(&[category.clone(), limit.to_decimal()]));
++            out.push('\n');
++        }
++        atomic::write_atomic(&self.budgets_path(), out.as_bytes())
++    }
++}
+diff --git a/src/store/mod.rs b/src/store/mod.rs
+index ad9e404..a2b9487 100644
+--- a/src/store/mod.rs
++++ b/src/store/mod.rs
+@@ -11,6 +11,7 @@
+ //! lines starting with `#` are ignored, so the file can be edited by hand.
+ 
+ pub mod atomic;
++pub mod budgets;
+ pub mod codec;
+ 
+ use std::fs;
+diff --git a/src/util/date.rs b/src/util/date.rs
+index 5ceffbf..2632d0b 100644
+--- a/src/util/date.rs
++++ b/src/util/date.rs
+@@ -2,6 +2,7 @@
+ 
+ use std::fmt;
+ use std::str::FromStr;
++use std::time::{SystemTime, UNIX_EPOCH};
+ 
+ /// A calendar date without a time zone.
+ #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+@@ -55,6 +56,33 @@ impl Date {
+         }
+     }
+ 
++    /// Today's date in UTC according to the system clock.
++    pub fn today_utc() -> Date {
++        let secs = SystemTime::now()
++            .duration_since(UNIX_EPOCH)
++            .map(|d| d.as_secs())
++            .unwrap_or(0);
++        Date::from_days_since_epoch((secs / 86_400) as i64)
++    }
++
++    /// Civil date for a day count since 1970-01-01 (proleptic Gregorian).
++    pub fn from_days_since_epoch(days: i64) -> Date {
++        let z = days + 719_468;
++        let era = z.div_euclid(146_097);
++        let doe = z.rem_euclid(146_097);
++        let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
++        let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
++        let mp = (5 * doy + 2) / 153;
++        let day = (doy - (153 * mp + 2) / 5 + 1) as u32;
++        let month = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
++        let year = yoe + era * 400 + i64::from(month <= 2);
++        Date {
++            year: year as i32,
++            month,
++            day,
++        }
++    }
++
+     /// Parse a day-first date such as `31/01/2026`, as used by bank exports.
+     pub fn parse_dmy(s: &str) -> Option<Date> {
+         let mut parts = s.trim().split('/');
+@@ -202,6 +230,19 @@ mod tests {
+         );
+     }
+ 
++    #[test]
++    fn converts_epoch_days() {
++        assert_eq!(Date::from_days_since_epoch(0).to_string(), "1970-01-01");
++        assert_eq!(
++            Date::from_days_since_epoch(20_454).to_string(),
++            "2026-01-01"
++        );
++        assert_eq!(
++            Date::from_days_since_epoch(19_782).to_string(),
++            "2024-02-29"
++        );
++    }
++
+     #[test]
+     fn parses_day_first_dates() {
+         assert_eq!(
+diff --git a/tests/cli_budget.rs b/tests/cli_budget.rs
+new file mode 100644
+index 0000000..f758c70
+--- /dev/null
++++ b/tests/cli_budget.rs
+@@ -0,0 +1,86 @@
++mod common;
++
++use common::Tally;
++
++fn sample() -> Tally {
++    let t = Tally::new();
++    t.ok(&["add", "2026-03-03", "240", "groceries"]);
++    t.ok(&["add", "2026-03-10", "45", "eating-out"]);
++    t.ok(&["add", "2026-03-12", "80", "eating-out"]);
++    t.ok(&["add", "2026-02-27", "999", "groceries"]);
++    t.ok(&["add", "2026-03-01", "3000", "salary", "--income"]);
++    t
++}
++
++#[test]
++fn budget_set_list_and_remove() {
++    let t = sample();
++    assert_eq!(
++        t.ok(&["budget", "set", "Groceries", "300"]),
++        "set budget for 'groceries' to 300.00\n"
++    );
++    t.ok(&["budget", "set", "rent", "1200"]);
++    t.ok(&["budget", "set", "groceries", "250.5"]);
++    assert_eq!(
++        t.ok(&["budget", "list", "--format", "csv"]),
++        "category,limit\ngroceries,250.50\nrent,1200.00\n"
++    );
++    assert_eq!(
++        t.ok(&["budget", "remove", "rent"]),
++        "removed budget for 'rent'\n"
++    );
++    let (code, err) = t.fail(&["budget", "remove", "rent"]);
++    assert_eq!(code, 3);
++    assert!(err.contains("no budget for category 'rent'"), "{err}");
++}
++
++#[test]
++fn budget_set_validates_like_add() {
++    let t = sample();
++    let (code, err) = t.fail(&["budget", "set", "food", "0"]);
++    assert_eq!(code, 1);
++    assert!(err.contains("amount must be greater than zero"), "{err}");
++    let (code, _) = t.fail(&["budget", "set", "eating out", "5"]);
++    assert_eq!(code, 1);
++    assert_eq!(t.fail(&["budget"]).0, 2);
++}
++
++#[test]
++fn budget_status_table() {
++    let t = sample();
++    t.ok(&["budget", "set", "groceries", "300"]);
++    t.ok(&["budget", "set", "eating-out", "100"]);
++    t.ok(&["budget", "set", "rent", "1200"]);
++    let expected = "\
++CATEGORY       LIMIT    SPENT  REMAINING    USED  STATUS
++eating-out   $100.00  $125.00    -$25.00  125.0%  over
++groceries    $300.00  $240.00     $60.00   80.0%  warning
++rent        $1200.00    $0.00   $1200.00    0.0%  ok
++---------------------------------------------------------
++total       $1600.00  $365.00   $1235.00   22.8%
++";
++    assert_eq!(t.ok(&["budget", "status", "--month", "2026-03"]), expected);
++}
++
++#[test]
++fn budget_status_honours_warn_percent() {
++    let t = sample();
++    t.ok(&["budget", "set", "groceries", "300"]);
++    t.write("config.ini", "[budget]\nwarn_percent = 90\n");
++    let out = t.ok(&["budget", "status", "--month", "2026-03", "--format", "csv"]);
++    assert!(
++        out.contains("groceries,300.00,240.00,60.00,80.0%,ok\n"),
++        "{out}"
++    );
++}
++
++#[test]
++fn budget_follows_renamed_category() {
++    let t = sample();
++    t.ok(&["budget", "set", "eating-out", "100"]);
++    t.ok(&["rename-category", "eating-out", "dining"]);
++    assert_eq!(
++        t.ok(&["budget", "list", "--format", "csv"]),
++        "category,limit\ndining,100.00\n"
++    );
++}

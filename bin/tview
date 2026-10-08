@@ -1,0 +1,16 @@
+#!/usr/bin/env node
+// `cat` with long definition bodies folded (see lib/view.mjs). Unreadable files fall back to cat's error.
+import { view } from '../lib/view.mjs';
+import fs from 'node:fs';
+
+const files = process.argv.slice(2);
+const ok = files.filter((f) => {
+  try {
+    return fs.statSync(f).isFile();
+  } catch {
+    process.stderr.write(`cat: ${f}: No such file or directory\n`);
+    return false;
+  }
+});
+if (ok.length) process.stdout.write(view(ok));
+process.exitCode = ok.length === files.length ? 0 : 1;

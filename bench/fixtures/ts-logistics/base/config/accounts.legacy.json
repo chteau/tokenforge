@@ -1,0 +1,5 @@
+[
+  { "account": "100231", "name": "Acme Outdoor", "country": "GB", "tariff": "T2019" },
+  { "account": "100488", "name": "Fjordline", "country": "GB", "tariff": "T2019-C" },
+  { "account": "200017", "name": "Lumen Maison", "country": "FR", "tariff": "T2019-EU" }
+]

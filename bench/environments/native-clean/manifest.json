@@ -1,0 +1,13 @@
+{
+  "environment": "native-clean",
+  "built_at": "2026-10-08T00:48:18.175579+00:00",
+  "claude_code_version": "2.1.293",
+  "model": "claude-opus-5-5",
+  "clean": true,
+  "custom_skills": [],
+  "plugins": [],
+  "mcp_servers": [],
+  "hooks": [],
+  "claude_md_files": [],
+  "custom_integrations": []
+}
