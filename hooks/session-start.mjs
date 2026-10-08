@@ -12,6 +12,7 @@ import { SNAP_DIR, listSnapshots, parseSnapshot } from './checkpoint.mjs';
 import { isMain, kitHookOff } from '../lib/hookutil.mjs';
 import { applyDefaultOnce, leanStatus } from '../lib/lean.mjs';
 import { memoryHint } from '../lib/memory.mjs';
+import { updateNotice } from '../lib/update-check.mjs';
 
 const MAX_AGE_H = Number(process.env.TFORGE_HANDOFF_MAX_AGE_H) || 72;
 const MAX_CHARS = 8000;
@@ -90,6 +91,33 @@ function handoff(cwd, source, sessionId) {
   return parts.length ? parts.join('\n\n') : null;
 }
 
+// After /clear with no fresh handoff: the latest checkpoint, cut to its essentials (last requests, files changed, start
+// of the last reply), at most ~900 characters. The full snapshots used to be re-read on every call (TFORGE_RECALL=inject);
+// this bounded summary costs about 250 tokens per call of the cleared session. Off: TFORGE_CLEAR_RELOAD=0.
+const CLEAR_MAX_H = 12;
+const CLEAR_CHARS = 900;
+export function compactCheckpoint(cwd) {
+  if (process.env.TFORGE_CLEAR_RELOAD === '0') return null;
+  const snaps = listSnapshots(cwd);
+  if (!snaps.length) return null;
+  const s = readFresh(path.join(cwd, '.forge', SNAP_DIR, snaps[snaps.length - 1]), CLEAR_MAX_H, 1e6);
+  if (!s) return null;
+  const body = parseSnapshot(s.body).body;
+  const section = (name) => {
+    const m = new RegExp(`## ${name}[^\\n]*\\n([\\s\\S]*?)(?=\\n## |$)`).exec(body);
+    return m ? m[1].trim() : '';
+  };
+  const clip = (t, n) => (t.length > n ? t.slice(0, n - 1) + '…' : t);
+  const reqs = section('Requests').split('\n').filter((l) => l.startsWith('- ')).slice(-2).map((l) => clip(l, 220));
+  const files = section('Files changed').split('\n').filter((l) => l.startsWith('- ')).slice(0, 10);
+  const reply = clip(section('Last reply').replace(/\s+/g, ' '), 300);
+  const out = [`tokenforge checkpoint (before /clear, ${s.when}). Continue from the last request; read files only when the next step needs them.`];
+  if (reqs.length) out.push('Last requests:', ...reqs);
+  if (files.length) out.push('Files changed:', ...files);
+  if (reply) out.push(`Last reply: ${reply}`);
+  return out.length > 1 ? clip(out.join('\n'), CLEAR_CHARS) : null;
+}
+
 // Headless sessions (claude -p, the SDK, CI) have nobody to open a dashboard, and a detached server would outlive them.
 const unattended = () => /^sdk/.test(process.env.CLAUDE_CODE_ENTRYPOINT || '') || process.env.CLAUDE_CODE_SESSION_ATTENDED === '0' || !!process.env.CI;
 
@@ -146,7 +174,7 @@ function banner() {
 }
 
 // After /clear: say plainly what survived, so "did I just lose my work?" never needs asking.
-function clearNotice(cwd) {
+function clearNotice(cwd, reloaded = false) {
   if (process.env.TFORGE_BANNER === '0') return null;
   const ago = (ms) => {
     const m = Math.max(0, Math.round((Date.now() - ms) / 60000));
@@ -166,6 +194,7 @@ function clearNotice(cwd) {
   const parts = [];
   if (fresh(snapMs)) parts.push(`TokenForge: checkpoint saved (${ago(snapMs)}, .forge/${SNAP_DIR}/).`);
   if (fresh(hMs)) parts.push(`Handoff reloaded (.forge/HANDOFF.md, ${ago(hMs)}): Claude continues from it.`);
+  else if (reloaded) parts.push('Reloaded: Claude continues from your last request.');
   else if (fresh(snapMs)) parts.push('Say what to continue ("continue the billing fix"): Claude looks it up in past sessions.');
   return parts.length ? parts.join(' ') : 'TokenForge: no checkpoint in this folder yet. Fresh start.';
 }
@@ -185,16 +214,18 @@ function main() {
   if (input.source === 'startup') {
     const b = unattended() ? null : banner();
     if (b) notices.push(b);
+    if (!unattended()) {
+      try {
+        const u = updateNotice();
+        if (u) notices.push(u);
+      } catch {}
+    }
     const d = ensureDashboard();
     if (d && !b) notices.push(d);
     const lean = leanDefault();
     if (lean) notices.push(lean);
   }
-  if (input.source === 'clear' && !unattended()) {
-    const c = clearNotice(input.cwd || process.cwd());
-    if (c) notices.push(c);
-  }
-  const notice = notices.join('\n') || null;
+
   const parts = [];
   const level = terseLevel();
   if (level !== 'off') parts.push(TERSE_RULES[level]);
@@ -202,10 +233,21 @@ function main() {
   if (process.env.TFORGE_MAP === '1') parts.push(MAP_HINT);
   const kit = kitPolicy();
   if (kit) parts.push(kit);
+  let reloaded = false;
   if (input.source !== 'compact' && input.source !== 'resume') {
-    const h = handoff(input.cwd || process.cwd(), input.source, input.session_id);
+    const cwd = input.cwd || process.cwd();
+    const h = handoff(cwd, input.source, input.session_id);
     if (h) parts.push(h);
+    if (input.source === 'clear' && !(h && h.includes('tokenforge handoff')) && process.env.TFORGE_RECALL !== 'inject') {
+      const c = compactCheckpoint(cwd);
+      if (c) (parts.push(c), (reloaded = true));
+    }
   }
+  if (input.source === 'clear' && !unattended()) {
+    const c = clearNotice(input.cwd || process.cwd(), reloaded);
+    if (c) notices.push(c);
+  }
+  const notice = notices.join('\n') || null;
   if (!parts.length && !notice) return;
   const out = {};
   if (parts.length) out.hookSpecificOutput = { hookEventName: 'SessionStart', additionalContext: parts.join('\n\n') };

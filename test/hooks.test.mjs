@@ -478,3 +478,54 @@ test('session start: "TokenForge: active" banner with a walkthrough the first 3 
   assert.match(msg('clear'), /checkpoint saved[\s\S]*Handoff reloaded/);
   assert.equal(spawnSync('node', [HOOK('session-start.mjs')], { input: JSON.stringify({ cwd: dir, source: 'startup' }), encoding: 'utf8', env: { ...env, TFORGE_BANNER: '0' } }).stdout.includes('TokenForge: active'), false);
 });
+
+test('session start after /clear: compact checkpoint (bounded) is reloaded when there is no handoff', async () => {
+  const { render } = await import('../hooks/checkpoint.mjs');
+  const dir = tmpdir('tforge-clear-');
+  const snapDir = path.join(dir, '.forge', 'snapshots');
+  fs.mkdirSync(snapDir, { recursive: true });
+  const c = { n: 1, start: '2026-10-08T10:00:00Z', end: '2026-10-08T10:30:00Z', ctx: 1, reply: 'Done: budgets now alert at 80%. '.repeat(40),
+    prompts: ['add monthly budgets', 'make alerts fire at 80% ' + 'x'.repeat(500), 'also show them in the report'],
+    files: Array.from({ length: 30 }, (_, i) => path.join(dir, `src/f${i}.rs`)) };
+  fs.writeFileSync(path.join(snapDir, '20261008-1000-abcdef12-001.md'), render(c, 'abcdef12-session', dir));
+  const env = { ...BASE_ENV, HOME: dir, XDG_CONFIG_HOME: dir, XDG_CACHE_HOME: dir, TFORGE_UI: '0', TFORGE_LEAN_DEFAULT: 'off', CLAUDE_CODE_ENTRYPOINT: 'cli', CLAUDE_CODE_SESSION_ATTENDED: '1', CI: '' };
+  const go = (e = {}) => JSON.parse(spawnSync('node', [HOOK('session-start.mjs')], { input: JSON.stringify({ cwd: dir, source: 'clear' }), encoding: 'utf8', env: { ...env, ...e } }).stdout || '{}');
+  const out = go();
+  const ctx = out.hookSpecificOutput.additionalContext;
+  const cp = ctx.slice(ctx.indexOf('tokenforge checkpoint'));
+  assert.match(cp, /also show them in the report/);
+  assert.doesNotMatch(cp, /add monthly budgets/, 'only the last two requests');
+  assert.match(cp, /src\/f9\.rs/);
+  assert.doesNotMatch(cp, /src\/f10\.rs/, 'at most 10 files');
+  assert.ok(cp.length <= 900, `checkpoint is ${cp.length} chars`);
+  assert.match(out.systemMessage, /checkpoint saved[\s\S]*Reloaded: Claude continues/);
+  assert.doesNotMatch(go({ TFORGE_CLEAR_RELOAD: '0' }).hookSpecificOutput?.additionalContext || '', /tokenforge checkpoint/);
+  fs.writeFileSync(path.join(dir, '.forge', 'HANDOFF.md'), '# handoff\nnext: tests');
+  assert.doesNotMatch(go().hookSpecificOutput.additionalContext, /tokenforge checkpoint/, 'a fresh handoff wins');
+});
+
+test('kit router: tkit edit/patch are approved only in accept-edits sessions', () => {
+  const r = (command, mode) => run('kit-router.mjs', { tool_name: 'Bash', session_id: sid(), cwd: os.tmpdir(), permission_mode: mode, tool_input: { command } })?.permissionDecision;
+  const edit = "tkit edit <<'EOF'\nsrc/a.rs\n<<<\nold\n===\nnew\n>>>\nEOF";
+  assert.equal(r(edit, 'acceptEdits'), 'allow');
+  assert.notEqual(r(edit, 'default'), 'allow');
+  assert.equal(r('tkit fmt', 'acceptEdits'), 'allow');
+  assert.notEqual(r("tkit edit <<'EOF'\nx\nEOF\nrm -rf /", 'acceptEdits'), 'allow', 'nothing after the heredoc');
+  assert.notEqual(r("tkit edit <<'EOF' && rm x\nx\nEOF", 'acceptEdits'), 'allow');
+  assert.notEqual(r('tkit ssh web1 reboot', 'acceptEdits'), 'allow');
+});
+
+test('update check: banner shows a newer version from the daily check; none when up to date', async () => {
+  const { cmpVersion } = await import('../lib/update-check.mjs');
+  assert.equal(cmpVersion('0.7.2', '0.7.1'), 1);
+  assert.equal(cmpVersion('0.7.1', '0.10.0'), -1);
+  assert.equal(cmpVersion(null, '0.7.1'), 0);
+  const dir = tmpdir('tforge-upd-');
+  const env = { ...BASE_ENV, HOME: dir, XDG_CONFIG_HOME: dir, XDG_CACHE_HOME: dir, TFORGE_UI: '0', TFORGE_LEAN_DEFAULT: 'off', CLAUDE_CODE_ENTRYPOINT: 'cli', CLAUDE_CODE_SESSION_ATTENDED: '1', CI: '', TFORGE_UPDATE_URL: 'http://127.0.0.1:9/none' };
+  const msg = () => JSON.parse(spawnSync('node', [HOOK('session-start.mjs')], { input: JSON.stringify({ cwd: dir, source: 'startup' }), encoding: 'utf8', env }).stdout || '{}').systemMessage || '';
+  fs.mkdirSync(path.join(dir, 'tokenforge'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'tokenforge', 'update.json'), JSON.stringify({ checked: Date.now(), latest: '99.0.0' }));
+  assert.match(msg(), /TokenForge 99\.0\.0 is available[\s\S]*\/plugin marketplace update tokenforge/);
+  fs.writeFileSync(path.join(dir, 'tokenforge', 'update.json'), JSON.stringify({ checked: Date.now(), latest: '0.0.1' }));
+  assert.doesNotMatch(msg(), /is available/);
+});

@@ -309,9 +309,11 @@ export function readOnly(core) {
 // to cat/sed, which Claude Code already allows. Writes, network and remote tools are not included. Off: TFORGE_AUTO_ALLOW=0.
 const KIT_SAFE = new Set(['ctx', 'diff', 'debug', 'analog', 'proj', 'deps', 'tally', 'tab', 'check', 'test']);
 const JX_SAFE = new Set(['shape', 'get', 'keys', 'find']);
-export function ownTool(t) {
+export function ownTool(t, permissionMode) {
   const exe = exeName(t[0] || '');
   if (exe === 'tread' || exe === 'tview') return true;
+  // edit tools: only where the user already lets Claude edit without asking
+  if (exe === 'tkit' && permissionMode === 'acceptEdits' && ['edit', 'patch', 'fmt'].includes(t[1])) return true;
   if (exe === 'tkit') return KIT_SAFE.has(t[1]) || (t[1] === 'jx' && JX_SAFE.has(t[2]));
   if (exe === 'tforge') {
     return ['recall', 'meter', 'status', '--version', '--help'].includes(t[1]) ||
@@ -321,8 +323,12 @@ export function ownTool(t) {
 }
 
 // Every segment is one of our tools or plainly read-only, and at least one is ours: safe to approve.
-export function ownToolsOnly(cmd) {
-  if (process.env.TFORGE_AUTO_ALLOW === '0' || cmd.includes('<<') || /\$\(|`/.test(cmd)) return false;
+export function ownToolsOnly(cmd, permissionMode) {
+  if (process.env.TFORGE_AUTO_ALLOW === '0') return false;
+  // `tkit edit <<'EOF' ... EOF` (the usual form): one quoted heredoc and nothing else, in accept-edits sessions
+  const hd = /^\s*(?:cd\s+\S+\s*&&\s*)?tkit\s+(edit|patch)\b[^\n<]*<<-?\s*'(\w+)'\n[\s\S]*?\n\2\s*$/.exec(cmd);
+  if (hd) return permissionMode === 'acceptEdits' && !/[;&|`]|\$\(/.test(cmd.split('\n')[0].replace(/^\s*cd\s+\S+\s*&&/, ''));
+  if (cmd.includes('<<') || /\$\(|`/.test(cmd)) return false;
   const segs = splitSegments(cmd);
   if (!segs) return false;
   let own = false;
@@ -333,7 +339,7 @@ export function ownToolsOnly(cmd) {
       if (!t || !t.length || ENV.test(t[0])) return false;
       const core = t.filter((x) => !NULLREDIR.has(x));
       if (core.some((x) => /^[&(){}]$|[<>]/.test(x))) return false;
-      if (ownTool(core)) own = true;
+      if (ownTool(core, permissionMode)) own = true;
       else if (!readOnly(core)) return false;
     }
   }
@@ -427,7 +433,7 @@ async function onBash(input) {
     process.stdout.write(JSON.stringify({ hookSpecificOutput: out }));
     return;
   }
-  if (ownToolsOnly(cmd)) {
+  if (ownToolsOnly(cmd, input.permission_mode)) {
     process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'allow' } }));
     return;
   }

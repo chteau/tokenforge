@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.7.2
+
+- After `/clear` without a fresh handoff, a compact checkpoint (last two requests, files changed, start of the last reply; ≤ 900 characters) is reloaded. `TFORGE_CLEAR_RELOAD=0` turns it off.
+- Daily background update check: the banner says when a newer version is out and how to update. `TFORGE_UPDATE_CHECK=0` turns it off.
+- In accept-edits sessions, `tkit edit`/`patch`/`fmt` are approved too (one batched edit call instead of several Edit calls).
+
 ## 0.7.1
 
 Works on its own, in the terminal and in Claude Desktop:
