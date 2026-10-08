@@ -1,0 +1,943 @@
+diff --git a/README.md b/README.md
+index 787f1fb..0690ae1 100644
+--- a/README.md
++++ b/README.md
+@@ -1 +1,23 @@
+ # cfgmerge — lint, merge and explain layered INI/.env configuration
++
++Perl 5 with core modules only.
++
++## Usage
++
++```
++bin/cfgmerge lint base.ini .env
++bin/cfgmerge merge [--schema schema.ini [--strict]] [--set KEY=VALUE]... [--format ini|env] base.ini prod.env
++bin/cfgmerge get db.host base.ini prod.env
++bin/cfgmerge explain base.ini prod.env        # where every value came from
++bin/cfgmerge diff old.ini new.ini
++```
++
++Later files override earlier ones, `--set` overrides all files. Values may reference
++other keys (`${db.host}`), environment variables (`${env:HOME}`) and defaults
++(`${key:-fallback}`).
++
++## Tests
++
++```
++prove -l t
++```
+diff --git a/bin/cfgmerge b/bin/cfgmerge
+new file mode 100755
+index 0000000..c68c829
+--- /dev/null
++++ b/bin/cfgmerge
+@@ -0,0 +1,9 @@
++#!/usr/bin/perl
++# cfgmerge: lint, merge, validate and explain layered INI/.env configuration.
++use strict;
++use warnings;
++use FindBin;
++use lib "$FindBin::RealBin/../lib";
++use CfgMerge::CLI;
++
++exit CfgMerge::CLI::main(@ARGV);
+diff --git a/lib/CfgMerge/CLI.pm b/lib/CfgMerge/CLI.pm
+new file mode 100644
+index 0000000..8f7c005
+--- /dev/null
++++ b/lib/CfgMerge/CLI.pm
+@@ -0,0 +1,205 @@
++package CfgMerge::CLI;
++
++# Command-line parsing and the five commands.
++use strict;
++use warnings;
++use CfgMerge::Error;
++use CfgMerge::Parser qw(detect_format to_template is_valid_key);
++use CfgMerge::Layers qw(parse_file load_layers merge);
++use CfgMerge::Interpolate qw(expand_all literal);
++use CfgMerge::Schema qw(build_schema apply_defaults validate);
++use CfgMerge::Output qw(show render_ini render_env);
++
++our $USAGE = <<'TXT';
++usage: cfgmerge <command> [options] FILE...
++
++commands:
++  lint FILE...                     report syntax problems
++  merge [--schema S [--strict]] [--set KEY=VALUE]... [--format ini|env] FILE...
++  get [--set KEY=VALUE]... KEY FILE...
++  explain [--schema S [--strict]] [--set KEY=VALUE]... FILE...
++  diff FILE_A FILE_B
++
++Later files override earlier ones; --set values override all files.
++TXT
++
++my %OPTIONS = (
++    lint    => {},
++    merge   => { schema => 1, strict => 1, set => 1, format => 1 },
++    get     => { set    => 1 },
++    explain => { schema => 1, strict => 1, set => 1 },
++    diff    => {},
++);
++my %ARITY = (lint => [1, undef], merge => [1, undef], get => [2, undef], explain => [1, undef], diff => [2, 2]);
++
++# Entry point: returns the exit code.
++sub main {
++    my (@argv) = @_;
++    if (@argv == 1 && ($argv[0] eq '--help' || $argv[0] eq '-h')) {
++        print $USAGE;
++        return 0;
++    }
++    my $code = eval { run(@argv) };
++    return $code if defined $code;
++    my $err = $@;
++    die $err unless ref $err && $err->isa('CfgMerge::Error');
++    print STDERR map {"$_\n"} $err->lines;
++    return $err->code;
++}
++
++sub parse_args {
++    my ($command, @args) = @_;
++    CfgMerge::Error->usage('missing command (try --help)') unless defined $command;
++    my $allowed = $OPTIONS{$command} or CfgMerge::Error->usage("unknown command: $command");
++    my (%opt, @sets, @positional);
++    my $options_done = 0;
++    while (@args) {
++        my $arg = shift @args;
++        if ($options_done || $arg !~ /\A-./) {
++            push @positional, $arg;
++        }
++        elsif ($arg eq '--') {
++            $options_done = 1;
++        }
++        elsif ($arg =~ /\A--(schema|strict|set|format)\z/ && $allowed->{$1}) {
++            my $name = $1;
++            CfgMerge::Error->usage("repeated option --$name") if exists $opt{$name};
++            if ($name eq 'strict') {
++                $opt{strict} = 1;
++                next;
++            }
++            CfgMerge::Error->usage("option --$name needs a value") unless @args;
++            my $value = shift @args;
++            if   ($name eq 'set') { push @sets, $value }
++            else                  { $opt{$name} = $value }
++        }
++        else {
++            CfgMerge::Error->usage("unknown option for $command: $arg");
++        }
++    }
++    my ($min, $max) = @{ $ARITY{$command} };
++    CfgMerge::Error->usage("wrong number of arguments for $command")
++      if @positional < $min || (defined $max && @positional > $max);
++    CfgMerge::Error->usage('--strict needs --schema') if $opt{strict} && !defined $opt{schema};
++    CfgMerge::Error->usage("unknown format: $opt{format}") if defined $opt{format} && $opt{format} !~ /\A(?:ini|env)\z/;
++    $opt{sets} = [map { parse_set($_) } @sets];
++    return (\%opt, @positional);
++}
++
++sub parse_set {
++    my ($arg) = @_;
++    my ($key, $value) = $arg =~ /\A([^=]*)=(.*)\z/s or CfgMerge::Error->usage("invalid --set: $arg");
++    $key = lc $key;
++    my ($template) = to_template($value);
++    CfgMerge::Error->usage("invalid --set: $arg") unless is_valid_key($key) && defined $template;
++    return { key => $key, template => $template };
++}
++
++sub check_formats {
++    for my $path (@_) {
++        CfgMerge::Error->usage("cannot tell the format of $path") unless detect_format($path);
++    }
++}
++
++sub load_schema {
++    my ($path) = @_;
++    return unless defined $path;
++    my $parsed = parse_file($path, 'ini');
++    my @errors = grep { $_->{level} eq 'error' } @{ $parsed->{diagnostics} };
++    CfgMerge::Error->usage("invalid schema: $path:$errors[0]{line}: $errors[0]{message}") if @errors;
++    my ($schema, $why) = build_schema($parsed->{entries});
++    CfgMerge::Error->usage("invalid schema: $why") unless $schema;
++    return $schema;
++}
++
++# Merge files and --set values, expand references, apply the schema.
++# Returns (values, history, sources) where sources maps key -> source label.
++sub resolve {
++    my ($opt, @files) = @_;
++    check_formats(@files);
++    my $schema = load_schema($opt->{schema});
++    my @layers = load_layers(@files);
++    push @layers, { name => '--set', entries => [$_] } for @{ $opt->{sets} };
++    my $history = merge(@layers);
++    my $values  = expand_all({ map { $_ => $history->{$_}[-1]{template} } keys %$history });
++    my %sources = map { $_ => $history->{$_}[-1]{source} } keys %$history;
++    if ($schema) {
++        $sources{$_} = 'default' for apply_defaults($schema, $values);
++        my @errors = validate($schema, $values, $opt->{strict});
++        CfgMerge::Error->throw(1, @errors) if @errors;
++    }
++    return ($values, $history, \%sources);
++}
++
++sub run {
++    my ($command, @rest) = @_;
++    my ($opt, @args) = parse_args($command, @rest);
++    my $handler = __PACKAGE__->can("cmd_$command");
++    return $handler->($opt, @args);
++}
++
++sub cmd_lint {
++    my ($opt, @files) = @_;
++    check_formats(@files);
++    my ($errors, $warnings) = (0, 0);
++    my @out;
++    for my $path (@files) {
++        my $parsed = parse_file($path);
++        for my $d (@{ $parsed->{diagnostics} }) {
++            push @out, "$path:$d->{line}: $d->{level}: $d->{message}";
++            $d->{level} eq 'error' ? $errors++ : $warnings++;
++        }
++    }
++    print map {"$_\n"} @out, "$errors error(s), $warnings warning(s)";
++    return $errors ? 1 : 0;
++}
++
++sub cmd_merge {
++    my ($opt, @files) = @_;
++    my ($values) = resolve($opt, @files);
++    print(($opt->{format} // 'ini') eq 'env' ? render_env($values) : render_ini($values));
++    return 0;
++}
++
++sub cmd_get {
++    my ($opt, $key, @files) = @_;
++    my ($values) = resolve($opt, @files);
++    my $norm = lc $key;
++    CfgMerge::Error->throw(1, "error: key not found: $key") unless exists $values->{$norm};
++    print "$values->{$norm}\n";
++    return 0;
++}
++
++sub cmd_explain {
++    my ($opt, @files) = @_;
++    my ($values, $history, $sources) = resolve($opt, @files);
++    for my $key (sort keys %$values) {
++        print "$key = ", show($values->{$key}), "  [$sources->{$key}]\n";
++        my @earlier = @{ $history->{$key} // [] };
++        pop @earlier unless $sources->{$key} eq 'default';
++        print "  overrides ", show(literal($_->{template})), "  [$_->{source}]\n" for reverse @earlier;
++    }
++    return 0;
++}
++
++sub cmd_diff {
++    my ($opt, $file_a, $file_b) = @_;
++    my ($left, $right) = map {
++        my $o = { sets => [] };
++        (resolve($o, $_))[0]
++    } $file_a, $file_b;
++    my %keys = map { $_ => 1 } keys %$left, keys %$right;
++    my $changes = 0;
++    for my $key (sort keys %keys) {
++        my $line;
++        if    (!exists $right->{$key}) { $line = "- $key = " . show($left->{$key}) }
++        elsif (!exists $left->{$key}) { $line = "+ $key = " . show($right->{$key}) }
++        elsif ($left->{$key} ne $right->{$key}) { $line = "~ $key: " . show($left->{$key}) . ' -> ' . show($right->{$key}) }
++        next unless defined $line;
++        print "$line\n";
++        $changes++;
++    }
++    return $changes ? 1 : 0;
++}
++
++1;
+diff --git a/lib/CfgMerge/Error.pm b/lib/CfgMerge/Error.pm
+new file mode 100644
+index 0000000..90b9dda
+--- /dev/null
++++ b/lib/CfgMerge/Error.pm
+@@ -0,0 +1,19 @@
++package CfgMerge::Error;
++
++# A failure that ends the program: an exit code plus the lines for stderr.
++use strict;
++use warnings;
++
++sub new {
++    my ($class, $code, @lines) = @_;
++    return bless { code => $code, lines => [@lines] }, $class;
++}
++
++sub throw { my $class = shift; die $class->new(@_) }
++
++sub usage { my ($class, $msg) = @_; $class->throw(2, "error: $msg") }
++
++sub code  { $_[0]{code} }
++sub lines { @{ $_[0]{lines} } }
++
++1;
+diff --git a/lib/CfgMerge/Interpolate.pm b/lib/CfgMerge/Interpolate.pm
+new file mode 100644
+index 0000000..661048d
+--- /dev/null
++++ b/lib/CfgMerge/Interpolate.pm
+@@ -0,0 +1,73 @@
++package CfgMerge::Interpolate;
++
++# Expands `${...}` references in merged value templates, detecting cycles.
++use strict;
++use warnings;
++use Exporter 'import';
++use CfgMerge::Error;
++use CfgMerge::Parser qw(parse_ref);
++
++our @EXPORT_OK = qw(expand_all literal);
++
++# A template's text with no expansion: `$$` -> `$`, references left as written.
++sub literal {
++    my ($template) = @_;
++    my $out = '';
++    for my $piece (_pieces($template)) {
++        $out .= ref $piece ? '${' . $piece->{text} . '}' : $piece;
++    }
++    return $out;
++}
++
++# Split a template into literal strings and reference hashrefs, in order.
++sub _pieces {
++    my ($t) = @_;
++    my @out;
++    while (length $t) {
++        if    ($t =~ s/\A\$\$//)          { push @out, '$' }
++        elsif ($t =~ s/\A\$\{([^}]*)\}//) { push @out, { %{ parse_ref($1) }, text => $1 } }
++        else                              { $t =~ s/\A([^\$]+|\$)//; push @out, $1 }
++    }
++    return @out;
++}
++
++# Expand every template in %$templates; returns a hashref of final values.
++sub expand_all {
++    my ($templates, $env) = @_;
++    my $state = { templates => $templates, env => $env // \%ENV, done => {}, stack => [] };
++    _resolve($state, $_) for sort keys %$templates;
++    return $state->{done};
++}
++
++sub _resolve {
++    my ($st, $key) = @_;
++    return $st->{done}{$key} if exists $st->{done}{$key};
++    my @stack = @{ $st->{stack} };
++    for my $i (0 .. $#stack) {
++        next unless $stack[$i] eq $key;
++        CfgMerge::Error->throw(1, 'error: reference cycle: ' . join(' -> ', @stack[$i .. $#stack], $key));
++    }
++    push @{ $st->{stack} }, $key;
++    my $out = '';
++    for my $piece (_pieces($st->{templates}{$key})) {
++        if (!ref $piece) {
++            $out .= $piece;
++            next;
++        }
++        my $value;
++        if (defined $piece->{env}) {
++            $value = $st->{env}{ $piece->{env} };
++        }
++        elsif (exists $st->{templates}{ $piece->{key} }) {
++            $value = _resolve($st, $piece->{key});
++        }
++        $value //= $piece->{default};
++        CfgMerge::Error->throw(1, "error: undefined reference '\${$piece->{text}}' in key '$key'")
++          unless defined $value;
++        $out .= $value;
++    }
++    pop @{ $st->{stack} };
++    return $st->{done}{$key} = $out;
++}
++
++1;
+diff --git a/lib/CfgMerge/Layers.pm b/lib/CfgMerge/Layers.pm
+new file mode 100644
+index 0000000..4c7ab0f
+--- /dev/null
++++ b/lib/CfgMerge/Layers.pm
+@@ -0,0 +1,59 @@
++package CfgMerge::Layers;
++
++# Reads configuration files and merges layers, remembering where each value came from.
++use strict;
++use warnings;
++use Exporter 'import';
++use CfgMerge::Error;
++use CfgMerge::Parser qw(detect_format parse_text);
++
++our @EXPORT_OK = qw(read_file parse_file load_layers merge);
++
++sub read_file {
++    my ($path) = @_;
++    CfgMerge::Error->throw(3, "error: cannot read $path: Is a directory") if -d $path;
++    open my $fh, '<:raw', $path or CfgMerge::Error->throw(3, "error: cannot read $path: $!");
++    local $/;
++    my $text = <$fh>;
++    close $fh;
++    return $text // '';
++}
++
++# Parse one file whose format is already known to be valid.
++sub parse_file {
++    my ($path, $format) = @_;
++    return parse_text(read_file($path), $format // detect_format($path));
++}
++
++# Parse every file; any error in any of them ends the command with exit code 1.
++sub load_layers {
++    my (@paths) = @_;
++    my (@layers, @errors);
++    for my $path (@paths) {
++        my $parsed = parse_file($path);
++        push @errors, map {"$path:$_->{line}: error: $_->{message}"}
++          grep { $_->{level} eq 'error' } @{ $parsed->{diagnostics} };
++        push @layers, { name => $path, entries => $parsed->{entries} };
++    }
++    CfgMerge::Error->throw(1, @errors) if @errors;
++    return @layers;
++}
++
++# Merge layers (lowest precedence first). Returns { key => [ {template, source}, ... ] },
++# oldest first; within a layer only the last definition of a key counts.
++sub merge {
++    my (@layers) = @_;
++    my %history;
++    for my $layer (@layers) {
++        my %last;
++        $last{ $_->{key} } = $_ for @{ $layer->{entries} };
++        for my $key (keys %last) {
++            my $e = $last{$key};
++            my $source = defined $e->{line} ? "$layer->{name}:$e->{line}" : $layer->{name};
++            push @{ $history{$key} }, { template => $e->{template}, source => $source };
++        }
++    }
++    return \%history;
++}
++
++1;
+diff --git a/lib/CfgMerge/Output.pm b/lib/CfgMerge/Output.pm
+new file mode 100644
+index 0000000..005c777
+--- /dev/null
++++ b/lib/CfgMerge/Output.pm
+@@ -0,0 +1,51 @@
++package CfgMerge::Output;
++
++# Rendering of values and merged configurations.
++use strict;
++use warnings;
++use Exporter 'import';
++
++our @EXPORT_OK = qw(escape show render_ini render_env);
++
++# Backslash-escape a value for a double-quoted string.
++sub escape {
++    my ($v, $with_dollar) = @_;
++    my %map = ('\\' => '\\\\', '"' => '\\"', "\n" => '\\n', "\t" => '\\t', '$' => $with_dollar ? '\\$' : '$');
++    $v =~ s/([\\"\n\t\$])/$map{$1}/g;
++    return $v;
++}
++
++# A value as shown by explain, diff and error messages.
++sub show { my ($v) = @_; return '"' . escape($v, 0) . '"' }
++
++# A value as written to a config file: bare when that is unambiguous.
++sub file_value {
++    my ($v) = @_;
++    return $v unless $v eq '' || $v =~ /\A\s|\s\z/ || $v =~ /["'\\#;\$\t\n]/;
++    return '"' . escape($v, 1) . '"';
++}
++
++sub render_ini {
++    my ($values) = @_;
++    my (%sections, @out);
++    for my $key (keys %$values) {
++        my ($section, $name) = $key =~ /\A(?:(.*)\.)?([^.]+)\z/;
++        $sections{ $section // '' }{$name} = $values->{$key};
++    }
++    for my $section (sort keys %sections) {
++        if ($section ne '') {
++            push @out, '' if @out;
++            push @out, "[$section]";
++        }
++        push @out, map { "$_ = " . file_value($sections{$section}{$_}) } sort keys %{ $sections{$section} };
++    }
++    return join '', map {"$_\n"} @out;
++}
++
++sub render_env {
++    my ($values) = @_;
++    my %named = map { (uc($_) =~ s/\./__/gr) => $values->{$_} } keys %$values;
++    return join '', map { "$_=" . file_value($named{$_}) . "\n" } sort keys %named;
++}
++
++1;
+diff --git a/lib/CfgMerge/Parser.pm b/lib/CfgMerge/Parser.pm
+new file mode 100644
+index 0000000..6c7c36b
+--- /dev/null
++++ b/lib/CfgMerge/Parser.pm
+@@ -0,0 +1,166 @@
++package CfgMerge::Parser;
++
++# Parses INI and .env text into ordered entries (key, value template, line)
++# plus lint diagnostics. A value template keeps `${...}` references as written
++# and stores every literal dollar sign as `$$`.
++use strict;
++use warnings;
++use Exporter 'import';
++
++our @EXPORT_OK = qw(detect_format parse_text parse_value to_template parse_ref
++  normalize_ref_name is_valid_key);
++
++my $NAME = qr/[A-Za-z_][A-Za-z0-9_]*/;
++my $KEY  = qr/$NAME(?:\.$NAME)*/;
++my $ESCAPED_DOLLAR = "\0";
++
++sub is_valid_key { my ($k) = @_; return defined $k && $k =~ /\A$KEY\z/ }
++
++# `DB__HOST` and `db.host` name the same key.
++sub normalize_ref_name { my $n = lc shift; $n =~ s/__/./g; return $n }
++
++sub detect_format {
++    my ($path) = @_;
++    (my $base = $path) =~ s{.*/}{}s;
++    return 'env' if $base =~ /\A\.env(?:\..*)?\z/s || $base =~ /\.env\z/;
++    return 'ini' if $base =~ /\.(?:ini|cfg|conf)\z/;
++    return;
++}
++
++# `key`, `key:-default`, `env:NAME` or `env:NAME:-default` -> hashref, or undef.
++sub parse_ref {
++    my ($inner) = @_;
++    my ($name, $default) = $inner =~ /\A(.*?)(?::-(.*))?\z/s;
++    return { env => $1, default => $default } if $name =~ /\Aenv:($NAME)\z/;
++    my $key = normalize_ref_name($name);
++    return unless is_valid_key($key);
++    return { key => $key, default => $default };
++}
++
++# Turn literal text with references into a template; (undef, error) if a reference is malformed.
++sub to_template {
++    my ($s) = @_;
++    my $out = '';
++    while (length $s) {
++        if ($s =~ s/\A\$\$//) {
++            $out .= '$$';
++        }
++        elsif ($s =~ s/\A\$\{//) {
++            $s =~ s/\A([^}]*)\}// or return (undef, 'invalid reference');
++            my $inner = $1;
++            return (undef, 'invalid reference') unless parse_ref($inner);
++            $out .= '${' . $inner . '}';
++        }
++        elsif ($s =~ s/\A[\$$ESCAPED_DOLLAR]//) {
++            $out .= '$$';
++        }
++        else {
++            $s =~ s/\A([^\$$ESCAPED_DOLLAR]+)//;
++            $out .= $1;
++        }
++    }
++    return ($out);
++}
++
++my %ESCAPES = ('\\' => '\\', '"' => '"', n => "\n", t => "\t", '$' => $ESCAPED_DOLLAR);
++
++sub _after_quote_ok { my ($rest) = @_; return $rest =~ /\A\s*(?:[;#].*)?\z/s }
++
++# Parse the text after `=` (leading whitespace removed) into a template.
++sub parse_value {
++    my ($text) = @_;
++    if ($text =~ /\A"/) {
++        my ($out, $i, $len) = ('', 1, length $text);
++        while (1) {
++            return (undef, 'unterminated quote') if $i >= $len;
++            my $c = substr $text, $i, 1;
++            last if $c eq '"';
++            if ($c eq '\\' && $i + 1 < $len && exists $ESCAPES{ substr $text, $i + 1, 1 }) {
++                $out .= $ESCAPES{ substr $text, $i + 1, 1 };
++                $i += 2;
++                next;
++            }
++            $out .= $c;
++            $i++;
++        }
++        return (undef, 'trailing characters after closing quote') unless _after_quote_ok(substr $text, $i + 1);
++        return to_template($out);
++    }
++    if ($text =~ /\A'([^']*)'(.*)\z/s) {
++        my ($literal, $rest) = ($1, $2);
++        return (undef, 'trailing characters after closing quote') unless _after_quote_ok($rest);
++        $literal =~ s/\$/\$\$/g;
++        return ($literal);
++    }
++    return (undef, 'unterminated quote') if $text =~ /\A'/;
++    $text =~ s/\s[;#].*\z//s;
++    $text =~ s/\s+\z//;
++    return to_template($text);
++}
++
++# Returns { entries => [{key, section, name, template, line}], diagnostics => [{line, level, message}] }.
++sub parse_text {
++    my ($text, $format) = @_;
++    $text =~ s/\A\xEF\xBB\xBF//;
++    my @lines = split /\n/, $text, -1;
++    pop @lines if @lines && $lines[-1] eq '';
++    my (@entries, @diags, %seen);
++    my $section = '';
++    my $diag = sub { push @diags, { line => $_[0], level => $_[1], message => $_[2] } };
++
++    for my $i (0 .. $#lines) {
++        my $n    = $i + 1;
++        my $line = $lines[$i];
++        $line =~ s/\A\s+//;
++        $line =~ s/\s+\z//;
++        next if $line eq '' || $line =~ /\A[;#]/;
++
++        if ($line =~ /\A\[/) {
++            if ($format eq 'env') {
++                $diag->($n, 'error', 'section headers are not allowed in env files');
++            }
++            elsif ($line =~ /\A\[\s*($KEY)\s*\]\s*(?:[;#].*)?\z/) {
++                $section = lc $1;
++            }
++            else {
++                $diag->($n, 'error', 'invalid section header');
++            }
++            next;
++        }
++
++        my $eq = index $line, '=';
++        if ($eq < 0) {
++            $diag->($n, 'error', "missing '='");
++            next;
++        }
++        (my $raw_key = substr $line, 0, $eq) =~ s/\s+\z//;
++        (my $raw_value = substr $line, $eq + 1) =~ s/\A\s+//;
++
++        my ($key, $name);
++        if ($format eq 'env') {
++            $raw_key =~ s/\Aexport\s+//;
++            $key = normalize_ref_name($raw_key) if $raw_key =~ /\A$NAME\z/;
++            $name = $key;
++        }
++        elsif ($raw_key =~ /\A$KEY\z/) {
++            $name = lc $raw_key;
++            $key  = $section eq '' ? $name : "$section.$name";
++        }
++        if (!is_valid_key($key)) {
++            $diag->($n, 'error', "invalid key '$raw_key'");
++            next;
++        }
++
++        my ($template, $err) = parse_value($raw_value);
++        if (defined $err) {
++            $diag->($n, 'error', $err);
++            next;
++        }
++        $diag->($n, 'warning', "duplicate key '$key' (previous definition on line $seen{$key})") if $seen{$key};
++        $seen{$key} = $n;
++        push @entries, { key => $key, section => $section, name => $name, template => $template, line => $n };
++    }
++    return { entries => \@entries, diagnostics => \@diags };
++}
++
++1;
+diff --git a/lib/CfgMerge/Schema.pm b/lib/CfgMerge/Schema.pm
+new file mode 100644
+index 0000000..c4b8604
+--- /dev/null
++++ b/lib/CfgMerge/Schema.pm
+@@ -0,0 +1,103 @@
++package CfgMerge::Schema;
++
++# Schema files: one INI section per key with type, required, default, min, max, values.
++use strict;
++use warnings;
++use Exporter 'import';
++use CfgMerge::Interpolate qw(literal);
++use CfgMerge::Output qw(show);
++
++our @EXPORT_OK = qw(build_schema apply_defaults validate);
++
++my %TYPES   = map { $_ => 1 } qw(string int number bool enum);
++my %PROPS   = map { $_ => 1 } qw(type required default min max values);
++my $INT     = qr/\A-?[0-9]+\z/;
++my $NUMBER  = qr/\A-?[0-9]+(?:\.[0-9]+)?\z/;
++my $BOOL    = qr/\A(?:true|false|yes|no|on|off|1|0)\z/i;
++
++# Build the schema from parsed entries. Returns ($schema, undef) or (undef, "key: reason").
++sub build_schema {
++    my ($entries) = @_;
++    my %raw;
++    for my $e (@$entries) {
++        return (undef, "$e->{name}: property outside a section") if $e->{section} eq '';
++        return (undef, "$e->{section}: unknown property '$e->{name}'") unless $PROPS{ $e->{name} };
++        $raw{ $e->{section} }{ $e->{name} } = literal($e->{template});
++    }
++    my %schema;
++    for my $key (sort keys %raw) {
++        my $p    = $raw{$key};
++        my $type = $p->{type};
++        return (undef, "$key: missing type") unless defined $type;
++        return (undef, "$key: unknown type '$type'") unless $TYPES{$type};
++        my $required = $p->{required} // 'false';
++        return (undef, "$key: required must be true or false") unless $required =~ /\A(?:true|false)\z/;
++        for my $bound (qw(min max)) {
++            next unless defined $p->{$bound};
++            return (undef, "$key: $bound is not allowed for type $type") if $type eq 'bool' || $type eq 'enum';
++            return (undef, "$key: $bound must be a number") unless $p->{$bound} =~ $NUMBER;
++        }
++        my @values;
++        if ($type eq 'enum') {
++            return (undef, "$key: enum needs values") unless defined $p->{values};
++            @values = map { s/\A\s+|\s+\z//gr } split /,/, $p->{values}, -1;
++        }
++        elsif (defined $p->{values}) {
++            return (undef, "$key: values is only allowed for type enum");
++        }
++        $schema{$key} = { %$p, type => $type, required => $required eq 'true', values => \@values };
++    }
++    return (\%schema, undef);
++}
++
++# Fill in defaults for missing keys; returns the keys that were filled.
++sub apply_defaults {
++    my ($schema, $values) = @_;
++    my @filled;
++    for my $key (sort keys %$schema) {
++        next if exists $values->{$key} || !defined $schema->{$key}{default};
++        $values->{$key} = $schema->{$key}{default};
++        push @filled, $key;
++    }
++    return @filled;
++}
++
++sub _check {
++    my ($rule, $v) = @_;
++    my $type = $rule->{type};
++    my %pattern = (int => $INT, number => $NUMBER, bool => $BOOL);
++    return "expected $type, got " . show($v) if $pattern{$type} && $v !~ $pattern{$type};
++    if ($type eq 'enum') {
++        return if grep { $_ eq $v } @{ $rule->{values} };
++        return show($v) . ' is not one of: ' . join(', ', @{ $rule->{values} });
++    }
++    return if $type eq 'bool';
++    my ($measure, $label) = ($v, '');
++    if ($type eq 'string') {
++        utf8::decode(my $chars = $v);
++        ($measure, $label) = (length $chars, 'length ');
++    }
++    return "$label$measure is less than minimum $rule->{min}" if defined $rule->{min} && $measure < $rule->{min};
++    return "$label$measure is greater than maximum $rule->{max}" if defined $rule->{max} && $measure > $rule->{max};
++    return;
++}
++
++# Error lines (`error: key: message`) sorted by key; empty when valid.
++sub validate {
++    my ($schema, $values, $strict) = @_;
++    my %err;
++    for my $key (keys %$schema) {
++        if (!exists $values->{$key}) {
++            $err{$key} = 'required key is missing' if $schema->{$key}{required};
++            next;
++        }
++        my $msg = _check($schema->{$key}, $values->{$key});
++        $err{$key} = $msg if defined $msg;
++    }
++    if ($strict) {
++        $err{$_} = 'not in schema' for grep { !exists $schema->{$_} } keys %$values;
++    }
++    return map {"error: $_: $err{$_}"} sort keys %err;
++}
++
++1;
+diff --git a/t/cli.t b/t/cli.t
+new file mode 100644
+index 0000000..3b2594b
+--- /dev/null
++++ b/t/cli.t
+@@ -0,0 +1,45 @@
++use strict;
++use warnings;
++use Test::More;
++use File::Temp qw(tempdir);
++use FindBin;
++
++my $bin = "$FindBin::Bin/../bin/cfgmerge";
++my $dir = tempdir(CLEANUP => 1);
++
++sub write_file {
++    my ($name, $text) = @_;
++    open my $fh, '>', "$dir/$name" or die $!;
++    print $fh $text;
++    close $fh;
++    return "$dir/$name";
++}
++
++sub capture {
++    my (@args) = @_;
++    my $pid = open(my $fh, '-|') // die $!;
++    if (!$pid) {
++        open STDERR, '>&', \*STDOUT;
++        exec $^X, $bin, @args;
++    }
++    local $/;
++    my $out = <$fh>;
++    close $fh;
++    return ($? >> 8, $out);
++}
++
++my $base = write_file('base.ini', "name = demo\n[db]\nhost = localhost\nport = 5432\n");
++my $prod = write_file('prod.env', "DB__HOST=db.internal\nURL=\"pg://\${db.host}:\${db.port}\"\n");
++
++is_deeply([capture('merge', $base, $prod)],
++    [0, "name = demo\nurl = pg://db.internal:5432\n\n[db]\nhost = db.internal\nport = 5432\n"], 'merge ini');
++is_deeply([capture('get', 'url', $base, $prod, '--set', 'db.port=6000')], [0, "pg://db.internal:6000\n"], 'get with --set');
++like((capture('explain', $base, $prod))[1],
++    qr/^db\.host = "db\.internal"  \[\Q$prod\E:1\]\n  overrides "localhost"  \[\Q$base\E:3\]$/m, 'explain sources');
++is((capture('diff', $base, $base))[0], 0, 'diff identical');
++is((capture('merge', "$dir/x.yaml"))[0], 2, 'unknown format');
++is((capture('merge', "$dir/missing.ini"))[0], 3, 'missing file');
++is((capture('bogus'))[0], 2, 'unknown command');
++like((capture('--help'))[1], qr/\Ausage: cfgmerge/, 'help');
++
++done_testing;
+diff --git a/t/interpolate.t b/t/interpolate.t
+new file mode 100644
+index 0000000..67c772e
+--- /dev/null
++++ b/t/interpolate.t
+@@ -0,0 +1,23 @@
++use strict;
++use warnings;
++use Test::More;
++use CfgMerge::Interpolate qw(expand_all literal);
++
++my $v = expand_all({ a => 'x${b}y', b => '${c}-$$', c => 'C', d => '${DB__HOST:-none}', e => '${env:FOO}' },
++    { FOO => 'foo' });
++is_deeply($v, { a => 'xC-$y', b => 'C-$', c => 'C', d => 'none', e => 'foo' }, 'expansion');
++
++is(literal('${a}$$'), '${a}$', 'literal');
++
++sub error_of {
++    my ($t) = @_;
++    eval { expand_all($t, {}) };
++    return $@ ? join("\n", $@->lines) : undef;
++}
++
++is(error_of({ a => '${b}', b => '${c}', c => '${b}' }), 'error: reference cycle: b -> c -> b', 'cycle');
++is(error_of({ a => '${a}' }), 'error: reference cycle: a -> a', 'self cycle');
++is(error_of({ a => 'v', k => '${nope}' }), "error: undefined reference '\${nope}' in key 'k'", 'undefined');
++is(error_of({ k => '${env:NOPE_NOT_SET}' }), "error: undefined reference '\${env:NOPE_NOT_SET}' in key 'k'", 'env');
++
++done_testing;
+diff --git a/t/parser.t b/t/parser.t
+new file mode 100644
+index 0000000..5c66299
+--- /dev/null
++++ b/t/parser.t
+@@ -0,0 +1,42 @@
++use strict;
++use warnings;
++use Test::More;
++use CfgMerge::Parser qw(detect_format parse_text parse_value);
++
++is(detect_format('a/.env'),           'env', '.env');
++is(detect_format('.env.local'),       'env', '.env.local');
++is(detect_format('prod.env'),         'env', 'x.env');
++is(detect_format('app.conf'),         'ini', '.conf');
++is(detect_format('settings.yaml'),    undef, 'unknown');
++
++is((parse_value('plain value ; comment'))[0], 'plain value', 'inline comment stripped');
++is((parse_value('a;b'))[0],                   'a;b',         'no whitespace, no comment');
++is((parse_value('"x \\" \\n \\$y" # c'))[0],  "x \" \n \$\$y", 'double-quote escapes');
++is((parse_value(q{'${raw}'}))[0],             '$${raw}',     'single quotes are literal');
++is((parse_value('cost $5'))[0],               'cost $$5',    'lone dollar is literal');
++is((parse_value('"open'))[1],                 'unterminated quote');
++is((parse_value('"a" b'))[1],                 'trailing characters after closing quote');
++is((parse_value('${a b}'))[1],                'invalid reference');
++is((parse_value('${x'))[1],                   'invalid reference');
++
++my $ini = parse_text("top = 1\n[Db]\nHost = h\r\n[db.replica]\nhost=r\n[bad\nnoequals\nhost = again\n", 'ini');
++is_deeply([map { $_->{key} } @{ $ini->{entries} }], [qw(top db.host db.replica.host db.replica.host)], 'keys');
++is_deeply(
++    [map {"$_->{line}:$_->{level}:$_->{message}"} @{ $ini->{diagnostics} }],
++    [
++        '6:error:invalid section header',
++        "7:error:missing '='",
++        "8:warning:duplicate key 'db.replica.host' (previous definition on line 5)",
++    ],
++    'diagnostics'
++);
++
++my $env = parse_text("export DB__HOST=x\n[s]\n1BAD=2\n", 'env');
++is($env->{entries}[0]{key}, 'db.host', 'env key mapping');
++is_deeply(
++    [map { $_->{message} } @{ $env->{diagnostics} }],
++    ['section headers are not allowed in env files', "invalid key '1BAD'"],
++    'env diagnostics'
++);
++
++done_testing;
+diff --git a/t/schema.t b/t/schema.t
+new file mode 100644
+index 0000000..ba59d8e
+--- /dev/null
++++ b/t/schema.t
+@@ -0,0 +1,48 @@
++use strict;
++use warnings;
++use Test::More;
++use CfgMerge::Parser qw(parse_text);
++use CfgMerge::Schema qw(build_schema apply_defaults validate);
++
++sub schema_of {
++    my ($text) = @_;
++    return build_schema(parse_text($text, 'ini')->{entries});
++}
++
++my ($s) = schema_of(<<'INI');
++[port]
++type = int
++required = true
++min = 1
++max = 65535
++[level]
++type = enum
++values = debug, info
++default = info
++[name]
++type = string
++min = 2
++[on]
++type = bool
++INI
++
++my %values = (port => '70000', name => 'é', on => 'Yes', extra => '1');
++is_deeply([apply_defaults($s, \%values)], ['level'], 'defaults');
++is_deeply(
++    [validate($s, \%values, 1)],
++    [
++        'error: extra: not in schema',
++        'error: name: length 1 is less than minimum 2',
++        'error: port: 70000 is greater than maximum 65535',
++    ],
++    'violations'
++);
++is_deeply([validate($s, { port => 'x', level => 'warn' }, 0)],
++    ['error: level: "warn" is not one of: debug, info', 'error: port: expected int, got "x"'], 'type and enum');
++is_deeply([validate($s, {}, 0)], ['error: port: required key is missing'], 'required');
++
++is((schema_of("[a]\ntype = text\n"))[1],           "a: unknown type 'text'", 'bad type');
++is((schema_of("[a]\ntype = int\ncolor = red\n"))[1], "a: unknown property 'color'", 'bad property');
++is((schema_of("[a]\ntype = enum\nvalues = x\nmin = 1\n"))[1], 'a: min is not allowed for type enum', 'min on enum');
++
++done_testing;

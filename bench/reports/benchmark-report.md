@@ -1,21 +1,21 @@
 # Token Forge vs clean Claude Code — benchmark report
 
-Model `claude-opus-5-5`, Claude Code 2.1.293, benchmark 1.0.0. Token Forge build under test: 0.7.0 (plugin sha256 `b9471cc0bd41`, git b8291147 + uncommitted changes), lean: balanced. Sessions: 2026-10-07T19-41-25, 2026-10-07T20-13-39, 2026-10-07T20-13-41, 2026-10-07T20-16-40, 2026-10-07T20-16-41, 2026-10-07T20-17-24-430e, 2026-10-07T20-18-37-ce9c, 2026-10-07T20-19-13-2892, 2026-10-07T20-26-02-42ac, 2026-10-07T20-26-02-f867, 2026-10-07T20-33-25-3199, 2026-10-07T20-33-27-ee90, 2026-10-07T20-33-29-9703, 2026-10-07T20-59-11-da5c, 2026-10-07T20-59-13-2130, 2026-10-07T20-59-15-350f, 2026-10-07T20-59-17-cb92, 2026-10-07T21-07-19-ca3f, 2026-10-07T21-07-21-fb68, 2026-10-07T21-07-23-68db, 2026-10-07T21-07-25-6c4d, 2026-10-07T21-15-36-73cd, 2026-10-07T21-15-38-f177, 2026-10-07T21-15-40-3833, 2026-10-07T21-24-08-26af, 2026-10-07T21-24-10-5ef0, 2026-10-07T21-24-12-c8d1, 2026-10-07T21-24-14-edda, 2026-10-07T21-40-26-254b, 2026-10-07T22-32-42-d4b4, 2026-10-07T22-32-44-b302, 2026-10-07T22-32-46-3e00, 2026-10-07T22-32-48-c5cf, 2026-10-07T22-35-24-2c1e, 2026-10-07T22-35-26-3a5b, 2026-10-07T22-35-28-f515, 2026-10-07T22-41-48-3d89, 2026-10-07T22-41-50-0542, 2026-10-07T22-41-52-7547, 2026-10-07T22-41-54-61af, 2026-10-07T22-44-35-2a28, 2026-10-07T22-44-37-793a, 2026-10-07T22-44-39-8371, 2026-10-07T23-01-20-e76f, 2026-10-07T23-01-22-f6f9, 2026-10-07T23-01-24-3d32, 2026-10-07T23-01-26-0904, 2026-10-07T23-04-43-367e, 2026-10-07T23-04-45-d333, 2026-10-07T23-04-47-0ea2, 2026-10-07T23-04-49-1bb9, 2026-10-07T23-07-05-afac, 2026-10-07T23-07-07-e0bd, 2026-10-07T23-07-09-eb8d, 2026-10-07T23-31-03-4e66, 2026-10-07T23-33-39-c144, 2026-10-07T23-40-06-3ea4, 2026-10-07T23-40-08-e5da, 2026-10-07T23-40-10-4155, 2026-10-07T23-40-12-f216, 2026-10-07T23-42-53-a049, 2026-10-07T23-42-55-e92b, 2026-10-07T23-42-57-c96c, 2026-10-08T00-03-41-a56b, 2026-10-08T00-03-44-5342, 2026-10-08T00-03-47-1b36, 2026-10-08T00-04-37-1949, 2026-10-08T00-05-37-d020, 2026-10-08T00-05-57-bd4d, 2026-10-08T00-09-27-d43c, 2026-10-08T00-09-31-40e7, 2026-10-08T00-09-31-d21e, 2026-10-08T00-11-47-a969, 2026-10-08T00-13-44-6dc5, 2026-10-08T00-13-44-d080, 2026-10-08T00-15-18-8a10, 2026-10-08T00-16-06-06f4, 2026-10-08T00-16-06-3cde, 2026-10-08T00-19-46-206f, 2026-10-08T00-19-46-269f, 2026-10-08T00-23-48-3e07, 2026-10-08T00-23-48-d45a, 2026-10-08T00-26-11-0b27, 2026-10-08T00-26-11-2aa9, 2026-10-08T00-29-11-3979, 2026-10-08T00-29-11-ff4d, 2026-10-08T00-32-10-b0b1, 2026-10-08T00-32-10-dc6e, 2026-10-08T00-38-48-0f38, 2026-10-08T00-38-48-2f63, 2026-10-08T00-48-18-3963, 2026-10-08T00-48-18-6753, 2026-10-08T00-48-18-9a48, 2026-10-08T00-48-18-a76d, 2026-10-08T00-48-44-cbfc, 2026-10-08T00-48-47-de2d, 2026-10-08T00-50-00-ce45, 2026-10-08T00-50-45-7217, 2026-10-08T00-50-49-31ae, 2026-10-08T00-52-02-87d9, 2026-10-08T00-52-24-6cfa, 2026-10-08T00-52-45-cb7a, 2026-10-08T00-52-57-a1c8, 2026-10-08T00-53-15-7951, 2026-10-08T00-54-06-cfab, 2026-10-08T00-54-15-8b3c, 2026-10-08T00-55-23-90f0, 2026-10-08T00-56-06-7094, 2026-10-08T00-57-07-7e40, 2026-10-08T00-59-08-a869, 2026-10-08T03-12-48-4ca1, 2026-10-08T03-21-41-1f0b, 2026-10-08T03-28-34-43a9, 2026-10-08T03-32-03-c849, 2026-10-08T03-38-06-bed2, 2026-10-08T03-44-40-4891, 2026-10-08T03-51-47-5a68, 2026-10-08T03-58-28-4cb0.
+Model `claude-opus-5-5`, Claude Code 2.1.293, benchmark 1.0.0. Token Forge build under test: 0.7.0 (plugin sha256 `1d360dd51c68`, git c68f6f57 + uncommitted changes), lean: balanced. Sessions: 2026-10-07T19-41-25, 2026-10-07T20-13-39, 2026-10-07T20-13-41, 2026-10-07T20-16-40, 2026-10-07T20-16-41, 2026-10-07T20-17-24-430e, 2026-10-07T20-18-37-ce9c, 2026-10-07T20-19-13-2892, 2026-10-07T20-26-02-42ac, 2026-10-07T20-26-02-f867, 2026-10-07T20-33-25-3199, 2026-10-07T20-33-27-ee90, 2026-10-07T20-33-29-9703, 2026-10-07T20-59-11-da5c, 2026-10-07T20-59-13-2130, 2026-10-07T20-59-15-350f, 2026-10-07T20-59-17-cb92, 2026-10-07T21-07-19-ca3f, 2026-10-07T21-07-21-fb68, 2026-10-07T21-07-23-68db, 2026-10-07T21-07-25-6c4d, 2026-10-07T21-15-36-73cd, 2026-10-07T21-15-38-f177, 2026-10-07T21-15-40-3833, 2026-10-07T21-24-08-26af, 2026-10-07T21-24-10-5ef0, 2026-10-07T21-24-12-c8d1, 2026-10-07T21-24-14-edda, 2026-10-07T21-40-26-254b, 2026-10-07T22-32-42-d4b4, 2026-10-07T22-32-44-b302, 2026-10-07T22-32-46-3e00, 2026-10-07T22-32-48-c5cf, 2026-10-07T22-35-24-2c1e, 2026-10-07T22-35-26-3a5b, 2026-10-07T22-35-28-f515, 2026-10-07T22-41-48-3d89, 2026-10-07T22-41-50-0542, 2026-10-07T22-41-52-7547, 2026-10-07T22-41-54-61af, 2026-10-07T22-44-35-2a28, 2026-10-07T22-44-37-793a, 2026-10-07T22-44-39-8371, 2026-10-07T23-01-20-e76f, 2026-10-07T23-01-22-f6f9, 2026-10-07T23-01-24-3d32, 2026-10-07T23-01-26-0904, 2026-10-07T23-04-43-367e, 2026-10-07T23-04-45-d333, 2026-10-07T23-04-47-0ea2, 2026-10-07T23-04-49-1bb9, 2026-10-07T23-07-05-afac, 2026-10-07T23-07-07-e0bd, 2026-10-07T23-07-09-eb8d, 2026-10-07T23-31-03-4e66, 2026-10-07T23-33-39-c144, 2026-10-07T23-40-06-3ea4, 2026-10-07T23-40-08-e5da, 2026-10-07T23-40-10-4155, 2026-10-07T23-40-12-f216, 2026-10-07T23-42-53-a049, 2026-10-07T23-42-55-e92b, 2026-10-07T23-42-57-c96c, 2026-10-08T00-03-41-a56b, 2026-10-08T00-03-44-5342, 2026-10-08T00-03-47-1b36, 2026-10-08T00-04-37-1949, 2026-10-08T00-05-37-d020, 2026-10-08T00-05-57-bd4d, 2026-10-08T00-09-27-d43c, 2026-10-08T00-09-31-40e7, 2026-10-08T00-09-31-d21e, 2026-10-08T00-11-47-a969, 2026-10-08T00-13-44-6dc5, 2026-10-08T00-13-44-d080, 2026-10-08T00-15-18-8a10, 2026-10-08T00-16-06-06f4, 2026-10-08T00-16-06-3cde, 2026-10-08T00-19-46-206f, 2026-10-08T00-19-46-269f, 2026-10-08T00-23-48-3e07, 2026-10-08T00-23-48-d45a, 2026-10-08T00-26-11-0b27, 2026-10-08T00-26-11-2aa9, 2026-10-08T00-29-11-3979, 2026-10-08T00-29-11-ff4d, 2026-10-08T00-32-10-b0b1, 2026-10-08T00-32-10-dc6e, 2026-10-08T00-38-48-0f38, 2026-10-08T00-38-48-2f63, 2026-10-08T00-48-18-3963, 2026-10-08T00-48-18-6753, 2026-10-08T00-48-18-9a48, 2026-10-08T00-48-18-a76d, 2026-10-08T00-48-44-cbfc, 2026-10-08T00-48-47-de2d, 2026-10-08T00-50-00-ce45, 2026-10-08T00-50-45-7217, 2026-10-08T00-50-49-31ae, 2026-10-08T00-52-02-87d9, 2026-10-08T00-52-24-6cfa, 2026-10-08T00-52-45-cb7a, 2026-10-08T00-52-57-a1c8, 2026-10-08T00-53-15-7951, 2026-10-08T00-54-06-cfab, 2026-10-08T00-54-15-8b3c, 2026-10-08T00-55-23-90f0, 2026-10-08T00-56-06-7094, 2026-10-08T00-57-07-7e40, 2026-10-08T00-59-08-a869, 2026-10-08T03-12-48-4ca1, 2026-10-08T03-21-41-1f0b, 2026-10-08T03-28-34-43a9, 2026-10-08T03-32-03-c849, 2026-10-08T03-38-06-bed2, 2026-10-08T03-44-40-4891, 2026-10-08T03-51-47-5a68, 2026-10-08T03-58-28-4cb0, 2026-10-08T12-11-34-7e45, 2026-10-08T12-17-47-54df, 2026-10-08T12-22-57-4eac, 2026-10-08T12-22-57-5056, 2026-10-08T12-22-57-6d8d, 2026-10-08T12-22-57-71fd, 2026-10-08T12-23-09-2674, 2026-10-08T12-23-21-b402, 2026-10-08T12-23-21-c6e2, 2026-10-08T12-28-30-4300, 2026-10-08T12-28-30-5ec4, 2026-10-08T12-34-18-06dd, 2026-10-08T12-40-18-f256, 2026-10-08T12-45-04-aed2, 2026-10-08T12-50-40-c9d5, 2026-10-08T12-56-32-956d, 2026-10-08T13-03-10-9840.
 
-Excluded: 98 Token Forge runs of other plugin builds (listed in the JSON report).
+Excluded: 107 Token Forge runs of other plugin builds (listed in the JSON report).
 
 Excluded task `ruby-cli`: run once per side (native 389,848 tokens, quality 96.83; tokenforge 443,388 tokens, quality 96.25) and left out of the published comparison by the maintainer. Runs are kept in runs/.
 
 ## Executive summary
 
-Across 26 paired tasks (59 executed runs, 0 not executed):
+Across 34 paired tasks (75 executed runs, 0 not executed):
 
-- Total-token savings per task: median **51.51%**, mean 49.49% (min 9.98%, max 75.41%). Pooled over all tasks: 51.28%.
-- Input-token savings (median): 53.52%; output-token savings (median): 28.84%; uncached input (median): 25.86%.
-- Price-weighted (input-equivalent) savings (median): 31.21%; reported cost savings (median): 27.91%.
-- Task completion: Native 0.935, Token Forge 1.0.
-- Mean quality: Native 99.07, Token Forge 99.79; median per-task quality difference (TF − native): 0.0.
-- Tasks where Token Forge was cheaper / costlier: 26 / 0 (sign test p = 0.0).
+- Total-token savings per task: median **53.28%**, mean 50.06% (min 9.98%, max 75.41%). Pooled over all tasks: 51.71%.
+- Input-token savings (median): 55.56%; output-token savings (median): 21.94%; uncached input (median): 18.98%.
+- Price-weighted (input-equivalent) savings (median): 29.09%; reported cost savings (median): 23.31%.
+- Task completion: Native 0.872, Token Forge 0.944.
+- Mean quality: Native 98.89, Token Forge 99.59; median per-task quality difference (TF − native): 0.0.
+- Tasks where Token Forge was cheaper / costlier: 34 / 0 (sign test p = 0.0).
 - Fixed context added by Token Forge on the first request (median, measured): -6,735 tokens.
 
 Positive savings mean Token Forge used fewer tokens; negative means it used more. `total tokens` = input + cache writes + cache reads + output, summed over the main session, subagents and nested `claude -p` sessions.
@@ -42,28 +42,42 @@ Positive savings mean Token Forge used fewer tokens; negative means it used more
 | csharp-api | Token Forge | 2 | 334,977 | 293,290 | 41,686 | 52,118 | 1.30 | 6 | 4 | PASS,PASS | 100.0 | completed,completed |
 | dart-cli | Native | 1 | 442,968 | 419,395 | 23,573 | 35,072 | 0.83 | 11 | 3 | PASS | 100.0 | completed |
 | dart-cli | Token Forge | 1 | 244,932 | 228,570 | 16,362 | 24,583 | 0.56 | 9 | 5 | PASS | 100.0 | completed |
+| elixir-app | Native | 1 | 540,060 | 511,582 | 28,478 | 39,483 | 0.98 | 14 | 5 | PASS | 96.9 | completed |
+| elixir-app | Token Forge | 1 | 266,851 | 239,788 | 27,063 | 34,533 | 0.86 | 7 | 2 | PASS | 100.0 | completed |
+| fsharp-cli | Native | 1 | 847,361 | 805,704 | 41,657 | 55,288 | 1.43 | 26 | 5 | PASS | 97.5 | completed |
+| fsharp-cli | Token Forge | 1 | 324,094 | 289,855 | 34,239 | 45,227 | 1.10 | 7 | 9 | PASS | 100.0 | completed |
 | go-api | Native | 3 | 684,322 | 670,408 | 17,301 | 65,689 | 0.97 | 12 | 23 | PASS,PASS,PASS | 100.0 | completed,completed,completed |
 | go-api | Token Forge | 1 | 343,071 | 330,878 | 12,193 | 50,527 | 0.70 | 9 | 21 | PASS | 100.0 | completed |
 | go-feature | Native | 1 | 1,936,463 | 1,892,409 | 44,054 | 109,554 | 2.11 | 25 | 37 | PASS | 100.0 | completed |
 | go-feature | Token Forge | 1 | 732,932 | 701,592 | 31,340 | 76,445 | 1.36 | 13 | 28 | PASS | 100.0 | completed |
 | go-mock-api | Native | 1 | 556,307 | 532,897 | 23,410 | 37,629 | 0.87 | 16 | 6 | n/a | 97.5 | completed |
 | go-mock-api | Token Forge | 1 | 144,227 | 129,920 | 14,307 | 22,251 | 0.49 | 5 | 4 | n/a | 100.0 | completed |
+| haskell-cli | Native | 1 | 599,458 | 560,625 | 38,833 | 52,459 | 1.30 | 11 | 1 | PASS | 100.0 | completed |
+| haskell-cli | Token Forge | 1 | 402,001 | 362,363 | 39,638 | 48,870 | 1.25 | 8 | 10 | PASS | 100.0 | completed |
 | java-http | Native | 1 | 813,271 | 766,250 | 47,021 | 58,936 | 1.55 | 17 | 3 | PASS | 100.0 | completed |
 | java-http | Token Forge | 1 | 236,944 | 206,732 | 30,212 | 37,703 | 0.94 | 6 | 3 | PASS | 100.0 | completed |
 | kotlin-cli | Native | 1 | 463,810 | 420,307 | 43,503 | 54,410 | 1.38 | 8 | 2 | PASS | 100.0 | completed |
 | kotlin-cli | Token Forge | 1 | 417,535 | 376,352 | 41,183 | 50,348 | 1.29 | 8 | 2 | PASS | 100.0 | completed |
+| lua-cli | Native | 1 | 780,703 | 742,713 | 37,990 | 51,104 | 1.31 | 15 | 4 | PASS | 100.0 | completed |
+| lua-cli | Token Forge | 1 | 322,560 | 286,468 | 36,092 | 45,133 | 1.13 | 6 | 2 | PASS | 100.0 | completed |
 | luau-inventory | Native | 1 | 244,867 | 226,683 | 18,184 | 27,666 | 0.62 | 7 | 3 | PASS | 100.0 | completed |
 | luau-inventory | Token Forge | 1 | 84,211 | 72,362 | 11,849 | 19,635 | 0.40 | 3 | 3 | PASS | 100.0 | completed |
 | memory-followup | Native | 2 | 412,780 | 404,498 | 8,282 | 38,535 | 0.55 | 10 | 10 | PASS,PASS | 100.0 | completed,completed |
 | memory-followup | Token Forge | 0 | n/a | n/a | n/a | n/a | n/a | n/a | n/a |  | n/a |  |
 | node-ssg | Native | 1 | 434,424 | 411,648 | 22,776 | 37,675 | 0.83 | 19 | 2 | PASS | 100.0 | completed |
 | node-ssg | Token Forge | 1 | 206,693 | 189,139 | 17,554 | 27,541 | 0.60 | 6 | 1 | PASS | 100.0 | completed |
+| ocaml-cli | Native | 1 | 683,629 | 651,321 | 32,308 | 43,419 | 1.11 | 15 | 7 | PASS | 97.0 | completed |
+| ocaml-cli | Token Forge | 1 | 270,095 | 241,420 | 28,675 | 36,575 | 0.91 | 6 | 2 | PASS | 100.0 | completed |
+| perl-cli | Native | 1 | 597,805 | 558,267 | 39,538 | 52,550 | 1.31 | 14 | 5 | PASS | 100.0 | completed |
+| perl-cli | Token Forge | 1 | 376,785 | 332,216 | 44,569 | 54,557 | 1.38 | 6 | 2 | PASS | 97.0 | completed |
 | php-api | Native | 1 | 1,072,423 | 1,023,839 | 48,584 | 62,152 | 1.66 | 19 | 6 | PASS | 100.0 | completed |
 | php-api | Token Forge | 1 | 478,598 | 434,446 | 44,152 | 52,728 | 1.38 | 10 | 3 | PASS | 100.0 | completed |
 | pr-review | Native | 1 | 180,606 | 175,659 | 4,947 | 28,905 | 0.36 | 5 | 4 | n/a | 96.7 | completed |
 | pr-review | Token Forge | 1 | 110,808 | 107,046 | 3,762 | 26,046 | 0.30 | 4 | 5 | n/a | 100.0 | completed |
 | python-cli | Native | 1 | 385,596 | 362,564 | 23,032 | 33,700 | 0.80 | 10 | 4 | PASS | 100.0 | completed |
 | python-cli | Token Forge | 1 | 190,531 | 170,436 | 20,095 | 28,089 | 0.66 | 6 | 3 | PASS | 100.0 | completed |
+| r-cli | Native | 1 | 659,615 | 624,276 | 35,339 | 47,394 | 1.20 | 14 | 2 | PASS | 97.1 | completed |
+| r-cli | Token Forge | 1 | 285,403 | 249,709 | 35,694 | 44,357 | 1.11 | 6 | 1 | PASS | 97.1 | completed |
 | refactor | Native | 1 | 413,253 | 402,678 | 10,575 | 44,303 | 0.64 | 10 | 18 | PASS | 100.0 | completed |
 | refactor | Token Forge | 1 | 347,755 | 340,494 | 7,261 | 36,804 | 0.50 | 11 | 19 | PASS | 100.0 | completed |
 | rust-cli | Native | 1 | 1,444,788 | 1,424,273 | 20,515 | 103,915 | 1.51 | 19 | 9 | PASS | 100.0 | completed |
@@ -78,6 +92,8 @@ Positive savings mean Token Forge used fewer tokens; negative means it used more
 | ts-lib | Token Forge | 1 | 156,168 | 141,118 | 15,050 | 23,449 | 0.51 | 5 | 2 | PASS | 100.0 | completed |
 | vite-landing | Native | 1 | 253,105 | 242,069 | 11,036 | 20,454 | 0.43 | 9 | 6 | PASS | 100.0 | completed |
 | vite-landing | Token Forge | 1 | 62,243 | 55,503 | 6,740 | 13,146 | 0.25 | 3 | 2 | PASS | 100.0 | completed |
+| zig-cli | Native | 1 | 964,673 | 928,028 | 36,645 | 53,812 | 1.34 | 22 | 8 | PASS | 97.1 | completed |
+| zig-cli | Token Forge | 1 | 411,503 | 382,532 | 28,971 | 47,204 | 1.02 | 11 | 5 | PASS | 97.1 | completed |
 
 | Task | Token diff | Savings % | Input % | Output % | Uncached % | Cost % | Quality Δ | Tool calls % | Files read % | Lines read % |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
@@ -90,16 +106,23 @@ Positive savings mean Token Forge used fewer tokens; negative means it used more
 | cross-module-debug | 173,190 | 65.3 | 65.5 | 44.5 | 37.6 | 44.1 | 0.0 | 50.0 | 0.0 | 44.2 |
 | csharp-api | 886,452 | 72.6 | 74.9 | 19.7 | 22.8 | 27.8 | 0.0 | 69.0 | 12.5 | -29.2 |
 | dart-cli | 198,036 | 44.7 | 45.5 | 30.6 | 29.9 | 31.9 | 0.0 | 18.2 | -66.7 | -58.8 |
+| elixir-app | 273,209 | 50.6 | 53.1 | 5.0 | 12.5 | 12.4 | 3.1 | 50.0 | 60.0 | 88.2 |
+| fsharp-cli | 523,267 | 61.8 | 64.0 | 17.8 | 18.2 | 23.1 | 2.5 | 73.1 | -80.0 | 81.7 |
 | go-api | 341,251 | 49.9 | 50.6 | 29.5 | 23.1 | 27.1 | 0.0 | 25.0 | 8.7 | 27.8 |
 | go-feature | 1,203,531 | 62.1 | 62.9 | 28.9 | 30.2 | 35.5 | 0.0 | 48.0 | 24.3 | 29.9 |
 | go-mock-api | 412,080 | 74.1 | 75.6 | 38.9 | 40.9 | 44.1 | 2.5 | 68.8 | 33.3 | 82.6 |
+| haskell-cli | 197,457 | 32.9 | 35.4 | -2.1 | 6.8 | 4.0 | 0.0 | 27.3 | -900.0 | -200.0 |
 | java-http | 576,327 | 70.9 | 73.0 | 35.8 | 36.0 | 39.5 | 0.0 | 64.7 | 0.0 | 78.8 |
 | kotlin-cli | 46,275 | 10.0 | 10.5 | 5.3 | 7.5 | 6.3 | 0.0 | 0.0 | 0.0 | 0.0 |
+| lua-cli | 458,143 | 58.7 | 61.4 | 5.0 | 11.7 | 13.4 | 0.0 | 60.0 | 50.0 | 21.4 |
 | luau-inventory | 160,656 | 65.6 | 68.1 | 34.8 | 29.0 | 35.2 | 0.0 | 57.1 | 0.0 | 4.0 |
 | node-ssg | 227,731 | 52.4 | 54.0 | 22.9 | 26.9 | 27.4 | 0.0 | 68.4 | 50.0 | 75.0 |
+| ocaml-cli | 413,534 | 60.5 | 62.9 | 11.2 | 15.8 | 18.6 | 3.0 | 60.0 | 71.4 | 25.0 |
+| perl-cli | 221,020 | 37.0 | 40.5 | -12.7 | -3.8 | -5.4 | -3.0 | 57.1 | 60.0 | 79.5 |
 | php-api | 593,825 | 55.4 | 57.6 | 9.1 | 15.2 | 16.9 | 0.0 | 47.4 | 50.0 | 86.1 |
 | pr-review | 69,798 | 38.6 | 39.1 | 23.9 | 9.9 | 16.6 | 3.3 | 20.0 | -25.0 | -6.2 |
 | python-cli | 195,065 | 50.6 | 53.0 | 12.8 | 16.6 | 17.7 | 0.0 | 40.0 | 25.0 | -145.4 |
+| r-cli | 374,212 | 56.7 | 60.0 | -1.0 | 6.4 | 7.6 | 0.0 | 57.1 | 50.0 | 36.4 |
 | refactor | 65,498 | 15.8 | 15.4 | 31.3 | 16.9 | 21.5 | 0.0 | -10.0 | -5.6 | -1.8 |
 | rust-cli | 840,848 | 58.2 | 58.6 | 28.8 | 38.5 | 39.7 | 0.0 | 31.6 | -155.6 | 18.2 |
 | rust-debug | 87,200 | 43.1 | 43.6 | 24.8 | 26.0 | 28.0 | 11.5 | 14.3 | 17.6 | 1.0 |
@@ -107,6 +130,7 @@ Positive savings mean Token Forge used fewer tokens; negative means it used more
 | swift-cli | 227,041 | 54.1 | 57.1 | 11.2 | 16.6 | 16.9 | 0.0 | 50.0 | -25.0 | -71.4 |
 | ts-lib | 127,374 | 44.9 | 46.1 | 30.0 | 25.7 | 29.7 | 0.0 | 28.6 | 50.0 | 33.3 |
 | vite-landing | 190,862 | 75.4 | 77.1 | 38.9 | 35.7 | 42.0 | 0.0 | 66.7 | 66.7 | 71.4 |
+| zig-cli | 553,170 | 57.3 | 58.8 | 20.9 | 12.3 | 23.5 | 0.0 | 50.0 | 37.5 | 55.8 |
 
 ## Quality-adjusted efficiency
 
@@ -121,17 +145,24 @@ Positive savings mean Token Forge used fewer tokens; negative means it used more
 | cross-module-debug | 2,652 | 920 | 377.08 | 1,086.92 |
 | csharp-api | 12,214 | 3,350 | 81.87 | 298.53 |
 | dart-cli | 4,430 | 2,449 | 225.75 | 408.28 |
+| elixir-app | 5,571 | 2,668 | 179.50 | 374.74 |
+| fsharp-cli | 8,691 | 3,241 | 115.06 | 308.55 |
 | go-api | 6,843 | 3,431 | 146.13 | 291.48 |
 | go-feature | 19,365 | 7,329 | 51.64 | 136.44 |
 | go-mock-api | 5,706 | 1,442 | 175.26 | 693.35 |
+| haskell-cli | 5,995 | 4,020 | 166.82 | 248.76 |
 | java-http | 8,133 | 2,369 | 122.96 | 422.04 |
 | kotlin-cli | 4,638 | 4,175 | 215.61 | 239.50 |
+| lua-cli | 7,807 | 3,226 | 128.09 | 310.02 |
 | luau-inventory | 2,449 | 842 | 408.38 | 1,187.49 |
 | memory-followup | 4,128 | n/a | 242.26 | n/a |
 | node-ssg | 4,344 | 2,067 | 230.19 | 483.81 |
+| ocaml-cli | 7,048 | 2,701 | 141.89 | 370.24 |
+| perl-cli | 5,978 | 3,884 | 167.28 | 257.44 |
 | php-api | 10,724 | 4,786 | 93.25 | 208.94 |
 | pr-review | 1,868 | 1,108 | 535.25 | 902.46 |
 | python-cli | 3,856 | 1,905 | 259.34 | 524.85 |
+| r-cli | 6,795 | 2,940 | 147.16 | 340.12 |
 | refactor | 4,132 | 3,478 | 241.98 | 287.56 |
 | rust-cli | 14,448 | 6,039 | 69.21 | 165.58 |
 | rust-debug | 2,284 | 1,149 | 437.89 | 870.28 |
@@ -139,40 +170,41 @@ Positive savings mean Token Forge used fewer tokens; negative means it used more
 | swift-cli | 4,194 | 1,924 | 238.42 | 519.80 |
 | ts-lib | 2,835 | 1,562 | 352.68 | 640.34 |
 | vite-landing | 2,531 | 622 | 395.09 | 1,606.61 |
+| zig-cli | 9,938 | 4,239 | 100.62 | 235.89 |
 
 ## Distribution statistics (all executed runs)
 
-**Native** (31 runs)
+**Native** (39 runs)
 
 | Metric | mean | median | min | max | stdev |
 |---|---:|---:|---:|---:|---:|
-| total_tokens | 673,758.32 | 463,810 | 180,606 | 2,428,089 | 538,414.79 |
-| input_tokens | 650,394.10 | 420,307 | 175,659 | 2,392,370 | 530,455.54 |
-| output_tokens | 23,364.23 | 22,776 | 3,080 | 51,942 | 14,655.68 |
-| cached_input_tokens | 600,668.16 | 384,323 | 146,754 | 2,287,992 | 508,236.33 |
-| uncached_input_tokens | 49,725.94 | 44,303 | 20,090 | 109,554 | 24,317.08 |
-| input_equivalent_tokens | 239,038.71 | 212,147 | 63,936 | 537,852 | 134,145.51 |
-| total_cost_usd_reported | 0.99 | 0.87 | 0.28 | 2.11 | 0.51 |
-| tool_calls | 13.81 | 12.00 | 5.00 | 32.00 | 6.63 |
-| duration_seconds | 217.35 | 190.10 | 35.00 | 530.20 | 138.50 |
-| quality_score | 99.07 | 100.00 | 87.00 | 100.00 | 2.94 |
+| total_tokens | 681,020.82 | 597,805 | 180,606 | 2,428,089 | 482,600.58 |
+| input_tokens | 654,993.15 | 558,267 | 175,659 | 2,392,370 | 475,363.84 |
+| output_tokens | 26,027.67 | 23,963 | 3,080 | 51,942 | 14,181.47 |
+| cached_input_tokens | 605,326.15 | 505,717 | 146,754 | 2,287,992 | 455,623.41 |
+| uncached_input_tokens | 49,667 | 46,683 | 20,090 | 109,554 | 21,736.81 |
+| input_equivalent_tokens | 252,747.79 | 232,163 | 63,936 | 537,852 | 123,257.57 |
+| total_cost_usd_reported | 1.04 | 0.98 | 0.28 | 2.11 | 0.47 |
+| tool_calls | 14.33 | 13.00 | 5.00 | 32.00 | 6.35 |
+| duration_seconds | 241.63 | 230.10 | 35.00 | 530.20 | 132.96 |
+| quality_score | 98.89 | 100.00 | 87.00 | 100.00 | 2.72 |
 
-**Token Forge** (28 runs)
+**Token Forge** (36 runs)
 
 | Metric | mean | median | min | max | stdev |
 |---|---:|---:|---:|---:|---:|
-| total_tokens | 340,267.96 | 248,052.50 | 62,243 | 1,616,842 | 307,887.09 |
-| input_tokens | 319,371.25 | 231,211.50 | 55,503 | 1,582,356 | 302,011.83 |
-| output_tokens | 20,896.71 | 16,796.00 | 1,711 | 46,282 | 13,618.45 |
-| cached_input_tokens | 281,056.57 | 205,553.00 | 42,357 | 1,495,129 | 285,599.86 |
-| uncached_input_tokens | 38,314.68 | 34,102.50 | 13,146 | 87,227 | 19,111.85 |
-| input_equivalent_tokens | 180,478.04 | 145,270.50 | 33,621 | 430,964 | 104,008.90 |
-| total_cost_usd_reported | 0.78 | 0.63 | 0.16 | 1.69 | 0.43 |
-| tool_calls | 8.14 | 7.00 | 3.00 | 25.00 | 4.52 |
-| duration_seconds | 197.37 | 145.00 | 25.00 | 495.10 | 132.76 |
-| quality_score | 99.79 | 100.00 | 94.00 | 100.00 | 1.13 |
+| total_tokens | 338,522.08 | 300,613.00 | 62,243 | 1,616,842 | 271,685.70 |
+| input_tokens | 314,631.83 | 262,248.00 | 55,503 | 1,582,356 | 266,571.43 |
+| output_tokens | 23,890.25 | 21,970.50 | 1,711 | 46,282 | 13,509.87 |
+| cached_input_tokens | 274,929.97 | 216,012.00 | 42,357 | 1,495,129 | 252,143.07 |
+| uncached_input_tokens | 39,701.86 | 38,541.00 | 13,146 | 87,227 | 17,233.83 |
+| input_equivalent_tokens | 196,567.17 | 194,914.50 | 33,621 | 430,964 | 97,914.81 |
+| total_cost_usd_reported | 0.85 | 0.83 | 0.16 | 1.69 | 0.40 |
+| tool_calls | 7.92 | 7.00 | 3.00 | 25.00 | 4.07 |
+| duration_seconds | 221.17 | 222.55 | 25.00 | 495.10 | 126.98 |
+| quality_score | 99.59 | 100.00 | 94.00 | 100.00 | 1.27 |
 
-Per-task token savings %: mean 49.49, median 51.51, p10 18.57, p25 42.09, p75 64.52, p90 71.72
+Per-task token savings %: mean 50.06, median 53.28, p10 24.79, p25 42.09, p75 61.44, p90 70.22
 
 ## Per-category results
 
@@ -181,7 +213,7 @@ Per-task token savings %: mean 49.49, median 51.51, p10 18.57, p25 42.09, p75 64
 | architecture | architecture | 10.2 | 0.0 | better (all tasks cheaper by >5%) |
 | debugging | cross-module-debug, rust-debug | 54.2 | 5.8 | better (all tasks cheaper by >5%) |
 | feature | banking-transfers, banking-web, go-api, go-feature | 54.6 | 0.0 | better (all tasks cheaper by >5%) |
-| greenfield | bash-tool, c-cli, cpp-cli, csharp-api, dart-cli, go-mock-api, java-http, kotlin-cli, luau-inventory, node-ssg, php-api, python-cli, rust-cli, rust-tui, swift-cli, ts-lib, vite-landing | 54.1 | 0.0 | better (all tasks cheaper by >5%) |
+| greenfield | bash-tool, c-cli, cpp-cli, csharp-api, dart-cli, elixir-app, fsharp-cli, go-mock-api, haskell-cli, java-http, kotlin-cli, lua-cli, luau-inventory, node-ssg, ocaml-cli, perl-cli, php-api, python-cli, r-cli, rust-cli, rust-tui, swift-cli, ts-lib, vite-landing, zig-cli | 55.4 | 0.0 | better (all tasks cheaper by >5%) |
 | refactor | refactor | 15.8 | 0.0 | better (all tasks cheaper by >5%) |
 | review | pr-review | 38.6 | 3.3 | better (all tasks cheaper by >5%) |
 
@@ -207,28 +239,42 @@ Per-task token savings %: mean 49.49, median 51.51, p10 18.57, p25 42.09, p75 64
 | csharp-api | Token Forge | 8 | 13,665 | 16 | 4,580 | 0 | 0.00 | 0 | 0 |
 | dart-cli | Native | 12 | 19,172 | 17 | 5,963 | 0 | 0.00 | 0 | 0 |
 | dart-cli | Token Forge | 10 | 12,431 | 27 | 2,423 | 0 | 0.00 | 0 | 0 |
+| elixir-app | Native | 15 | 18,889 | 135 | 4,275 | 0 | 0.00 | 0 | 0 |
+| elixir-app | Token Forge | 8 | 12,157 | 16 | 1,372 | 0 | 0.00 | 0 | 0 |
+| fsharp-cli | Native | 18 | 19,523 | 164 | 6,793 | 0 | 0.00 | 0 | 0 |
+| fsharp-cli | Token Forge | 8 | 12,788 | 30 | 7,362 | 0 | 0.00 | 0 | 0 |
 | go-api | Native | 12 | 17,464 | 2,580 | 90,170 | 1 | 0.52 | 0 | 0 |
 | go-api | Token Forge | 9 | 10,738 | 1,864 | 72,201 | 5 | 0.57 | 0 | 0 |
 | go-feature | Native | 23 | 18,382 | 3,457 | 123,831 | 1 | 0.38 | 0 | 0 |
 | go-feature | Token Forge | 14 | 11,647 | 2,423 | 85,807 | 15 | 0.54 | 0 | 0 |
 | go-mock-api | Native | 16 | 19,412 | 121 | 7,351 | 2 | 0.00 | 0 | 0 |
 | go-mock-api | Token Forge | 6 | 12,683 | 21 | 1,661 | 0 | 0.00 | 0 | 0 |
+| haskell-cli | Native | 12 | 19,466 | 11 | 9,446 | 0 | 0.00 | 0 | 0 |
+| haskell-cli | Token Forge | 9 | 12,734 | 33 | 3,306 | 1 | 0.00 | 0 | 0 |
 | java-http | Native | 18 | 18,971 | 85 | 5,501 | 0 | 0.00 | 0 | 0 |
 | java-http | Token Forge | 7 | 12,239 | 18 | 1,723 | 0 | 0.00 | 0 | 0 |
 | kotlin-cli | Native | 9 | 19,770 | 10 | 3,047 | 0 | 0.00 | 0 | 0 |
 | kotlin-cli | Token Forge | 9 | 13,023 | 10 | 2,348 | 0 | 0.00 | 0 | 0 |
+| lua-cli | Native | 16 | 19,943 | 14 | 7,250 | 0 | 0.00 | 0 | 0 |
+| lua-cli | Token Forge | 7 | 13,205 | 11 | 2,870 | 0 | 0.00 | 0 | 0 |
 | luau-inventory | Native | 8 | 19,772 | 25 | 994 | 0 | 0.00 | 0 | 0 |
 | luau-inventory | Token Forge | 4 | 13,034 | 24 | 717 | 0 | 0.00 | 0 | 0 |
 | memory-followup | Native | 10 | 17,406 | 850 | 53,999 | 0 | 0.54 | 0 | 0 |
 | memory-followup | Token Forge | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a |
 | node-ssg | Native | 12 | 20,241 | 24 | 7,639 | 0 | 0.00 | 0 | 0 |
 | node-ssg | Token Forge | 7 | 13,506 | 6 | 3,719 | 0 | 0.00 | 0 | 0 |
+| ocaml-cli | Native | 16 | 19,696 | 16 | 3,791 | 1 | 0.00 | 0 | 0 |
+| ocaml-cli | Token Forge | 7 | 12,958 | 12 | 1,182 | 0 | 0.00 | 0 | 0 |
+| perl-cli | Native | 12 | 19,643 | 39 | 6,853 | 0 | 0.00 | 0 | 0 |
+| perl-cli | Token Forge | 7 | 12,917 | 8 | 4,598 | 0 | 0.00 | 0 | 0 |
 | php-api | Native | 20 | 19,273 | 180 | 8,471 | 0 | 0.00 | 0 | 0 |
 | php-api | Token Forge | 11 | 12,541 | 25 | 2,654 | 0 | 0.00 | 0 | 0 |
 | pr-review | Native | 6 | 16,569 | 1,036 | 37,974 | 0 | 0.50 | 0 | 0 |
 | pr-review | Token Forge | 5 | 9,834 | 1,100 | 38,757 | 0 | 0.60 | 0 | 0 |
 | python-cli | Native | 11 | 19,405 | 11 | 3,862 | 0 | 0.00 | 0 | 0 |
 | python-cli | Token Forge | 7 | 12,679 | 27 | 1,542 | 0 | 0.00 | 0 | 0 |
+| r-cli | Native | 15 | 20,063 | 11 | 4,368 | 0 | 0.00 | 0 | 0 |
+| r-cli | Token Forge | 7 | 13,322 | 7 | 1,488 | 0 | 0.00 | 0 | 0 |
 | refactor | Native | 10 | 16,694 | 1,693 | 62,385 | 1 | 0.50 | 0 | 0 |
 | refactor | Token Forge | 11 | 9,959 | 1,723 | 56,318 | 9 | 0.47 | 0 | 0 |
 | rust-cli | Native | 18 | 18,241 | 4,005 | 168,677 | 1 | 0.22 | 0 | 0 |
@@ -243,6 +289,8 @@ Per-task token savings %: mean 49.49, median 51.51, p10 18.57, p25 42.09, p75 64
 | ts-lib | Token Forge | 6 | 13,514 | 12 | 1,063 | 0 | 0.00 | 0 | 0 |
 | vite-landing | Native | 10 | 18,601 | 21 | 2,508 | 0 | 0.00 | 0 | 0 |
 | vite-landing | Token Forge | 4 | 11,863 | 6 | 624 | 0 | 0.00 | 0 | 0 |
+| zig-cli | Native | 21 | 19,118 | 267 | 15,774 | 0 | 0.00 | 0 | 0 |
+| zig-cli | Token Forge | 12 | 12,380 | 118 | 11,630 | 2 | 0.00 | 0 | 0 |
 
 Context precision is approximate: the share of files read that match the task's `relevant_files` globs. Files read via `cat`/`sed`/`head` in Bash are detected heuristically.
 
@@ -254,7 +302,7 @@ Context precision is approximate: the share of files read that match the task's 
 - repo commit mismatch: none
 - prompt hash mismatch: none
 - missing evaluation: none
-- api models: {'claude-opus-5-5': 59}
+- api models: {'claude-opus-5-5': 75}
 - runs with other models: none
 
 ## Statistical conclusion

@@ -1,131 +1,131 @@
 {
   "aggregate": {
-    "tasks_paired": 26,
-    "runs_executed": 59,
+    "tasks_paired": 34,
+    "runs_executed": 75,
     "runs_not_executed": 0,
     "token_savings_percent": {
-      "n": 26,
-      "mean": 49.49,
-      "median": 51.51,
+      "n": 34,
+      "mean": 50.06,
+      "median": 53.28,
       "min": 9.98,
       "max": 75.41,
-      "stdev": 19.08,
-      "p10": 18.57,
+      "stdev": 17.4,
+      "p10": 24.79,
       "p25": 42.09,
-      "p75": 64.52,
-      "p90": 71.72
+      "p75": 61.44,
+      "p90": 70.22
     },
     "input_savings_percent": {
-      "n": 26,
-      "mean": 50.7,
-      "median": 53.52,
+      "n": 34,
+      "mean": 51.6,
+      "median": 55.56,
       "min": 10.18,
       "max": 77.07,
-      "stdev": 19.5,
-      "p10": 19.36,
+      "stdev": 17.76,
+      "p10": 26.46,
       "p25": 43.54,
-      "p75": 64.89,
-      "p90": 73.97
+      "p75": 62.93,
+      "p90": 72.0
     },
     "output_savings_percent": {
-      "n": 26,
-      "mean": 24.52,
-      "median": 28.84,
-      "min": -11.57,
+      "n": 34,
+      "mean": 20.05,
+      "median": 21.94,
+      "min": -12.72,
       "max": 46.39,
-      "stdev": 14.19,
-      "p10": 7.21,
-      "p25": 13.66,
-      "p75": 33.97,
-      "p90": 40.53
+      "stdev": 15.67,
+      "p10": 0.34,
+      "p25": 9.09,
+      "p75": 30.45,
+      "p90": 38.92
     },
     "uncached_input_savings_percent": {
-      "n": 26,
-      "mean": 24.06,
-      "median": 25.86,
+      "n": 34,
+      "mean": 20.75,
+      "median": 18.98,
       "min": -16.29,
       "max": 42.73,
-      "stdev": 12.72,
-      "p10": 12.46,
-      "p25": 16.61,
-      "p75": 33.44,
-      "p90": 38.03
+      "stdev": 13.01,
+      "p10": 7.03,
+      "p25": 13.16,
+      "p75": 29.69,
+      "p90": 37.11
     },
     "input_equivalent_savings_percent": {
-      "n": 26,
-      "mean": 30.68,
-      "median": 31.21,
+      "n": 34,
+      "mean": 27.48,
+      "median": 29.09,
       "min": -5.33,
       "max": 51.84,
-      "stdev": 14.27,
-      "p10": 15.92,
-      "p25": 21.41,
-      "p75": 42.8,
-      "p90": 48.03
+      "stdev": 14.61,
+      "p10": 8.08,
+      "p25": 20.05,
+      "p75": 37.68,
+      "p90": 47.48
     },
     "cost_savings_percent": {
-      "n": 26,
-      "mean": 27.27,
-      "median": 27.91,
+      "n": 34,
+      "mean": 23.71,
+      "median": 23.31,
       "min": -9.51,
       "max": 48.32,
-      "stdev": 13.53,
-      "p10": 14.48,
-      "p25": 17.09,
-      "p75": 38.51,
-      "p90": 43.36
+      "stdev": 14.21,
+      "p10": 6.69,
+      "p25": 16.13,
+      "p75": 34.4,
+      "p90": 42.47
     },
     "quality_diff": {
-      "n": 26,
-      "mean": 0.44,
+      "n": 34,
+      "mean": 0.5,
       "median": 0.0,
       "min": -6.0,
       "max": 11.5,
-      "stdev": 2.69,
+      "stdev": 2.53,
       "p10": 0.0,
       "p25": 0.0,
       "p75": 0.0,
-      "p90": 1.25
+      "p90": 2.85
     },
     "tool_call_reduction_percent": {
-      "n": 26,
-      "mean": 38.83,
-      "median": 40.0,
+      "n": 34,
+      "mean": 42.47,
+      "median": 49.0,
       "min": -10.0,
-      "max": 69.05,
-      "stdev": 22.61,
-      "p10": 11.69,
-      "p25": 22.66,
-      "p75": 58.6,
-      "p90": 67.55
+      "max": 73.08,
+      "stdev": 21.64,
+      "p10": 15.46,
+      "p25": 27.59,
+      "p75": 59.77,
+      "p90": 67.89
     },
     "files_read_reduction_percent": {
-      "n": 26,
-      "mean": 3.03,
-      "median": 10.6,
-      "min": -155.56,
-      "max": 66.67,
-      "stdev": 47.24,
-      "p10": -50.0,
+      "n": 34,
+      "mean": -16.83,
+      "median": 14.39,
+      "min": -900.0,
+      "max": 71.43,
+      "stdev": 163.44,
+      "p10": -61.67,
       "p25": -10.77,
-      "p75": 31.25,
-      "p90": 50.0
+      "p75": 50.0,
+      "p90": 60.0
     },
     "first_request_overhead_tokens": {
-      "n": 26,
-      "mean": -6734.02,
+      "n": 34,
+      "mean": -6734.25,
       "median": -6735.0,
       "min": -6747,
       "max": -6726,
-      "stdev": 5.45,
+      "stdev": 5.25,
       "p10": -6741.0,
       "p25": -6738.0,
-      "p75": -6729.75,
+      "p75": -6732.0,
       "p90": -6726.0
     },
-    "pooled_token_savings_percent": 51.28,
+    "pooled_token_savings_percent": 51.71,
     "sign_test": {
-      "tasks_tf_cheaper": 26,
+      "tasks_tf_cheaper": 34,
       "tasks_tf_costlier": 0,
       "p_value_two_sided": 0.0
     }
@@ -133,251 +133,251 @@
   "per_agent": {
     "native": {
       "total_tokens": {
-        "n": 31,
-        "mean": 673758.32,
-        "median": 463810,
+        "n": 39,
+        "mean": 681020.82,
+        "median": 597805,
         "min": 180606,
         "max": 2428089,
-        "stdev": 538414.79,
-        "p10": 244867.0,
-        "p25": 301208.0,
-        "p75": 762772.0,
-        "p90": 1444788.0
+        "stdev": 482600.58,
+        "p10": 251457.4,
+        "p25": 385897.0,
+        "p75": 791453.5,
+        "p90": 1266100.8
       },
       "input_tokens": {
-        "n": 31,
-        "mean": 650394.1,
-        "median": 420307,
+        "n": 39,
+        "mean": 654993.15,
+        "median": 558267,
         "min": 175659,
         "max": 2392370,
-        "stdev": 530455.54,
-        "p10": 226683.0,
-        "p25": 285420.5,
-        "p75": 725542.5,
-        "p90": 1424273.0
+        "stdev": 475363.84,
+        "p10": 238991.8,
+        "p25": 371049.0,
+        "p75": 754481.5,
+        "p90": 1220444.2
       },
       "output_tokens": {
-        "n": 31,
-        "mean": 23364.23,
-        "median": 22776,
+        "n": 39,
+        "mean": 26027.67,
+        "median": 23963,
         "min": 3080,
         "max": 51942,
-        "stdev": 14655.68,
-        "p10": 4969.0,
-        "p25": 10805.5,
-        "p75": 34014.5,
-        "p90": 44054.0
+        "stdev": 14181.47,
+        "p10": 6325.0,
+        "p25": 15607.5,
+        "p75": 38411.5,
+        "p90": 43613.2
       },
       "cached_input_tokens": {
-        "n": 31,
-        "mean": 600668.16,
-        "median": 384323,
+        "n": 39,
+        "mean": 605326.15,
+        "median": 505717,
         "min": 146754,
         "max": 2287992,
-        "stdev": 508236.33,
-        "p10": 199017.0,
-        "p25": 250264.5,
-        "p75": 668523.5,
-        "p90": 1320358.0
+        "stdev": 455623.41,
+        "p10": 217095.4,
+        "p25": 331025.5,
+        "p75": 699461.5,
+        "p90": 1145672.4
       },
       "uncached_input_tokens": {
-        "n": 31,
-        "mean": 49725.94,
-        "median": 44303,
+        "n": 39,
+        "mean": 49667,
+        "median": 46683,
         "min": 20090,
         "max": 109554,
-        "stdev": 24317.08,
-        "p10": 22343.0,
-        "p25": 33209.5,
-        "p75": 63212.5,
-        "p90": 77885.0
+        "stdev": 21736.81,
+        "p10": 26601.4,
+        "p25": 36332.5,
+        "p75": 57112.0,
+        "p90": 69565.8
       },
       "input_equivalent_tokens": {
-        "n": 31,
-        "mean": 239038.71,
-        "median": 212147,
+        "n": 39,
+        "mean": 252747.79,
+        "median": 232163,
         "min": 63936,
         "max": 537852,
-        "stdev": 134145.51,
-        "p10": 75539.0,
-        "p25": 142987.0,
+        "stdev": 123257.57,
+        "p10": 97431.0,
+        "p25": 157718.0,
         "p75": 330525.0,
-        "p90": 416769.0
+        "p90": 386951.4
       },
       "total_cost_usd_reported": {
-        "n": 31,
-        "mean": 0.99,
-        "median": 0.87,
+        "n": 39,
+        "mean": 1.04,
+        "median": 0.98,
         "min": 0.2816716,
         "max": 2.113899,
-        "stdev": 0.51,
-        "p10": 0.36,
-        "p25": 0.61,
-        "p75": 1.38,
-        "p90": 1.66
+        "stdev": 0.47,
+        "p10": 0.41,
+        "p25": 0.68,
+        "p75": 1.37,
+        "p90": 1.57
       },
       "tool_calls": {
-        "n": 31,
-        "mean": 13.81,
-        "median": 12,
+        "n": 39,
+        "mean": 14.33,
+        "median": 13,
         "min": 5,
         "max": 32,
-        "stdev": 6.63,
+        "stdev": 6.35,
         "p10": 7.0,
-        "p25": 8.5,
+        "p25": 10.0,
         "p75": 19.0,
-        "p90": 22.0
+        "p90": 22.6
       },
       "duration_seconds": {
-        "n": 31,
-        "mean": 217.35,
-        "median": 190.1,
+        "n": 39,
+        "mean": 241.63,
+        "median": 230.1,
         "min": 35.0,
         "max": 530.2,
-        "stdev": 138.5,
-        "p10": 60.0,
-        "p25": 100.0,
-        "p75": 327.65,
-        "p90": 395.1
+        "stdev": 132.96,
+        "p10": 64.0,
+        "p25": 137.6,
+        "p75": 355.1,
+        "p90": 391.18
       },
       "quality_score": {
-        "n": 31,
-        "mean": 99.07,
+        "n": 39,
+        "mean": 98.89,
         "median": 100.0,
         "min": 87.0,
         "max": 100.0,
-        "stdev": 2.94,
-        "p10": 97.5,
+        "stdev": 2.72,
+        "p10": 96.99,
         "p25": 100.0,
         "p75": 100.0,
         "p90": 100.0
       },
-      "completion_rate": 0.935,
-      "runs": 31
+      "completion_rate": 0.872,
+      "runs": 39
     },
     "token-forge": {
       "total_tokens": {
-        "n": 28,
-        "mean": 340267.96,
-        "median": 248052.5,
+        "n": 36,
+        "mean": 338522.08,
+        "median": 300613.0,
         "min": 62243,
         "max": 1616842,
-        "stdev": 307887.09,
-        "p10": 105166.5,
-        "p25": 153182.75,
-        "p75": 376629.25,
-        "p90": 613745.2
+        "stdev": 271685.7,
+        "p10": 112856.5,
+        "p25": 189896.25,
+        "p75": 383089.0,
+        "p90": 586627.0
       },
       "input_tokens": {
-        "n": 28,
-        "mean": 319371.25,
-        "median": 231211.5,
+        "n": 36,
+        "mean": 314631.83,
+        "median": 262248.0,
         "min": 55503,
         "max": 1582356,
-        "stdev": 302011.83,
-        "p10": 102019.8,
-        "p25": 138318.5,
-        "p75": 349755.5,
-        "p90": 599327.1
+        "stdev": 266571.43,
+        "p10": 107848.5,
+        "p25": 169961.25,
+        "p75": 346258.25,
+        "p90": 556183.5
       },
       "output_tokens": {
-        "n": 28,
-        "mean": 20896.71,
-        "median": 16796.0,
+        "n": 36,
+        "mean": 23890.25,
+        "median": 21970.5,
         "min": 1711,
         "max": 46282,
-        "stdev": 13618.45,
-        "p10": 5369.9,
-        "p25": 12107.0,
-        "p75": 32095.5,
-        "p90": 41529.2
+        "stdev": 13509.87,
+        "p10": 6399.5,
+        "p25": 14225.75,
+        "p75": 34788.0,
+        "p90": 41760.0
       },
       "cached_input_tokens": {
-        "n": 28,
-        "mean": 281056.57,
-        "median": 205553.0,
+        "n": 36,
+        "mean": 274929.97,
+        "median": 216012.0,
         "min": 42357,
         "max": 1495129,
-        "stdev": 285599.86,
-        "p10": 79603.2,
-        "p25": 115169.0,
-        "p75": 309268.5,
-        "p90": 539280.0
+        "stdev": 252143.07,
+        "p10": 83110.5,
+        "p25": 141044.25,
+        "p75": 306140.75,
+        "p90": 493916.0
       },
       "uncached_input_tokens": {
-        "n": 28,
-        "mean": 38314.68,
-        "median": 34102.5,
+        "n": 36,
+        "mean": 39701.86,
+        "median": 38541.0,
         "min": 13146,
         "max": 87227,
-        "stdev": 19111.85,
-        "p10": 18243.3,
-        "p25": 23478.25,
-        "p75": 50647.25,
-        "p90": 61606.1
+        "stdev": 17233.83,
+        "p10": 20943.0,
+        "p25": 25680.25,
+        "p75": 50392.75,
+        "p90": 57585.5
       },
       "input_equivalent_tokens": {
-        "n": 28,
-        "mean": 180478.04,
-        "median": 145270.5,
+        "n": 36,
+        "mean": 196567.17,
+        "median": 194914.5,
         "min": 33621,
         "max": 430964,
-        "stdev": 104008.9,
-        "p10": 57935.3,
-        "p25": 112033.75,
-        "p75": 263209.75,
-        "p90": 317785.6
+        "stdev": 97914.81,
+        "p10": 74262.0,
+        "p25": 121677.75,
+        "p75": 268259.5,
+        "p90": 316784.0
       },
       "total_cost_usd_reported": {
-        "n": 28,
-        "mean": 0.78,
-        "median": 0.63,
+        "n": 36,
+        "mean": 0.85,
+        "median": 0.83,
         "min": 0.1610248,
         "max": 1.6863538,
-        "stdev": 0.43,
-        "p10": 0.28,
-        "p25": 0.5,
-        "p75": 1.13,
+        "stdev": 0.4,
+        "p10": 0.35,
+        "p25": 0.54,
+        "p75": 1.16,
         "p90": 1.37
       },
       "tool_calls": {
-        "n": 28,
-        "mean": 8.14,
+        "n": 36,
+        "mean": 7.92,
         "median": 7.0,
         "min": 3,
         "max": 25,
-        "stdev": 4.52,
-        "p10": 4.0,
-        "p25": 5.0,
-        "p75": 10.0,
-        "p90": 13.0
+        "stdev": 4.07,
+        "p10": 4.5,
+        "p25": 6.0,
+        "p75": 9.25,
+        "p90": 12.0
       },
       "duration_seconds": {
-        "n": 28,
-        "mean": 197.37,
-        "median": 145.0,
+        "n": 36,
+        "mean": 221.17,
+        "median": 222.55,
         "min": 25.0,
         "max": 495.1,
-        "stdev": 132.76,
-        "p10": 55.5,
-        "p25": 100.0,
-        "p75": 297.68,
-        "p90": 384.6
+        "stdev": 126.98,
+        "p10": 60.0,
+        "p25": 120.0,
+        "p75": 312.6,
+        "p90": 380.1
       },
       "quality_score": {
-        "n": 28,
-        "mean": 99.79,
+        "n": 36,
+        "mean": 99.59,
         "median": 100.0,
         "min": 94.0,
         "max": 100.0,
-        "stdev": 1.13,
-        "p10": 100.0,
+        "stdev": 1.27,
+        "p10": 98.53,
         "p25": 100.0,
         "p75": 100.0,
         "p90": 100.0
       },
-      "completion_rate": 1.0,
-      "runs": 28
+      "completion_rate": 0.944,
+      "runs": 36
     }
   },
   "per_category": {
@@ -416,20 +416,28 @@
         "cpp-cli",
         "csharp-api",
         "dart-cli",
+        "elixir-app",
+        "fsharp-cli",
         "go-mock-api",
+        "haskell-cli",
         "java-http",
         "kotlin-cli",
+        "lua-cli",
         "luau-inventory",
         "node-ssg",
+        "ocaml-cli",
+        "perl-cli",
         "php-api",
         "python-cli",
+        "r-cli",
         "rust-cli",
         "rust-tui",
         "swift-cli",
         "ts-lib",
-        "vite-landing"
+        "vite-landing",
+        "zig-cli"
       ],
-      "median_token_savings_percent": 54.13,
+      "median_token_savings_percent": 55.37,
       "median_quality_diff": 0.0,
       "verdict": "better (all tasks cheaper by >5%)"
     },
@@ -1230,6 +1238,178 @@
       }
     },
     {
+      "task": "elixir-app",
+      "category": "greenfield",
+      "runs": {
+        "native": 1,
+        "token-forge": 1
+      },
+      "native": {
+        "total_tokens": 540060,
+        "input_tokens": 511582,
+        "output_tokens": 28478,
+        "cached_input_tokens": 472099,
+        "uncached_input_tokens": 39483,
+        "input_equivalent_tokens": 238946,
+        "total_cost_usd_reported": 0.9797237999999999,
+        "tool_calls": 14,
+        "duration_seconds": 295.1,
+        "quality_score": 96.94,
+        "files_read": 0,
+        "lines_read": 135,
+        "bytes_read": 2270,
+        "first_request_context_tokens": 18889,
+        "api_requests": 15,
+        "redundant_reads": 0,
+        "tool_result_bytes": 4275,
+        "files_read_incl_bash": 5,
+        "context_precision_approx": 0.0,
+        "subagent_calls": 0,
+        "completion_rate": 0.0,
+        "statuses": [
+          "completed"
+        ],
+        "tests_passed": [
+          true
+        ],
+        "tokens_per_quality_point": 5571.1,
+        "quality_per_million_tokens": 179.5,
+        "nested_session_tokens": 0
+      },
+      "token-forge": {
+        "total_tokens": 266851,
+        "input_tokens": 239788,
+        "output_tokens": 27063,
+        "cached_input_tokens": 205255,
+        "uncached_input_tokens": 34533,
+        "input_equivalent_tokens": 199003,
+        "total_cost_usd_reported": 0.8585109999999999,
+        "tool_calls": 7,
+        "duration_seconds": 225.0,
+        "quality_score": 100.0,
+        "files_read": 0,
+        "lines_read": 16,
+        "bytes_read": 567,
+        "first_request_context_tokens": 12157,
+        "api_requests": 8,
+        "redundant_reads": 0,
+        "tool_result_bytes": 1372,
+        "files_read_incl_bash": 2,
+        "context_precision_approx": 0.0,
+        "subagent_calls": 0,
+        "completion_rate": 1.0,
+        "statuses": [
+          "completed"
+        ],
+        "tests_passed": [
+          true
+        ],
+        "tokens_per_quality_point": 2668.5,
+        "quality_per_million_tokens": 374.74,
+        "nested_session_tokens": 0
+      },
+      "diff": {
+        "total_tokens_abs": 273209,
+        "token_savings_percent": 50.59,
+        "input_savings_percent": 53.13,
+        "output_savings_percent": 4.97,
+        "uncached_input_savings_percent": 12.54,
+        "input_equivalent_savings_percent": 16.72,
+        "cost_savings_percent": 12.37,
+        "quality_diff": 3.0600000000000023,
+        "tool_call_diff_percent": 50.0,
+        "files_read_diff_percent": 60.0,
+        "lines_read_diff_percent": 88.15,
+        "first_request_overhead_tokens": -6732
+      }
+    },
+    {
+      "task": "fsharp-cli",
+      "category": "greenfield",
+      "runs": {
+        "native": 1,
+        "token-forge": 1
+      },
+      "native": {
+        "total_tokens": 847361,
+        "input_tokens": 805704,
+        "output_tokens": 41657,
+        "cached_input_tokens": 750416,
+        "uncached_input_tokens": 55288,
+        "input_equivalent_tokens": 352428,
+        "total_cost_usd_reported": 1.4253832,
+        "tool_calls": 26,
+        "duration_seconds": 365.1,
+        "quality_score": 97.5,
+        "files_read": 0,
+        "lines_read": 164,
+        "bytes_read": 4002,
+        "first_request_context_tokens": 19523,
+        "api_requests": 18,
+        "redundant_reads": 0,
+        "tool_result_bytes": 6793,
+        "files_read_incl_bash": 5,
+        "context_precision_approx": 0.0,
+        "subagent_calls": 0,
+        "completion_rate": 1.0,
+        "statuses": [
+          "completed"
+        ],
+        "tests_passed": [
+          true
+        ],
+        "tokens_per_quality_point": 8690.9,
+        "quality_per_million_tokens": 115.06,
+        "nested_session_tokens": 0
+      },
+      "token-forge": {
+        "total_tokens": 324094,
+        "input_tokens": 289855,
+        "output_tokens": 34239,
+        "cached_input_tokens": 244628,
+        "uncached_input_tokens": 45227,
+        "input_equivalent_tokens": 252188,
+        "total_cost_usd_reported": 1.0954576,
+        "tool_calls": 7,
+        "duration_seconds": 295.1,
+        "quality_score": 100.0,
+        "files_read": 0,
+        "lines_read": 30,
+        "bytes_read": 962,
+        "first_request_context_tokens": 12788,
+        "api_requests": 8,
+        "redundant_reads": 0,
+        "tool_result_bytes": 7362,
+        "files_read_incl_bash": 9,
+        "context_precision_approx": 0.0,
+        "subagent_calls": 0,
+        "completion_rate": 1.0,
+        "statuses": [
+          "completed"
+        ],
+        "tests_passed": [
+          true
+        ],
+        "tokens_per_quality_point": 3240.9,
+        "quality_per_million_tokens": 308.55,
+        "nested_session_tokens": 0
+      },
+      "diff": {
+        "total_tokens_abs": 523267,
+        "token_savings_percent": 61.75,
+        "input_savings_percent": 64.02,
+        "output_savings_percent": 17.81,
+        "uncached_input_savings_percent": 18.2,
+        "input_equivalent_savings_percent": 28.44,
+        "cost_savings_percent": 23.15,
+        "quality_diff": 2.5,
+        "tool_call_diff_percent": 73.08,
+        "files_read_diff_percent": -80.0,
+        "lines_read_diff_percent": 81.71,
+        "first_request_overhead_tokens": -6735
+      }
+    },
+    {
       "task": "go-api",
       "category": "feature",
       "runs": {
@@ -1492,6 +1672,92 @@
       }
     },
     {
+      "task": "haskell-cli",
+      "category": "greenfield",
+      "runs": {
+        "native": 1,
+        "token-forge": 1
+      },
+      "native": {
+        "total_tokens": 599458,
+        "input_tokens": 560625,
+        "output_tokens": 38833,
+        "cached_input_tokens": 508166,
+        "uncached_input_tokens": 52459,
+        "input_equivalent_tokens": 310549,
+        "total_cost_usd_reported": 1.2978691999999998,
+        "tool_calls": 11,
+        "duration_seconds": 355.1,
+        "quality_score": 100.0,
+        "files_read": 0,
+        "lines_read": 11,
+        "bytes_read": 374,
+        "first_request_context_tokens": 19466,
+        "api_requests": 12,
+        "redundant_reads": 0,
+        "tool_result_bytes": 9446,
+        "files_read_incl_bash": 1,
+        "context_precision_approx": 0.0,
+        "subagent_calls": 0,
+        "completion_rate": 1.0,
+        "statuses": [
+          "completed"
+        ],
+        "tests_passed": [
+          true
+        ],
+        "tokens_per_quality_point": 5994.6,
+        "quality_per_million_tokens": 166.82,
+        "nested_session_tokens": 0
+      },
+      "token-forge": {
+        "total_tokens": 402001,
+        "input_tokens": 362363,
+        "output_tokens": 39638,
+        "cached_input_tokens": 313493,
+        "uncached_input_tokens": 48870,
+        "input_equivalent_tokens": 290622,
+        "total_cost_usd_reported": 1.2463466,
+        "tool_calls": 8,
+        "duration_seconds": 345.1,
+        "quality_score": 100.0,
+        "files_read": 0,
+        "lines_read": 33,
+        "bytes_read": 805,
+        "first_request_context_tokens": 12734,
+        "api_requests": 9,
+        "redundant_reads": 1,
+        "tool_result_bytes": 3306,
+        "files_read_incl_bash": 10,
+        "context_precision_approx": 0.0,
+        "subagent_calls": 0,
+        "completion_rate": 1.0,
+        "statuses": [
+          "completed"
+        ],
+        "tests_passed": [
+          true
+        ],
+        "tokens_per_quality_point": 4020.0,
+        "quality_per_million_tokens": 248.76,
+        "nested_session_tokens": 0
+      },
+      "diff": {
+        "total_tokens_abs": 197457,
+        "token_savings_percent": 32.94,
+        "input_savings_percent": 35.36,
+        "output_savings_percent": -2.07,
+        "uncached_input_savings_percent": 6.84,
+        "input_equivalent_savings_percent": 6.42,
+        "cost_savings_percent": 3.97,
+        "quality_diff": 0.0,
+        "tool_call_diff_percent": 27.27,
+        "files_read_diff_percent": -900.0,
+        "lines_read_diff_percent": -200.0,
+        "first_request_overhead_tokens": -6732
+      }
+    },
+    {
       "task": "java-http",
       "category": "greenfield",
       "runs": {
@@ -1661,6 +1927,92 @@
         "files_read_diff_percent": 0.0,
         "lines_read_diff_percent": 0.0,
         "first_request_overhead_tokens": -6747
+      }
+    },
+    {
+      "task": "lua-cli",
+      "category": "greenfield",
+      "runs": {
+        "native": 1,
+        "token-forge": 1
+      },
+      "native": {
+        "total_tokens": 780703,
+        "input_tokens": 742713,
+        "output_tokens": 37990,
+        "cached_input_tokens": 691609,
+        "uncached_input_tokens": 51104,
+        "input_equivalent_tokens": 322983,
+        "total_cost_usd_reported": 1.3068258,
+        "tool_calls": 15,
+        "duration_seconds": 335.1,
+        "quality_score": 100.0,
+        "files_read": 0,
+        "lines_read": 14,
+        "bytes_read": 755,
+        "first_request_context_tokens": 19943,
+        "api_requests": 16,
+        "redundant_reads": 0,
+        "tool_result_bytes": 7250,
+        "files_read_incl_bash": 4,
+        "context_precision_approx": 0.0,
+        "subagent_calls": 0,
+        "completion_rate": 1.0,
+        "statuses": [
+          "completed"
+        ],
+        "tests_passed": [
+          true
+        ],
+        "tokens_per_quality_point": 7807.0,
+        "quality_per_million_tokens": 128.09,
+        "nested_session_tokens": 0
+      },
+      "token-forge": {
+        "total_tokens": 322560,
+        "input_tokens": 286468,
+        "output_tokens": 36092,
+        "cached_input_tokens": 241335,
+        "uncached_input_tokens": 45133,
+        "input_equivalent_tokens": 261006,
+        "total_cost_usd_reported": 1.131115,
+        "tool_calls": 6,
+        "duration_seconds": 310.1,
+        "quality_score": 100.0,
+        "files_read": 0,
+        "lines_read": 11,
+        "bytes_read": 365,
+        "first_request_context_tokens": 13205,
+        "api_requests": 7,
+        "redundant_reads": 0,
+        "tool_result_bytes": 2870,
+        "files_read_incl_bash": 2,
+        "context_precision_approx": 0.0,
+        "subagent_calls": 0,
+        "completion_rate": 1.0,
+        "statuses": [
+          "completed"
+        ],
+        "tests_passed": [
+          true
+        ],
+        "tokens_per_quality_point": 3225.6,
+        "quality_per_million_tokens": 310.02,
+        "nested_session_tokens": 0
+      },
+      "diff": {
+        "total_tokens_abs": 458143,
+        "token_savings_percent": 58.68,
+        "input_savings_percent": 61.43,
+        "output_savings_percent": 5.0,
+        "uncached_input_savings_percent": 11.68,
+        "input_equivalent_savings_percent": 19.19,
+        "cost_savings_percent": 13.45,
+        "quality_diff": 0.0,
+        "tool_call_diff_percent": 60.0,
+        "files_read_diff_percent": 50.0,
+        "lines_read_diff_percent": 21.43,
+        "first_request_overhead_tokens": -6738
       }
     },
     {
@@ -1903,6 +2255,178 @@
         "files_read_diff_percent": 50.0,
         "lines_read_diff_percent": 75.0,
         "first_request_overhead_tokens": -6735
+      }
+    },
+    {
+      "task": "ocaml-cli",
+      "category": "greenfield",
+      "runs": {
+        "native": 1,
+        "token-forge": 1
+      },
+      "native": {
+        "total_tokens": 683629,
+        "input_tokens": 651321,
+        "output_tokens": 32308,
+        "cached_input_tokens": 607902,
+        "uncached_input_tokens": 43419,
+        "input_equivalent_tokens": 276596,
+        "total_cost_usd_reported": 1.1149643999999999,
+        "tool_calls": 15,
+        "duration_seconds": 285.1,
+        "quality_score": 97.0,
+        "files_read": 0,
+        "lines_read": 16,
+        "bytes_read": 595,
+        "first_request_context_tokens": 19696,
+        "api_requests": 16,
+        "redundant_reads": 1,
+        "tool_result_bytes": 3791,
+        "files_read_incl_bash": 7,
+        "context_precision_approx": 0.0,
+        "subagent_calls": 0,
+        "completion_rate": 1.0,
+        "statuses": [
+          "completed"
+        ],
+        "tests_passed": [
+          true
+        ],
+        "tokens_per_quality_point": 7047.7,
+        "quality_per_million_tokens": 141.89,
+        "nested_session_tokens": 0
+      },
+      "token-forge": {
+        "total_tokens": 270095,
+        "input_tokens": 241420,
+        "output_tokens": 28675,
+        "cached_input_tokens": 204845,
+        "uncached_input_tokens": 36575,
+        "input_equivalent_tokens": 209575,
+        "total_cost_usd_reported": 0.907013,
+        "tool_calls": 6,
+        "duration_seconds": 250.1,
+        "quality_score": 100.0,
+        "files_read": 0,
+        "lines_read": 12,
+        "bytes_read": 292,
+        "first_request_context_tokens": 12958,
+        "api_requests": 7,
+        "redundant_reads": 0,
+        "tool_result_bytes": 1182,
+        "files_read_incl_bash": 2,
+        "context_precision_approx": 0.0,
+        "subagent_calls": 0,
+        "completion_rate": 1.0,
+        "statuses": [
+          "completed"
+        ],
+        "tests_passed": [
+          true
+        ],
+        "tokens_per_quality_point": 2700.9,
+        "quality_per_million_tokens": 370.24,
+        "nested_session_tokens": 0
+      },
+      "diff": {
+        "total_tokens_abs": 413534,
+        "token_savings_percent": 60.49,
+        "input_savings_percent": 62.93,
+        "output_savings_percent": 11.24,
+        "uncached_input_savings_percent": 15.76,
+        "input_equivalent_savings_percent": 24.23,
+        "cost_savings_percent": 18.65,
+        "quality_diff": 3.0,
+        "tool_call_diff_percent": 60.0,
+        "files_read_diff_percent": 71.43,
+        "lines_read_diff_percent": 25.0,
+        "first_request_overhead_tokens": -6738
+      }
+    },
+    {
+      "task": "perl-cli",
+      "category": "greenfield",
+      "runs": {
+        "native": 1,
+        "token-forge": 1
+      },
+      "native": {
+        "total_tokens": 597805,
+        "input_tokens": 558267,
+        "output_tokens": 39538,
+        "cached_input_tokens": 505717,
+        "uncached_input_tokens": 52550,
+        "input_equivalent_tokens": 313943,
+        "total_cost_usd_reported": 1.3122074000000001,
+        "tool_calls": 14,
+        "duration_seconds": 355.1,
+        "quality_score": 100.0,
+        "files_read": 0,
+        "lines_read": 39,
+        "bytes_read": 1306,
+        "first_request_context_tokens": 19643,
+        "api_requests": 12,
+        "redundant_reads": 0,
+        "tool_result_bytes": 6853,
+        "files_read_incl_bash": 5,
+        "context_precision_approx": 0.0,
+        "subagent_calls": 0,
+        "completion_rate": 1.0,
+        "statuses": [
+          "completed"
+        ],
+        "tests_passed": [
+          true
+        ],
+        "tokens_per_quality_point": 5978.1,
+        "quality_per_million_tokens": 167.28,
+        "nested_session_tokens": 0
+      },
+      "token-forge": {
+        "total_tokens": 376785,
+        "input_tokens": 332216,
+        "output_tokens": 44569,
+        "cached_input_tokens": 277659,
+        "uncached_input_tokens": 54557,
+        "input_equivalent_tokens": 318804,
+        "total_cost_usd_reported": 1.3833118000000002,
+        "tool_calls": 6,
+        "duration_seconds": 380.1,
+        "quality_score": 97.0,
+        "files_read": 0,
+        "lines_read": 8,
+        "bytes_read": 186,
+        "first_request_context_tokens": 12917,
+        "api_requests": 7,
+        "redundant_reads": 0,
+        "tool_result_bytes": 4598,
+        "files_read_incl_bash": 2,
+        "context_precision_approx": 0.0,
+        "subagent_calls": 0,
+        "completion_rate": 1.0,
+        "statuses": [
+          "completed"
+        ],
+        "tests_passed": [
+          true
+        ],
+        "tokens_per_quality_point": 3884.4,
+        "quality_per_million_tokens": 257.44,
+        "nested_session_tokens": 0
+      },
+      "diff": {
+        "total_tokens_abs": 221020,
+        "token_savings_percent": 36.97,
+        "input_savings_percent": 40.49,
+        "output_savings_percent": -12.72,
+        "uncached_input_savings_percent": -3.82,
+        "input_equivalent_savings_percent": -1.55,
+        "cost_savings_percent": -5.42,
+        "quality_diff": -3.0,
+        "tool_call_diff_percent": 57.14,
+        "files_read_diff_percent": 60.0,
+        "lines_read_diff_percent": 79.49,
+        "first_request_overhead_tokens": -6726
       }
     },
     {
@@ -2161,6 +2685,92 @@
         "files_read_diff_percent": 25.0,
         "lines_read_diff_percent": -145.45,
         "first_request_overhead_tokens": -6726
+      }
+    },
+    {
+      "task": "r-cli",
+      "category": "greenfield",
+      "runs": {
+        "native": 1,
+        "token-forge": 1
+      },
+      "native": {
+        "total_tokens": 659615,
+        "input_tokens": 624276,
+        "output_tokens": 35339,
+        "cached_input_tokens": 576882,
+        "uncached_input_tokens": 47394,
+        "input_equivalent_tokens": 293618,
+        "total_cost_usd_reported": 1.2011884000000002,
+        "tool_calls": 14,
+        "duration_seconds": 325.1,
+        "quality_score": 97.07,
+        "files_read": 0,
+        "lines_read": 11,
+        "bytes_read": 438,
+        "first_request_context_tokens": 20063,
+        "api_requests": 15,
+        "redundant_reads": 0,
+        "tool_result_bytes": 4368,
+        "files_read_incl_bash": 2,
+        "context_precision_approx": 0.0,
+        "subagent_calls": 0,
+        "completion_rate": 0.0,
+        "statuses": [
+          "completed"
+        ],
+        "tests_passed": [
+          true
+        ],
+        "tokens_per_quality_point": 6795.3,
+        "quality_per_million_tokens": 147.16,
+        "nested_session_tokens": 0
+      },
+      "token-forge": {
+        "total_tokens": 285403,
+        "input_tokens": 249709,
+        "output_tokens": 35694,
+        "cached_input_tokens": 205352,
+        "uncached_input_tokens": 44357,
+        "input_equivalent_tokens": 254448,
+        "total_cost_usd_reported": 1.1097504,
+        "tool_calls": 6,
+        "duration_seconds": 310.1,
+        "quality_score": 97.07,
+        "files_read": 0,
+        "lines_read": 7,
+        "bytes_read": 393,
+        "first_request_context_tokens": 13322,
+        "api_requests": 7,
+        "redundant_reads": 0,
+        "tool_result_bytes": 1488,
+        "files_read_incl_bash": 1,
+        "context_precision_approx": 0.0,
+        "subagent_calls": 0,
+        "completion_rate": 0.0,
+        "statuses": [
+          "completed"
+        ],
+        "tests_passed": [
+          true
+        ],
+        "tokens_per_quality_point": 2940.2,
+        "quality_per_million_tokens": 340.12,
+        "nested_session_tokens": 0
+      },
+      "diff": {
+        "total_tokens_abs": 374212,
+        "token_savings_percent": 56.73,
+        "input_savings_percent": 60.0,
+        "output_savings_percent": -1.0,
+        "uncached_input_savings_percent": 6.41,
+        "input_equivalent_savings_percent": 13.34,
+        "cost_savings_percent": 7.61,
+        "quality_diff": 0.0,
+        "tool_call_diff_percent": 57.14,
+        "files_read_diff_percent": 50.0,
+        "lines_read_diff_percent": 36.36,
+        "first_request_overhead_tokens": -6741
       }
     },
     {
@@ -2764,6 +3374,92 @@
         "tool_call_diff_percent": 66.67,
         "files_read_diff_percent": 66.67,
         "lines_read_diff_percent": 71.43,
+        "first_request_overhead_tokens": -6738
+      }
+    },
+    {
+      "task": "zig-cli",
+      "category": "greenfield",
+      "runs": {
+        "native": 1,
+        "token-forge": 1
+      },
+      "native": {
+        "total_tokens": 964673,
+        "input_tokens": 928028,
+        "output_tokens": 36645,
+        "cached_input_tokens": 874216,
+        "uncached_input_tokens": 53812,
+        "input_equivalent_tokens": 337901,
+        "total_cost_usd_reported": 1.3380712,
+        "tool_calls": 22,
+        "duration_seconds": 370.1,
+        "quality_score": 97.07,
+        "files_read": 0,
+        "lines_read": 267,
+        "bytes_read": 9625,
+        "first_request_context_tokens": 19118,
+        "api_requests": 21,
+        "redundant_reads": 0,
+        "tool_result_bytes": 15774,
+        "files_read_incl_bash": 8,
+        "context_precision_approx": 0.0,
+        "subagent_calls": 0,
+        "completion_rate": 0.0,
+        "statuses": [
+          "completed"
+        ],
+        "tests_passed": [
+          true
+        ],
+        "tokens_per_quality_point": 9937.9,
+        "quality_per_million_tokens": 100.62,
+        "nested_session_tokens": 0
+      },
+      "token-forge": {
+        "total_tokens": 411503,
+        "input_tokens": 382532,
+        "output_tokens": 28971,
+        "cached_input_tokens": 335328,
+        "uncached_input_tokens": 47204,
+        "input_equivalent_tokens": 237387,
+        "total_cost_usd_reported": 1.0240216000000002,
+        "tool_calls": 11,
+        "duration_seconds": 320.1,
+        "quality_score": 97.07,
+        "files_read": 0,
+        "lines_read": 118,
+        "bytes_read": 4669,
+        "first_request_context_tokens": 12380,
+        "api_requests": 12,
+        "redundant_reads": 2,
+        "tool_result_bytes": 11630,
+        "files_read_incl_bash": 5,
+        "context_precision_approx": 0.0,
+        "subagent_calls": 0,
+        "completion_rate": 0.0,
+        "statuses": [
+          "completed"
+        ],
+        "tests_passed": [
+          true
+        ],
+        "tokens_per_quality_point": 4239.2,
+        "quality_per_million_tokens": 235.89,
+        "nested_session_tokens": 0
+      },
+      "diff": {
+        "total_tokens_abs": 553170,
+        "token_savings_percent": 57.34,
+        "input_savings_percent": 58.78,
+        "output_savings_percent": 20.94,
+        "uncached_input_savings_percent": 12.28,
+        "input_equivalent_savings_percent": 29.75,
+        "cost_savings_percent": 23.47,
+        "quality_diff": 0.0,
+        "tool_call_diff_percent": 50.0,
+        "files_read_diff_percent": 37.5,
+        "lines_read_diff_percent": 55.81,
         "first_request_overhead_tokens": -6738
       }
     }

@@ -27,9 +27,13 @@ LABEL = {"cross-module-debug": "Cross-module debug (TS)", "rust-cli": "Rust CLI 
          "luau-inventory": "Luau inventory (Roblox)", "cpp-cli": "C++ key-value store", "csharp-api": "C# loans API",
          "java-http": "Java URL shortener", "php-api": "PHP ticketing API", "swift-cli": "Swift cron tool",
          "dart-cli": "Dart habit tracker", "bash-tool": "Bash backup rotation", "c-cli": "C CSV query tool",
-         "kotlin-cli": "Kotlin Markdown converter", "ruby-cli": "Ruby log analyzer"}
+         "kotlin-cli": "Kotlin Markdown converter", "ruby-cli": "Ruby log analyzer",
+         "zig-cli": "Zig JSON toolkit", "elixir-app": "Elixir job queue", "haskell-cli": "Haskell spreadsheet",
+         "ocaml-cli": "OCaml assembler + VM", "lua-cli": "Lua template engine", "r-cli": "R survey stats",
+         "fsharp-cli": "F# expense splitter", "perl-cli": "Perl config merger"}
 GREENFIELD = ["rust-tui", "vite-landing", "go-mock-api", "python-cli", "ts-lib", "node-ssg", "luau-inventory", "cpp-cli", "csharp-api",
-              "java-http", "php-api", "swift-cli", "dart-cli", "bash-tool", "c-cli", "kotlin-cli"]
+              "java-http", "php-api", "swift-cli", "dart-cli", "bash-tool", "c-cli", "kotlin-cli",
+              "zig-cli", "elixir-app", "haskell-cli", "ocaml-cli", "lua-cli", "r-cli", "fsharp-cli", "perl-cli"]
 EXISTING = ["cross-module-debug", "rust-cli", "pr-review", "architecture", "rust-debug", "banking-transfers", "go-api", "go-feature", "banking-web", "refactor"]
 BUILD = json.loads((BENCH / "environments" / "token-forge" / "manifest.json").read_text()).get("plugin_sha256")
 # builds the config declares equivalent for the default comparison (same model context) count as the build under test
@@ -353,7 +357,7 @@ def main():
     OUT.mkdir(parents=True, exist_ok=True)
     rs = runs()
     for name, tasks, title, sub in [("bench-existing.svg", EXISTING, "Existing codebases: features, bugs, reviews", "total tokens per task, clean Claude Code → tokenforge"),
-                                    ("bench-greenfield.svg", GREENFIELD, f"From scratch: {len(GREENFIELD)} projects, 15 languages", "total tokens to build each project, clean Claude Code → tokenforge")]:
+                                    ("bench-greenfield.svg", GREENFIELD, f"From scratch: {len(GREENFIELD)} projects, 23 languages", "total tokens to build each project, clean Claude Code → tokenforge")]:
         svg, sav = final_chart(rs, tasks, title, sub)
         if svg:
             (OUT / name).write_text(svg)

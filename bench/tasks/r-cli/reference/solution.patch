@@ -1,0 +1,811 @@
+diff --git a/R/answers.R b/R/answers.R
+new file mode 100644
+index 0000000..04557a3
+--- /dev/null
++++ b/R/answers.R
+@@ -0,0 +1,57 @@
++# Interpreting answers: missing values, validation, and respondent filters.
++
++is_missing_value <- function(values) values == "" | values == "NA"
++
++multi_items <- function(value) trim_ws(split_commas(gsub(";", ",", value, fixed = TRUE)))
++
++# TRUE for each non-missing value that is a valid answer to question `q`.
++valid_answers <- function(values, q) {
++  switch(q$type,
++    likert = values %in% LIKERT_LEVELS,
++    numeric = grepl("^-?[0-9]+(\\.[0-9]+)?$", values),
++    single = values %in% q$levels,
++    multi = vapply(values, function(v) {
++      items <- multi_items(v)
++      all(items != "") && all(items %in% q$levels)
++    }, logical(1), USE.NAMES = FALSE)
++  )
++}
++
++# Validate every question column. Without `lenient` the first invalid answer is an error;
++# with it invalid answers become missing. Returns list(values, invalid_count).
++check_answers <- function(values, questions, lenient) {
++  if (nrow(values) == 0) return(list(values = values, invalid = 0L))
++  invalid <- vapply(questions, function(q) {
++    col <- values[, q$id]
++    !is_missing_value(col) & !valid_answers(col, q)
++  }, logical(nrow(values)))
++  invalid <- matrix(invalid, nrow = nrow(values))
++  if (any(invalid)) {
++    if (!lenient) {
++      row <- which(rowSums(invalid) > 0)[1]
++      q <- questions[[which(invalid[row, ])[1]]]
++      fail(EXIT_DATA, "row ", row, ": invalid value for '", q$id, "': '", values[row, q$id], "'")
++    }
++    for (j in which(colSums(invalid) > 0)) values[invalid[, j], questions[[j]]$id] <- ""
++  }
++  list(values = values, invalid = sum(invalid))
++}
++
++# Parse `COLUMN=VALUE` filter arguments into a data frame (column, value).
++parse_filters <- function(specs) {
++  pos <- regexpr("=", specs, fixed = TRUE)
++  bad <- pos < 2
++  if (any(bad)) fail(EXIT_USAGE, "invalid --filter '", specs[bad][1], "', expected COLUMN=VALUE")
++  data.frame(column = substr(specs, 1, pos - 1), value = substr(specs, pos + 1, nchar(specs)),
++             stringsAsFactors = FALSE)
++}
++
++# Logical vector of rows kept: AND across columns, OR within the same column.
++filter_rows <- function(values, filters) {
++  keep <- rep(TRUE, nrow(values))
++  for (col in unique(filters$column)) {
++    if (!col %in% colnames(values)) fail(EXIT_USAGE, "unknown filter column '", col, "'")
++    keep <- keep & values[, col] %in% filters$value[filters$column == col]
++  }
++  keep
++}
+diff --git a/R/cli.R b/R/cli.R
+new file mode 100644
+index 0000000..a4f9009
+--- /dev/null
++++ b/R/cli.R
+@@ -0,0 +1,127 @@
++# Command line: option parsing, the two commands, and the exit status.
++
++USAGE <- "Usage: surveystat summary  --schema FILE [options] DATA
++       surveystat crosstab --schema FILE [options] DATA ROW_QUESTION COL_QUESTION
++
++Options:
++  --schema FILE              question schema (CSV: question,type,levels)
++  --filter COLUMN=VALUE      keep matching respondents (repeatable)
++  --format text|json         output format (default text)
++  --lenient                  treat invalid answers as missing
++  --question ID              summary: only these questions (repeatable)
++  --missing exclude|include  summary: percentage base (default exclude)
++  --digits D                 summary: percentage decimals 0-4 (default 1)
++  -h, --help                 show this help
++"
++
++COMMAND_OPTIONS <- list(
++  summary = c("--schema", "--filter", "--format", "--lenient", "--question", "--missing", "--digits"),
++  crosstab = c("--schema", "--filter", "--format", "--lenient")
++)
++FLAG_OPTIONS <- c("--lenient")
++REPEATABLE_OPTIONS <- c("--filter", "--question")
++
++usage_error <- function(...) fail(EXIT_USAGE, ...)
++
++# Returns list(command, options = named list, positional), or NULL for --help.
++parse_args <- function(argv) {
++  if (any(argv %in% c("-h", "--help"))) return(NULL)
++  if (length(argv) == 0) usage_error("missing command (summary or crosstab)")
++  command <- argv[1]
++  if (!command %in% names(COMMAND_OPTIONS)) usage_error("unknown command '", command, "'")
++  opts <- list(filter = character(0), question = character(0), format = "text",
++               missing = "exclude", digits = "1", lenient = FALSE, schema = NULL)
++  positional <- character(0)
++  i <- 2L
++  while (i <= length(argv)) {
++    arg <- argv[i]
++    if (startsWith(arg, "-") && arg != "-") {
++      if (!arg %in% COMMAND_OPTIONS[[command]]) usage_error("unknown option ", arg, " for ", command)
++      name <- substring(arg, 3)
++      if (arg %in% FLAG_OPTIONS) {
++        opts[[name]] <- TRUE
++      } else {
++        if (i == length(argv)) usage_error("option ", arg, " requires a value")
++        i <- i + 1L
++        opts[[name]] <- if (arg %in% REPEATABLE_OPTIONS) c(opts[[name]], argv[i]) else argv[i]
++      }
++    } else {
++      positional <- c(positional, arg)
++    }
++    i <- i + 1L
++  }
++  expected <- if (command == "summary") 1L else 3L
++  if (length(positional) != expected) {
++    usage_error(command, " expects ", expected, " positional argument(s), got ", length(positional))
++  }
++  if (is.null(opts$schema)) usage_error("--schema is required")
++  if (!opts$format %in% c("text", "json")) usage_error("invalid --format '", opts$format, "'")
++  if (!opts$missing %in% c("exclude", "include")) usage_error("invalid --missing '", opts$missing, "'")
++  if (!grepl("^[0-4]$", opts$digits)) usage_error("invalid --digits '", opts$digits, "'")
++  opts$digits <- as.integer(opts$digits)
++  opts$filters <- parse_filters(opts$filter)
++  list(command = command, options = opts, positional = positional)
++}
++
++find_question <- function(questions, id) {
++  if (is.null(questions[[id]])) usage_error("unknown question '", id, "'")
++  questions[[id]]
++}
++
++run_summary <- function(opts, questions, values) {
++  for (id in opts$question) find_question(questions, id)
++  keep <- filter_rows(values, opts$filters)
++  selected <- if (length(opts$question) > 0) questions[names(questions) %in% opts$question] else questions
++  rows <- values[keep, , drop = FALSE]
++  summaries <- lapply(selected, function(q) summarise_question(q, rows[, q$id], opts$missing, opts$digits))
++  render <- if (opts$format == "json") summary_json else summary_text
++  render(nrow(rows), opts$filters, summaries)
++}
++
++run_crosstab <- function(opts, questions, values, ids) {
++  qs <- lapply(ids, function(id) find_question(questions, id))
++  for (q in qs) {
++    if (!q$type %in% c("single", "likert")) {
++      usage_error("crosstab needs single or likert questions: '", q$id, "' is ", q$type)
++    }
++  }
++  if (ids[1] == ids[2]) usage_error("crosstab needs two different questions")
++  keep <- filter_rows(values, opts$filters)
++  rows <- values[keep, , drop = FALSE]
++  ct <- crosstab(qs[[1]], qs[[2]], rows[, ids[1]], rows[, ids[2]])
++  render <- if (opts$format == "json") crosstab_json else crosstab_text
++  render(nrow(rows), opts$filters, ct)
++}
++
++run <- function(argv) {
++  parsed <- parse_args(argv)
++  if (is.null(parsed)) return(list(output = USAGE, warning = NULL))
++  opts <- parsed$options
++  questions <- read_schema(opts$schema)
++  checked <- check_answers(read_responses(parsed$positional[1], questions), questions, opts$lenient)
++  output <- if (parsed$command == "summary") {
++    run_summary(opts, questions, checked$values)
++  } else {
++    run_crosstab(opts, questions, checked$values, parsed$positional[2:3])
++  }
++  warning <- if (checked$invalid > 0) {
++    sprintf("warning: %d invalid value(s) treated as missing", as.integer(checked$invalid))
++  }
++  list(output = output, warning = warning)
++}
++
++# Entry point: runs the tool and returns the process exit status.
++main <- function(argv) {
++  tryCatch({
++    result <- run(argv)
++    cat(result$output)
++    if (!is.null(result$warning)) cat(result$warning, "\n", sep = "", file = stderr())
++    0L
++  }, surveystat_error = function(e) {
++    cat("error: ", conditionMessage(e), "\n", sep = "", file = stderr())
++    e$code
++  }, error = function(e) {
++    cat("error: internal error: ", conditionMessage(e), "\n", sep = "", file = stderr())
++    1L
++  })
++}
+diff --git a/R/errors.R b/R/errors.R
+new file mode 100644
+index 0000000..15a1394
+--- /dev/null
++++ b/R/errors.R
+@@ -0,0 +1,25 @@
++# Error conditions carrying an exit status, and small shared helpers.
++
++EXIT_USAGE <- 2L
++EXIT_SCHEMA <- 3L
++EXIT_DATA <- 4L
++
++# Signal an error reported as `error: <message>` with exit status `code`.
++fail <- function(code, ...) {
++  msg <- paste0(...)
++  stop(structure(class = c("surveystat_error", "error", "condition"),
++                 list(message = msg, call = NULL, code = as.integer(code))))
++}
++
++trim_ws <- function(x) {
++  sub("[ \t]+$", "", sub("^[ \t]+", "", x))
++}
++
++# Read a text file as lines without line endings; failures become `cannot read`.
++read_text_lines <- function(path, code) {
++  if (!file.exists(path) || dir.exists(path)) fail(code, "cannot read ", path)
++  lines <- tryCatch(readLines(path, warn = FALSE, encoding = "UTF-8"),
++                    error = function(e) fail(code, "cannot read ", path),
++                    warning = function(w) fail(code, "cannot read ", path))
++  sub("\r$", "", lines)
++}
+diff --git a/R/format.R b/R/format.R
+new file mode 100644
+index 0000000..1e94a2d
+--- /dev/null
++++ b/R/format.R
+@@ -0,0 +1,118 @@
++# Rendering reports as text or JSON. Formatted numbers arrive as strings (NA = not available).
++
++json_string <- function(s) {
++  s <- gsub("\\", "\\\\", s, fixed = TRUE)
++  s <- gsub("\"", "\\\"", s, fixed = TRUE)
++  s <- gsub("\n", "\\n", s, fixed = TRUE)
++  s <- gsub("\r", "\\r", s, fixed = TRUE)
++  s <- gsub("\t", "\\t", s, fixed = TRUE)
++  m <- gregexpr("[\001-\037]", s, perl = TRUE)
++  regmatches(s, m) <- lapply(regmatches(s, m), function(ch) {
++    sprintf("\\u%04x", vapply(ch, utf8ToInt, integer(1)))
++  })
++  paste0("\"", s, "\"")
++}
++
++json_number <- function(text) if (is.na(text)) "null" else text
++
++json_object <- function(fields) {
++  paste0("{", paste0(json_string(names(fields)), ":", unlist(fields), collapse = ","), "}")
++}
++
++json_array <- function(items) paste0("[", paste(unlist(items), collapse = ","), "]")
++
++json_filters <- function(filters) {
++  json_array(lapply(seq_len(nrow(filters)), function(i) {
++    json_object(list(column = json_string(filters$column[i]), value = json_string(filters$value[i])))
++  }))
++}
++
++report_header <- function(respondents, filters) {
++  lines <- paste0("Respondents: ", respondents)
++  if (nrow(filters) > 0) {
++    lines <- c(lines, paste0("Filter: ", paste0(filters$column, "=", filters$value, collapse = ", ")))
++  }
++  lines
++}
++
++percent_label <- function(text) if (is.na(text)) "n/a" else paste0(text, "%")
++
++question_text <- function(s) {
++  lines <- c(paste0(s$id, " (", s$type, ")"), paste0("  n: ", s$n, ", missing: ", s$missing))
++  for (e in s$counts) lines <- c(lines, sprintf("  %s: %d (%s)", e$level, as.integer(e$count), percent_label(e$percent)))
++  if (!is.null(s$missing_percent)) {
++    lines <- c(lines, sprintf("  (missing): %d (%s)", as.integer(s$missing), percent_label(s$missing_percent)))
++  }
++  for (name in names(s$stats)) {
++    value <- s$stats[[name]]
++    lines <- c(lines, paste0("  ", name, ": ", if (is.na(value)) "n/a" else value))
++  }
++  lines
++}
++
++summary_text <- function(respondents, filters, summaries) {
++  lines <- report_header(respondents, filters)
++  for (s in summaries) lines <- c(lines, "", question_text(s))
++  paste0(paste(lines, collapse = "\n"), "\n")
++}
++
++question_json <- function(s) {
++  fields <- list(id = json_string(s$id), type = json_string(s$type), n = s$n, missing = s$missing)
++  if (!is.null(s$counts)) {
++    fields$counts <- json_array(lapply(s$counts, function(e) {
++      json_object(list(level = json_string(e$level), count = as.integer(e$count),
++                       percent = json_number(e$percent)))
++    }))
++  }
++  if (!is.null(s$missing_percent)) fields$missing_percent <- json_number(s$missing_percent)
++  for (name in names(s$stats)) fields[[name]] <- json_number(s$stats[[name]])
++  json_object(fields)
++}
++
++summary_json <- function(respondents, filters, summaries) {
++  paste0(json_object(list(respondents = respondents, filters = json_filters(filters),
++                          questions = json_array(lapply(summaries, question_json)))), "\n")
++}
++
++# Align a character matrix: first column left-aligned, the others right-aligned.
++align_table <- function(cells) {
++  widths <- apply(nchar(cells), 2, max)
++  cols <- lapply(seq_len(ncol(cells)), function(j) {
++    formatC(cells[, j], width = widths[j], flag = if (j == 1) "-" else " ")
++  })
++  apply(do.call(cbind, cols), 1, paste, collapse = "  ")
++}
++
++crosstab_text <- function(respondents, filters, ct) {
++  counts <- ct$counts
++  body <- cbind(counts, rowSums(counts))
++  body <- rbind(body, colSums(body))
++  cells <- rbind(c("", ct$column_levels, "Total"),
++                 cbind(c(ct$row_levels, "Total"), matrix(as.character(body), nrow = nrow(body))))
++  lines <- c(report_header(respondents, filters), "",
++             sprintf("Crosstab: %s x %s (n = %d)", ct$row, ct$column, as.integer(ct$n)), "",
++             align_table(cells), "")
++  cs <- ct$chi_square
++  if (is.null(cs)) {
++    lines <- c(lines, "chi-square: n/a")
++  } else {
++    lines <- c(lines, sprintf("chi-square: %s, df: %d, p: %s", cs$statistic, cs$df, cs$p_value))
++    if (cs$low_expected) lines <- c(lines, "note: some expected counts are below 5")
++  }
++  paste0(paste(lines, collapse = "\n"), "\n")
++}
++
++crosstab_json <- function(respondents, filters, ct) {
++  cs <- ct$chi_square
++  chi <- if (is.null(cs)) "null" else json_object(list(
++    statistic = cs$statistic, df = cs$df,
++    p_value = if (cs$p_value == "<0.0001") json_string(cs$p_value) else cs$p_value,
++    low_expected = if (cs$low_expected) "true" else "false"))
++  rows <- lapply(seq_len(nrow(ct$counts)), function(i) json_array(as.character(ct$counts[i, ])))
++  paste0(json_object(list(
++    respondents = respondents, filters = json_filters(filters),
++    row = json_string(ct$row), column = json_string(ct$column), n = as.integer(ct$n),
++    row_levels = json_array(json_string(ct$row_levels)),
++    column_levels = json_array(json_string(ct$column_levels)),
++    counts = json_array(rows), chi_square = chi)), "\n")
++}
+diff --git a/R/input.R b/R/input.R
+new file mode 100644
+index 0000000..ed68e84
+--- /dev/null
++++ b/R/input.R
+@@ -0,0 +1,103 @@
++# Reading the schema and the responses CSV.
++
++QUESTION_TYPES <- c("likert", "single", "multi", "numeric")
++LIKERT_LEVELS <- as.character(1:5)
++
++# Split on every comma, keeping empty trailing fields.
++split_commas <- function(line) {
++  strsplit(paste0(line, ","), ",", fixed = TRUE)[[1]]
++}
++
++# Parse one CSV record: comma separated, optional double quotes with "" escapes.
++parse_csv_line <- function(line) {
++  chars <- strsplit(line, "", fixed = TRUE)[[1]]
++  fields <- character(0)
++  cur <- character(0)
++  in_quotes <- FALSE
++  i <- 1L
++  n <- length(chars)
++  while (i <= n) {
++    ch <- chars[i]
++    if (in_quotes) {
++      if (ch == "\"") {
++        if (i < n && chars[i + 1L] == "\"") {
++          cur <- c(cur, "\"")
++          i <- i + 1L
++        } else {
++          in_quotes <- FALSE
++        }
++      } else {
++        cur <- c(cur, ch)
++      }
++    } else if (ch == "\"") {
++      in_quotes <- TRUE
++    } else if (ch == ",") {
++      fields <- c(fields, paste(cur, collapse = ""))
++      cur <- character(0)
++    } else {
++      cur <- c(cur, ch)
++    }
++    i <- i + 1L
++  }
++  trim_ws(c(fields, paste(cur, collapse = "")))
++}
++
++schema_error <- function(line_no, ...) fail(EXIT_SCHEMA, "schema line ", line_no, ": ", ...)
++
++parse_levels <- function(text, type, line_no) {
++  if (type %in% c("likert", "numeric")) {
++    if (text != "") schema_error(line_no, "levels not allowed for ", type)
++    return(if (type == "likert") LIKERT_LEVELS else character(0))
++  }
++  if (text == "") schema_error(line_no, "levels required for ", type)
++  levels <- trim_ws(split_commas(gsub(";", ",", text, fixed = TRUE)))
++  if (any(levels == "")) schema_error(line_no, "empty level")
++  dup <- levels[duplicated(levels)]
++  if (length(dup) > 0) schema_error(line_no, "duplicate level '", dup[1], "'")
++  levels
++}
++
++# Returns a list of questions, each list(id, type, levels), in file order.
++read_schema <- function(path) {
++  lines <- read_text_lines(path, EXIT_SCHEMA)
++  line_nos <- which(lines != "")
++  if (length(line_nos) == 0) fail(EXIT_SCHEMA, "schema has no questions")
++  header <- trim_ws(split_commas(lines[line_nos[1]]))
++  if (!identical(header, c("question", "type", "levels"))) schema_error(line_nos[1], "invalid header")
++  questions <- list()
++  for (line_no in line_nos[-1]) {
++    fields <- trim_ws(split_commas(lines[line_no]))
++    if (length(fields) != 3) schema_error(line_no, "expected 3 fields")
++    id <- fields[1]
++    type <- fields[2]
++    if (!grepl("^[A-Za-z][A-Za-z0-9_]*$", id)) schema_error(line_no, "invalid question id '", id, "'")
++    if (!is.null(questions[[id]])) schema_error(line_no, "duplicate question '", id, "'")
++    if (!type %in% QUESTION_TYPES) schema_error(line_no, "unknown type '", type, "'")
++    questions[[id]] <- list(id = id, type = type, levels = parse_levels(fields[3], type, line_no))
++  }
++  if (length(questions) == 0) fail(EXIT_SCHEMA, "schema has no questions")
++  questions
++}
++
++# Returns a character matrix of trimmed values (one row per respondent, named columns).
++read_responses <- function(path, questions) {
++  lines <- read_text_lines(path, EXIT_DATA)
++  lines <- lines[lines != ""]
++  if (length(lines) == 0) fail(EXIT_DATA, "data file is empty")
++  header <- parse_csv_line(lines[1])
++  dup <- header[duplicated(header)]
++  if (length(dup) > 0) fail(EXIT_DATA, "duplicate column '", dup[1], "'")
++  for (q in questions) {
++    if (!q$id %in% header) fail(EXIT_DATA, "missing column '", q$id, "'")
++  }
++  rows <- lines[-1]
++  values <- matrix("", nrow = length(rows), ncol = length(header), dimnames = list(NULL, header))
++  for (r in seq_along(rows)) {
++    fields <- parse_csv_line(rows[r])
++    if (length(fields) != length(header)) {
++      fail(EXIT_DATA, "row ", r, ": expected ", length(header), " fields, got ", length(fields))
++    }
++    values[r, ] <- fields
++  }
++  values
++}
+diff --git a/R/stats.R b/R/stats.R
+new file mode 100644
+index 0000000..d2157bb
+--- /dev/null
++++ b/R/stats.R
+@@ -0,0 +1,78 @@
++# Statistics: question summaries, exact percentage rounding, and the chi-square test.
++
++# count / base * 100 rounded half up to `digits` decimals, computed exactly; NA when base is 0.
++percent_text <- function(count, base, digits) {
++  if (base == 0) return(NA_character_)
++  scale <- 10^digits
++  scaled <- count * 100 * scale
++  q <- scaled %/% base
++  if (2 * (scaled %% base) >= base) q <- q + 1
++  if (digits == 0) return(sprintf("%d", as.integer(q)))
++  sprintf("%d.%0*d", as.integer(q %/% scale), digits, as.integer(q %% scale))
++}
++
++stat_text <- function(x) if (is.na(x)) NA_character_ else sprintf("%.2f", x)
++
++# Named list of formatted statistics (NA where not computable).
++describe <- function(x, with_range) {
++  n <- length(x)
++  out <- list(mean = stat_text(if (n > 0) mean(x) else NA),
++              median = stat_text(if (n > 0) median(x) else NA),
++              sd = stat_text(if (n > 1) sd(x) else NA))
++  if (with_range) {
++    out$min <- stat_text(if (n > 0) min(x) else NA)
++    out$max <- stat_text(if (n > 0) max(x) else NA)
++  }
++  out
++}
++
++level_counts <- function(answers, q) {
++  if (q$type == "multi") {
++    chosen <- lapply(answers, multi_items)
++    vapply(q$levels, function(l) sum(vapply(chosen, function(items) l %in% items, logical(1))),
++           numeric(1))
++  } else {
++    vapply(q$levels, function(l) sum(answers == l), numeric(1))
++  }
++}
++
++# Summary of one question over the respondents' raw answers.
++summarise_question <- function(q, column, missing_mode, digits) {
++  missing_flags <- is_missing_value(column)
++  answers <- column[!missing_flags]
++  respondents <- length(column)
++  res <- list(id = q$id, type = q$type, n = length(answers), missing = sum(missing_flags))
++  if (q$type != "numeric") {
++    base <- if (missing_mode == "include") respondents else res$n
++    counts <- level_counts(answers, q)
++    res$counts <- lapply(seq_along(q$levels), function(i) {
++      list(level = q$levels[i], count = counts[[i]], percent = percent_text(counts[[i]], base, digits))
++    })
++    if (missing_mode == "include") res$missing_percent <- percent_text(res$missing, base, digits)
++  }
++  if (q$type %in% c("likert", "numeric")) {
++    res$stats <- describe(as.numeric(answers), with_range = q$type == "numeric")
++  }
++  res
++}
++
++# Pearson chi-square as stats::chisq.test computes it, on the table without empty rows/columns.
++chi_square <- function(tab) {
++  tab <- tab[rowSums(tab) > 0, colSums(tab) > 0, drop = FALSE]
++  if (nrow(tab) < 2 || ncol(tab) < 2) return(NULL)
++  test <- suppressWarnings(stats::chisq.test(tab))
++  p <- unname(test$p.value)
++  list(statistic = sprintf("%.4f", unname(test$statistic)),
++       df = as.integer(unname(test$parameter)),
++       p_value = if (p < 1e-4) "<0.0001" else sprintf("%.4f", p),
++       low_expected = any(test$expected < 5))
++}
++
++crosstab <- function(row_q, col_q, row_values, col_values) {
++  answered <- !is_missing_value(row_values) & !is_missing_value(col_values)
++  tab <- table(factor(row_values[answered], levels = row_q$levels),
++               factor(col_values[answered], levels = col_q$levels))
++  counts <- matrix(as.integer(tab), nrow = nrow(tab))
++  list(row = row_q$id, column = col_q$id, n = sum(answered), row_levels = row_q$levels,
++       column_levels = col_q$levels, counts = counts, chi_square = chi_square(counts))
++}
+diff --git a/README.md b/README.md
+index 4f55f9b..1b5f426 100644
+--- a/README.md
++++ b/README.md
+@@ -1 +1,42 @@
+ # surveystat — survey response summaries from the command line
++
++Summarises survey responses (CSV) described by a small question schema: per-question
++counts, percentages and statistics, and cross-tabulations with a chi-square test.
++R 4.6, base R only.
++
++## Usage
++
++```
++bin/surveystat summary  --schema schema.csv [--question ID]... [--filter COL=VALUE]...
++                        [--missing exclude|include] [--digits D] [--format text|json]
++                        [--lenient] responses.csv
++bin/surveystat crosstab --schema schema.csv [--filter COL=VALUE]... [--format text|json]
++                        [--lenient] responses.csv ROW_QUESTION COL_QUESTION
++```
++
++Schema file (`question,type,levels`; types `likert`, `single`, `multi`, `numeric`):
++
++```
++question,type,levels
++sat,likert,
++region,single,north;south
++tools,multi,email;chat;phone
++```
++
++Exit codes: 0 ok, 2 usage error, 3 invalid schema, 4 invalid responses file.
++
++## Layout
++
++- `bin/surveystat` — executable wrapper (sources `R/*.R`, sets the exit status)
++- `R/input.R` — schema and CSV reading
++- `R/answers.R` — answer validation, missing values, filters
++- `R/stats.R` — summaries, percentage rounding, chi-square
++- `R/format.R` — text and JSON output
++- `R/cli.R` — options and commands
++- `R/errors.R` — error conditions and helpers
++
++## Tests
++
++```
++Rscript tests/run.R
++```
+diff --git a/bin/surveystat b/bin/surveystat
+new file mode 100644
+index 0000000..4b5be58
+--- /dev/null
++++ b/bin/surveystat
+@@ -0,0 +1,11 @@
++#!/usr/bin/env Rscript
++# surveystat: summarise survey responses. See README.md.
++local({
++  file_arg <- grep("^--file=", commandArgs(trailingOnly = FALSE), value = TRUE)[1]
++  root <- file.path(dirname(sub("^--file=", "", file_arg)), "..")
++  env <- new.env()
++  for (f in sort(list.files(file.path(root, "R"), pattern = "\\.R$", full.names = TRUE))) {
++    sys.source(f, envir = env, keep.source = FALSE)
++  }
++  quit(save = "no", status = env$main(commandArgs(trailingOnly = TRUE)))
++})
+diff --git a/tests/helpers.R b/tests/helpers.R
+new file mode 100644
+index 0000000..1dc57d7
+--- /dev/null
++++ b/tests/helpers.R
+@@ -0,0 +1,22 @@
++# Shared helpers for the test files (sourced by each of them).
++expect_error_code <- function(expr, code, message = NULL) {
++  err <- tryCatch({
++    force(expr)
++    NULL
++  }, surveystat_error = function(e) e)
++  if (is.null(err)) stop("expected a surveystat error")
++  if (err$code != code) stop("expected exit code ", code, ", got ", err$code, ": ", conditionMessage(err))
++  if (!is.null(message) && conditionMessage(err) != message) {
++    stop("expected message '", message, "', got '", conditionMessage(err), "'")
++  }
++  invisible(err)
++}
++
++write_temp <- function(lines) {
++  path <- tempfile(fileext = ".csv")
++  writeLines(lines, path)
++  path
++}
++
++SCHEMA_LINES <- c("question,type,levels", "sat,likert,", "age,numeric,",
++                  "region,single,north;south", "tools,multi,email;chat;phone")
+diff --git a/tests/run.R b/tests/run.R
+new file mode 100644
+index 0000000..44a925c
+--- /dev/null
++++ b/tests/run.R
+@@ -0,0 +1,26 @@
++# Minimal test runner: `Rscript tests/run.R` from the repository root.
++# Every function named test_* in tests/test_*.R is a test; it fails if it signals an error.
++app <- new.env()
++for (f in sort(list.files("R", pattern = "\\.R$", full.names = TRUE))) sys.source(f, envir = app)
++
++total <- 0L
++failures <- 0L
++for (file in sort(list.files("tests", pattern = "^test_.*\\.R$", full.names = TRUE))) {
++  suite <- new.env(parent = app)
++  sys.source(file, envir = suite)
++  for (name in sort(grep("^test_", ls(suite), value = TRUE))) {
++    total <- total + 1L
++    err <- tryCatch({
++      suite[[name]]()
++      NULL
++    }, error = function(e) conditionMessage(e))
++    if (is.null(err)) {
++      cat("ok   ", basename(file), " ", name, "\n", sep = "")
++    } else {
++      failures <- failures + 1L
++      cat("FAIL ", basename(file), " ", name, ": ", err, "\n", sep = "")
++    }
++  }
++}
++cat(sprintf("tests: %d, failures: %d\n", total, failures))
++quit(save = "no", status = if (failures == 0L) 0L else 1L)
+diff --git a/tests/test_answers.R b/tests/test_answers.R
+new file mode 100644
+index 0000000..bceb887
+--- /dev/null
++++ b/tests/test_answers.R
+@@ -0,0 +1,30 @@
++source("tests/helpers.R", local = TRUE)
++
++values_matrix <- function(...) {
++  rows <- list(...)
++  m <- do.call(rbind, rows)
++  colnames(m) <- c("sat", "age", "region", "tools")
++  m
++}
++
++test_validation_strict_and_lenient <- function() {
++  qs <- read_schema(write_temp(SCHEMA_LINES))
++  v <- values_matrix(c("3", "40", "north", "email;chat"), c("6", "x", "east", "email;;chat"))
++  expect_error_code(check_answers(v, qs, FALSE), EXIT_DATA, "row 2: invalid value for 'sat': '6'")
++  res <- check_answers(v, qs, TRUE)
++  stopifnot(res$invalid == 4, all(res$values[2, ] == ""), res$values[1, "tools"] == "email;chat")
++}
++
++test_numeric_format <- function() {
++  q <- list(id = "age", type = "numeric", levels = character(0))
++  stopifnot(identical(valid_answers(c("1", "-2.5", "1.", ".5", "1e3", "+1"), q),
++                      c(TRUE, TRUE, FALSE, FALSE, FALSE, FALSE)))
++}
++
++test_filters <- function() {
++  v <- values_matrix(c("1", "1", "north", ""), c("2", "1", "south", ""), c("3", "2", "north", ""))
++  f <- parse_filters(c("region=north", "sat=1", "sat=3"))
++  stopifnot(identical(filter_rows(v, f), c(TRUE, FALSE, TRUE)))
++  expect_error_code(parse_filters("=x"), EXIT_USAGE)
++  expect_error_code(filter_rows(v, parse_filters("nope=1")), EXIT_USAGE, "unknown filter column 'nope'")
++}
+diff --git a/tests/test_cli.R b/tests/test_cli.R
+new file mode 100644
+index 0000000..cb281f6
+--- /dev/null
++++ b/tests/test_cli.R
+@@ -0,0 +1,27 @@
++source("tests/helpers.R", local = TRUE)
++
++test_parse_args <- function() {
++  p <- parse_args(c("summary", "data.csv", "--schema", "s.csv", "--digits", "3", "--digits", "0",
++                    "--question", "a", "--question", "b"))
++  stopifnot(p$command == "summary", p$positional == "data.csv", p$options$digits == 0L,
++            identical(p$options$question, c("a", "b")))
++  stopifnot(is.null(parse_args(c("crosstab", "--help"))))
++}
++
++test_usage_errors <- function() {
++  expect_error_code(parse_args(character(0)), EXIT_USAGE)
++  expect_error_code(parse_args(c("report", "--schema", "s")), EXIT_USAGE)
++  expect_error_code(parse_args(c("summary", "d.csv")), EXIT_USAGE)
++  expect_error_code(parse_args(c("summary", "d.csv", "--schema", "s", "--digits", "5")), EXIT_USAGE)
++  expect_error_code(parse_args(c("crosstab", "d.csv", "a", "b", "--schema", "s", "--digits", "1")), EXIT_USAGE)
++  expect_error_code(parse_args(c("crosstab", "d.csv", "a", "--schema", "s")), EXIT_USAGE)
++}
++
++test_crosstab_text_layout <- function() {
++  ct <- list(row = "r", column = "c", n = 9L, row_levels = c("north", "south"),
++             column_levels = c("basic", "pro"), counts = matrix(c(3L, 1L, 1L, 4L), nrow = 2),
++             chi_square = NULL)
++  out <- crosstab_text(10L, parse_filters(character(0)), ct)
++  stopifnot(identical(strsplit(out, "\n")[[1]][5:7],
++                      c("       basic  pro  Total", "north      3    1      4", "south      1    4      5")))
++}
+diff --git a/tests/test_input.R b/tests/test_input.R
+new file mode 100644
+index 0000000..a4de052
+--- /dev/null
++++ b/tests/test_input.R
+@@ -0,0 +1,33 @@
++source("tests/helpers.R", local = TRUE)
++
++test_csv_quotes_and_trimming <- function() {
++  stopifnot(identical(parse_csv_line(' a ,"b, c","say ""hi""",,'), c("a", "b, c", "say \"hi\"", "", "")))
++}
++
++test_schema_read <- function() {
++  qs <- read_schema(write_temp(SCHEMA_LINES))
++  stopifnot(identical(names(qs), c("sat", "age", "region", "tools")),
++            identical(qs$sat$levels, as.character(1:5)),
++            identical(qs$tools$levels, c("email", "chat", "phone")))
++}
++
++test_schema_errors <- function() {
++  expect_error_code(read_schema(write_temp(c("q,type,levels"))), EXIT_SCHEMA, "schema line 1: invalid header")
++  expect_error_code(read_schema(write_temp(c("question,type,levels", "", "a,colour,"))),
++                    EXIT_SCHEMA, "schema line 3: unknown type 'colour'")
++  expect_error_code(read_schema(write_temp(c("question,type,levels", "a,single,"))),
++                    EXIT_SCHEMA, "schema line 2: levels required for single")
++  expect_error_code(read_schema(write_temp(c("question,type,levels", "a,single,x;y;x"))),
++                    EXIT_SCHEMA, "schema line 2: duplicate level 'x'")
++  expect_error_code(read_schema(write_temp(c("question,type,levels", "a,numeric,", "a,likert,"))),
++                    EXIT_SCHEMA, "schema line 3: duplicate question 'a'")
++  expect_error_code(read_schema(write_temp(c("question,type,levels"))), EXIT_SCHEMA, "schema has no questions")
++}
++
++test_responses_errors <- function() {
++  qs <- read_schema(write_temp(SCHEMA_LINES))
++  expect_error_code(read_responses(write_temp(c("sat,age,region")), qs), EXIT_DATA, "missing column 'tools'")
++  expect_error_code(read_responses(write_temp(c("sat,age,region,tools", "1,2,north,email", "1,2")), qs),
++                    EXIT_DATA, "row 2: expected 4 fields, got 2")
++  expect_error_code(read_responses(tempfile(), qs), EXIT_DATA)
++}
+diff --git a/tests/test_stats.R b/tests/test_stats.R
+new file mode 100644
+index 0000000..3f52713
+--- /dev/null
++++ b/tests/test_stats.R
+@@ -0,0 +1,29 @@
++test_percent_rounding_is_half_up <- function() {
++  stopifnot(percent_text(1, 8, 1) == "12.5", percent_text(1, 8, 0) == "13",
++            percent_text(1, 16, 1) == "6.3", percent_text(2, 3, 2) == "66.67",
++            percent_text(0, 7, 1) == "0.0", percent_text(3, 3, 0) == "100",
++            is.na(percent_text(0, 0, 1)))
++}
++
++test_describe <- function() {
++  d <- describe(c(1, 2, 3, 4), with_range = TRUE)
++  stopifnot(d$mean == "2.50", d$median == "2.50", d$sd == "1.29", d$min == "1.00", d$max == "4.00")
++  one <- describe(5, with_range = FALSE)
++  stopifnot(one$mean == "5.00", is.na(one$sd), is.null(one$min))
++  stopifnot(is.na(describe(numeric(0), with_range = TRUE)$median))
++}
++
++test_multi_counts_once_per_respondent <- function() {
++  q <- list(id = "t", type = "multi", levels = c("a", "b"))
++  s <- summarise_question(q, c("a;a", "a; b", "", "NA"), "exclude", 1)
++  stopifnot(s$n == 2, s$missing == 2, s$counts[[1]]$count == 2, s$counts[[1]]$percent == "100.0",
++            s$counts[[2]]$percent == "50.0")
++}
++
++test_chi_square_matches_chisq_test <- function() {
++  tab <- matrix(c(10L, 20L, 0L, 30L, 15L, 0L, 0L, 0L, 0L), nrow = 3)
++  cs <- chi_square(tab)
++  ref <- suppressWarnings(chisq.test(matrix(c(10, 20, 30, 15), nrow = 2)))
++  stopifnot(cs$statistic == sprintf("%.4f", ref$statistic), cs$df == 1L)
++  stopifnot(is.null(chi_square(matrix(c(1L, 2L, 0L, 0L), nrow = 2))))
++}

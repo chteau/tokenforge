@@ -1,0 +1,11 @@
+{
+  "id": "r-cli",
+  "title": "Build the surveystat survey statistics CLI in R",
+  "category": "greenfield",
+  "language": "r",
+  "rubric": "coding",
+  "timeout_s": 2400,
+  "relevant_files": [],
+  "allowed_change_globs": ["**"],
+  "reference_diff_lines": 727
+}

@@ -1,0 +1,739 @@
+diff --git a/README.md b/README.md
+index 3a32531..e294f05 100644
+--- a/README.md
++++ b/README.md
+@@ -1 +1,22 @@
+ # asm — assembler, disassembler and virtual machine for a small stack machine
++
++Assembles a small text assembly language into a binary program file, disassembles it back,
++and runs it on a 32-bit stack virtual machine. OCaml standard library only.
++
++## Build and test
++
++```
++dune build      # produces _build/default/bin/asm.exe
++dune test
++```
++
++## Usage
++
++```
++asm assemble prog.s -o prog.bin
++asm disasm prog.bin
++asm run prog.bin [--steps N]
++```
++
++Layout: `src/` holds the `svm` library (`Isa` instruction table, `Bytecode` binary format,
++`Assembler`, `Disasm`, `Vm`), `bin/` the command-line front end, `test/` the tests.
+diff --git a/bin/asm.ml b/bin/asm.ml
+new file mode 100644
+index 0000000..50cb7b3
+--- /dev/null
++++ b/bin/asm.ml
+@@ -0,0 +1,61 @@
++let usage =
++  "usage: asm assemble <source.s> -o <out.bin>\n\
++  \       asm disasm <program.bin>\n\
++  \       asm run <program.bin> [--steps <n>]\n\
++  \       asm --help\n"
++
++let fail code msg =
++  prerr_endline msg;
++  exit code
++
++let read_file path =
++  match In_channel.with_open_bin path In_channel.input_all with
++  | s -> s
++  | exception Sys_error _ -> fail 3 ("error: cannot read " ^ path)
++
++let write_file path contents =
++  match Out_channel.with_open_bin path (fun oc -> Out_channel.output_string oc contents) with
++  | () -> ()
++  | exception Sys_error _ -> fail 3 ("error: cannot write " ^ path)
++
++let load path =
++  match Svm.Bytecode.decode (read_file path) with
++  | Ok p -> p
++  | Error msg -> fail 4 ("error: " ^ msg)
++
++let assemble src out =
++  match Svm.Assembler.assemble (read_file src) with
++  | Ok p -> write_file out (Svm.Bytecode.encode p)
++  | Error (line, msg) -> fail 1 (Printf.sprintf "error: line %d: %s" line msg)
++
++let disasm path =
++  match Svm.Disasm.render (load path) with
++  | Ok text -> print_string text
++  | Error msg -> fail 4 ("error: " ^ msg)
++
++let run path steps =
++  let p = load path in
++  let print v = print_string (Int32.to_string v ^ "\n") in
++  match Svm.Vm.run ~steps ~print p with
++  | Ok () -> ()
++  | Error trap ->
++      flush stdout;
++      let msg, code = Svm.Vm.describe trap in
++      fail code msg
++
++let positive s =
++  if s <> "" && String.for_all (function '0' .. '9' -> true | _ -> false) s then
++    match int_of_string_opt s with Some n when n > 0 -> Some n | _ -> None
++  else None
++
++let () =
++  match List.tl (Array.to_list Sys.argv) with
++  | [ ("--help" | "-h") ] -> print_string usage
++  | [ "assemble"; src; "-o"; out ] -> assemble src out
++  | [ "disasm"; path ] -> disasm path
++  | [ "run"; path ] -> run path 1_000_000
++  | [ "run"; path; "--steps"; n ] -> (
++      match positive n with
++      | Some steps -> run path steps
++      | None -> fail 2 ("error: invalid step limit: " ^ n))
++  | _ -> fail 2 "error: invalid arguments (see asm --help)"
+diff --git a/bin/dune b/bin/dune
+new file mode 100644
+index 0000000..11bfad9
+--- /dev/null
++++ b/bin/dune
+@@ -0,0 +1,3 @@
++(executable
++ (name asm)
++ (libraries svm))
+diff --git a/dune-project b/dune-project
+new file mode 100644
+index 0000000..37f995d
+--- /dev/null
++++ b/dune-project
+@@ -0,0 +1 @@
++(lang dune 3.0)
+diff --git a/src/assembler.ml b/src/assembler.ml
+new file mode 100644
+index 0000000..c31d7ef
+--- /dev/null
++++ b/src/assembler.ml
+@@ -0,0 +1,149 @@
++type symbol = Code of int | Data_addr of int
++type arg = No_arg | Lit of int32 | Sym of string
++type pending = { line : int; op : Isa.opcode; arg : arg }
++
++let is_ident s =
++  s <> ""
++  && (match s.[0] with 'A' .. 'Z' | 'a' .. 'z' | '_' -> true | _ -> false)
++  && String.for_all (function 'A' .. 'Z' | 'a' .. 'z' | '0' .. '9' | '_' -> true | _ -> false) s
++
++let tokenize text =
++  let text = match String.index_opt text ';' with Some i -> String.sub text 0 i | None -> text in
++  String.map (function '\t' | '\r' -> ' ' | c -> c) text
++  |> String.split_on_char ' '
++  |> List.filter (fun t -> t <> "")
++
++(* Integer literal: decimal with optional '-', or non-negative hex with 0x. *)
++let parse_int s =
++  let n = String.length s in
++  let digits, base, neg =
++    if n > 2 && String.sub s 0 2 = "0x" then (String.sub s 2 (n - 2), 16, false)
++    else if n > 1 && s.[0] = '-' then (String.sub s 1 (n - 1), 10, true)
++    else (s, 10, false)
++  in
++  let digit c =
++    match c with
++    | '0' .. '9' -> Some (Char.code c - 48)
++    | 'a' .. 'f' when base = 16 -> Some (Char.code c - 87)
++    | 'A' .. 'F' when base = 16 -> Some (Char.code c - 55)
++    | _ -> None
++  in
++  if digits = "" || not (String.for_all (fun c -> digit c <> None) digits) then `Invalid
++  else
++    let cap = 1 lsl 40 in
++    let v = String.fold_left (fun acc c -> min cap ((acc * base) + Option.get (digit c))) 0 digits in
++    let v = if neg then -v else v in
++    if v < Int32.to_int Int32.min_int || v > Int32.to_int Int32.max_int then `Out_of_range
++    else `Ok (Int32.of_int v)
++
++let value_arg tok =
++  match parse_int tok with
++  | `Ok v -> Ok (Lit v)
++  | `Out_of_range -> Error (Printf.sprintf "integer out of range '%s'" tok)
++  | `Invalid when is_ident tok -> Ok (Sym tok)
++  | `Invalid -> Error (Printf.sprintf "invalid operand '%s'" tok)
++
++let instr_args op toks =
++  let m = Isa.mnemonic op in
++  match (Isa.operand op, toks) with
++  | Isa.No_operand, [] -> Ok No_arg
++  | Isa.No_operand, _ -> Error (Printf.sprintf "'%s' expects no operand" m)
++  | _, ([] | _ :: _ :: _) -> Error (Printf.sprintf "'%s' expects 1 operand" m)
++  | Isa.Value, [ tok ] -> value_arg tok
++  | Isa.Target, [ tok ] ->
++      if is_ident tok then Ok (Sym tok) else Error (Printf.sprintf "invalid operand '%s'" tok)
++
++let ( let* ) = Result.bind
++
++let rec iter_result f = function
++  | [] -> Ok ()
++  | x :: rest ->
++      let* () = f x in
++      iter_result f rest
++
++let assemble source =
++  let symbols = Hashtbl.create 32 in
++  let errors = ref [] in
++  let pending = ref [] in
++  let data = ref [] and data_words = ref 0 in
++  let offset = ref 0 in
++  let define name sym =
++    if Hashtbl.mem symbols name then Error (Printf.sprintf "duplicate label '%s'" name)
++    else Ok (Hashtbl.replace symbols name sym)
++  in
++  let label tok =
++    let name = String.sub tok 0 (String.length tok - 1) in
++    if not (is_ident name) then Error (Printf.sprintf "invalid label '%s'" name)
++    else define name (Code !offset)
++  in
++  let data_directive = function
++    | name :: (_ :: _ as values) ->
++        let* () = if is_ident name then Ok () else Error (Printf.sprintf "invalid label '%s'" name) in
++        let* () = define name (Data_addr !data_words) in
++        let* words =
++          List.fold_left
++            (fun acc tok ->
++              let* acc = acc in
++              match parse_int tok with
++              | `Ok v -> Ok (v :: acc)
++              | `Out_of_range -> Error (Printf.sprintf "integer out of range '%s'" tok)
++              | `Invalid -> Error (Printf.sprintf "invalid operand '%s'" tok))
++            (Ok []) values
++        in
++        let count = List.length words in
++        if !data_words + count > Bytecode.memory_words then Error "data section too large"
++        else (
++          data := words @ !data;
++          data_words := !data_words + count;
++          Ok ())
++    | _ -> Error "'.data' expects a name and at least one value"
++  in
++  let statement line toks =
++    let rec split_labels acc = function
++      | t :: rest when String.ends_with ~suffix:":" t -> split_labels (t :: acc) rest
++      | rest -> (List.rev acc, rest)
++    in
++    let labels, body = split_labels [] toks in
++    let* () = iter_result label labels in
++    match body with
++    | [] -> Ok ()
++    | d :: args when String.lowercase_ascii d = ".data" -> data_directive args
++    | d :: _ when d.[0] = '.' -> Error (Printf.sprintf "unknown directive '%s'" d)
++    | m :: args -> (
++        match Isa.of_mnemonic m with
++        | None -> Error (Printf.sprintf "unknown instruction '%s'" m)
++        | Some op ->
++            let* arg = instr_args op args in
++            pending := { line; op; arg } :: !pending;
++            offset := !offset + Isa.size op;
++            Ok ())
++  in
++  String.split_on_char '\n' source
++  |> List.iteri (fun i text ->
++         match statement (i + 1) (tokenize text) with
++         | Ok () -> ()
++         | Error msg -> errors := (i + 1, msg) :: !errors);
++  let resolve p =
++    let arg =
++      match (p.arg, Isa.operand p.op) with
++      | No_arg, _ -> Ok 0l
++      | Lit v, _ -> Ok v
++      | Sym s, Isa.Target -> (
++          match Hashtbl.find_opt symbols s with
++          | Some (Code o) -> Ok (Int32.of_int o)
++          | _ -> Error (Printf.sprintf "undefined label '%s'" s))
++      | Sym s, _ -> (
++          match Hashtbl.find_opt symbols s with
++          | Some (Data_addr a) -> Ok (Int32.of_int a)
++          | _ -> Error (Printf.sprintf "undefined data '%s'" s))
++    in
++    match arg with
++    | Ok arg -> Some { Isa.op = p.op; arg }
++    | Error msg ->
++        errors := (p.line, msg) :: !errors;
++        None
++  in
++  let instrs = List.filter_map resolve (List.rev !pending) in
++  match List.sort (fun (a, _) (b, _) -> compare a b) !errors with
++  | first :: _ -> Error first
++  | [] -> Ok (Bytecode.make instrs (List.rev !data))
+diff --git a/src/assembler.mli b/src/assembler.mli
+new file mode 100644
+index 0000000..ae3566a
+--- /dev/null
++++ b/src/assembler.mli
+@@ -0,0 +1,5 @@
++(** Text assembly to program. *)
++
++(** [assemble source] assembles a whole source file. On failure returns the
++    line number and message of the first (lowest-numbered) error. *)
++val assemble : string -> (Bytecode.program, int * string) result
+diff --git a/src/bytecode.ml b/src/bytecode.ml
+new file mode 100644
+index 0000000..53cdd6d
+--- /dev/null
++++ b/src/bytecode.ml
+@@ -0,0 +1,76 @@
++type program = {
++  instrs : (int * Isa.instr) array;
++  code_size : int;
++  data : int32 array;
++}
++
++let magic = "SVMB"
++let version = 1
++let header_size = 16
++let memory_words = 256
++
++let make instrs data =
++  let offset = ref 0 in
++  let placed =
++    List.map
++      (fun (i : Isa.instr) ->
++        let at = !offset in
++        offset := at + Isa.size i.op;
++        (at, i))
++      instrs
++  in
++  { instrs = Array.of_list placed; code_size = !offset; data = Array.of_list data }
++
++let encode p =
++  let b = Buffer.create (header_size + p.code_size + (4 * Array.length p.data)) in
++  Buffer.add_string b magic;
++  Buffer.add_uint8 b version;
++  Buffer.add_string b "\000\000\000";
++  Buffer.add_int32_le b (Int32.of_int p.code_size);
++  Buffer.add_int32_le b (Int32.of_int (Array.length p.data));
++  Array.iter
++    (fun (_, (i : Isa.instr)) ->
++      Buffer.add_uint8 b (Isa.code i.op);
++      if Isa.operand i.op <> Isa.No_operand then Buffer.add_int32_le b i.arg)
++    p.instrs;
++  Array.iter (Buffer.add_int32_le b) p.data;
++  Buffer.contents b
++
++let u32 s pos = Int32.to_int (String.get_int32_le s pos) land 0xFFFF_FFFF
++
++let decode_code s code_size =
++  let stop = header_size + code_size in
++  let rec go pos acc =
++    if pos >= stop then Ok (List.rev acc)
++    else
++      let off = pos - header_size in
++      let byte = Char.code s.[pos] in
++      match Isa.of_code byte with
++      | None -> Error (Printf.sprintf "unknown opcode 0x%02x at offset %d" byte off)
++      | Some op when pos + Isa.size op > stop ->
++          Error (Printf.sprintf "truncated instruction at offset %d" off)
++      | Some op ->
++          let arg = if Isa.operand op = Isa.No_operand then 0l else String.get_int32_le s (pos + 1) in
++          go (pos + Isa.size op) ((off, { Isa.op; arg }) :: acc)
++  in
++  go header_size []
++
++let decode s =
++  let len = String.length s in
++  if len < header_size then Error "truncated file"
++  else if String.sub s 0 4 <> magic then Error "bad magic"
++  else if Char.code s.[4] <> version then
++    Error (Printf.sprintf "unsupported version %d" (Char.code s.[4]))
++  else
++    let code_size = u32 s 8 and words = u32 s 12 in
++    let expected = header_size + code_size + (4 * words) in
++    if len < expected then Error "truncated file"
++    else if len > expected then Error "trailing data"
++    else if words > memory_words then Error "data section too large"
++    else
++      Result.map
++        (fun instrs ->
++          let base = header_size + code_size in
++          { instrs = Array.of_list instrs; code_size;
++            data = Array.init words (fun i -> String.get_int32_le s (base + (4 * i))) })
++        (decode_code s code_size)
+diff --git a/src/bytecode.mli b/src/bytecode.mli
+new file mode 100644
+index 0000000..fcc0f64
+--- /dev/null
++++ b/src/bytecode.mli
+@@ -0,0 +1,17 @@
++(** The binary program format: encoding and decoding. *)
++
++type program = {
++  instrs : (int * Isa.instr) array;  (** (byte offset, instruction) in code order *)
++  code_size : int;
++  data : int32 array;
++}
++
++val memory_words : int
++
++(** Lay out instructions at consecutive offsets. *)
++val make : Isa.instr list -> int32 list -> program
++
++val encode : program -> string
++
++(** Decode a whole file; the error is the message without the ["error: "] prefix. *)
++val decode : string -> (program, string) result
+diff --git a/src/disasm.ml b/src/disasm.ml
+new file mode 100644
+index 0000000..5f9a581
+--- /dev/null
++++ b/src/disasm.ml
+@@ -0,0 +1,37 @@
++let render (p : Bytecode.program) =
++  let starts = Hashtbl.create 64 in
++  Array.iter (fun (off, _) -> Hashtbl.replace starts off ()) p.instrs;
++  Hashtbl.replace starts p.code_size ();
++  let targets = Hashtbl.create 16 in
++  let check (off, (i : Isa.instr)) =
++    if Isa.operand i.op <> Isa.Target then Ok ()
++    else
++      let t = Isa.target_of i in
++      if Hashtbl.mem starts t then Ok (Hashtbl.replace targets t ())
++      else Error (Printf.sprintf "invalid jump target %d at offset %d" t off)
++  in
++  let rec check_all k =
++    if k >= Array.length p.instrs then Ok ()
++    else Result.bind (check p.instrs.(k)) (fun () -> check_all (k + 1))
++  in
++  Result.map
++    (fun () ->
++      let b = Buffer.create 256 in
++      if Array.length p.data > 0 then (
++        Buffer.add_string b ".data data";
++        Array.iter (fun w -> Buffer.add_string b (" " ^ Int32.to_string w)) p.data;
++        Buffer.add_char b '\n');
++      let label off = if Hashtbl.mem targets off then Printf.bprintf b "L%d:\n" off in
++      Array.iter
++        (fun (off, (i : Isa.instr)) ->
++          label off;
++          Buffer.add_string b ("    " ^ Isa.mnemonic i.op);
++          (match Isa.operand i.op with
++          | Isa.No_operand -> ()
++          | Isa.Value -> Buffer.add_string b (" " ^ Int32.to_string i.arg)
++          | Isa.Target -> Printf.bprintf b " L%d" (Isa.target_of i));
++          Buffer.add_char b '\n')
++        p.instrs;
++      label p.code_size;
++      Buffer.contents b)
++    (check_all 0)
+diff --git a/src/disasm.mli b/src/disasm.mli
+new file mode 100644
+index 0000000..a714fc6
+--- /dev/null
++++ b/src/disasm.mli
+@@ -0,0 +1,4 @@
++(** Program to canonical assembly text. *)
++
++(** Fails with the message (without ["error: "]) on an invalid jump target. *)
++val render : Bytecode.program -> (string, string) result
+diff --git a/src/dune b/src/dune
+new file mode 100644
+index 0000000..609f024
+--- /dev/null
++++ b/src/dune
+@@ -0,0 +1,2 @@
++(library
++ (name svm))
+diff --git a/src/isa.ml b/src/isa.ml
+new file mode 100644
+index 0000000..4d5de83
+--- /dev/null
++++ b/src/isa.ml
+@@ -0,0 +1,37 @@
++type opcode =
++  | Halt | Push | Pop | Dup | Swap | Over
++  | Add | Sub | Mul | Div | Mod | Neg | Cmp
++  | Jmp | Jz | Jnz | Call | Ret
++  | Load | Store | Print
++
++type operand = No_operand | Value | Target
++
++type instr = { op : opcode; arg : int32 }
++
++let table =
++  [ (Halt, 0x00, "halt"); (Push, 0x01, "push"); (Pop, 0x02, "pop");
++    (Dup, 0x03, "dup"); (Swap, 0x04, "swap"); (Over, 0x05, "over");
++    (Add, 0x10, "add"); (Sub, 0x11, "sub"); (Mul, 0x12, "mul");
++    (Div, 0x13, "div"); (Mod, 0x14, "mod"); (Neg, 0x15, "neg");
++    (Cmp, 0x16, "cmp"); (Jmp, 0x20, "jmp"); (Jz, 0x21, "jz");
++    (Jnz, 0x22, "jnz"); (Call, 0x23, "call"); (Ret, 0x24, "ret");
++    (Load, 0x30, "load"); (Store, 0x31, "store"); (Print, 0x40, "print") ]
++
++let find f = List.find (fun entry -> f entry) table
++let code op = match find (fun (o, _, _) -> o = op) with _, c, _ -> c
++let mnemonic op = match find (fun (o, _, _) -> o = op) with _, _, m -> m
++
++let of_code c =
++  List.find_map (fun (o, c', _) -> if c = c' then Some o else None) table
++
++let of_mnemonic s =
++  let s = String.lowercase_ascii s in
++  List.find_map (fun (o, _, m) -> if m = s then Some o else None) table
++
++let operand = function
++  | Push | Load | Store -> Value
++  | Jmp | Jz | Jnz | Call -> Target
++  | _ -> No_operand
++
++let size op = if operand op = No_operand then 1 else 5
++let target_of i = Int32.to_int i.arg land 0xFFFF_FFFF
+diff --git a/src/isa.mli b/src/isa.mli
+new file mode 100644
+index 0000000..97ab1e0
+--- /dev/null
++++ b/src/isa.mli
+@@ -0,0 +1,29 @@
++(** The instruction set of the stack machine. *)
++
++type opcode =
++  | Halt | Push | Pop | Dup | Swap | Over
++  | Add | Sub | Mul | Div | Mod | Neg | Cmp
++  | Jmp | Jz | Jnz | Call | Ret
++  | Load | Store | Print
++
++(** What kind of operand an instruction takes. *)
++type operand = No_operand | Value | Target
++
++(** A decoded instruction; [arg] is [0l] for instructions without operand.
++    For jumps it holds the target offset (interpreted as unsigned). *)
++type instr = { op : opcode; arg : int32 }
++
++val code : opcode -> int
++val of_code : int -> opcode option
++val mnemonic : opcode -> string
++
++(** Case-insensitive lookup. *)
++val of_mnemonic : string -> opcode option
++
++val operand : opcode -> operand
++
++(** Encoded size in bytes. *)
++val size : opcode -> int
++
++(** [target_of i] is the unsigned jump target of a jump or call. *)
++val target_of : instr -> int
+diff --git a/src/vm.ml b/src/vm.ml
+new file mode 100644
+index 0000000..30ec6c1
+--- /dev/null
++++ b/src/vm.ml
+@@ -0,0 +1,96 @@
++type trap =
++  | Stack_underflow of int
++  | Division_by_zero of int
++  | Bad_jump of int * int
++  | Bad_address of int32 * int
++  | Step_limit
++  | Stack_overflow of int
++
++exception Trap of trap
++
++let max_stack = 1024
++let max_calls = 256
++
++let describe = function
++  | Stack_underflow o -> (Printf.sprintf "trap: stack underflow at offset %d" o, 10)
++  | Division_by_zero o -> (Printf.sprintf "trap: division by zero at offset %d" o, 11)
++  | Bad_jump (t, o) -> (Printf.sprintf "trap: bad jump to %d at offset %d" t o, 12)
++  | Bad_address (a, o) -> (Printf.sprintf "trap: bad address %ld at offset %d" a o, 13)
++  | Step_limit -> ("trap: step limit exceeded", 14)
++  | Stack_overflow o -> (Printf.sprintf "trap: stack overflow at offset %d" o, 15)
++
++let run ~steps ~print (p : Bytecode.program) =
++  let n = Array.length p.instrs in
++  let index = Hashtbl.create (n + 1) in
++  Array.iteri (fun k (off, _) -> Hashtbl.replace index off k) p.instrs;
++  Hashtbl.replace index p.code_size n;
++  let mem = Array.make Bytecode.memory_words 0l in
++  Array.blit p.data 0 mem 0 (Array.length p.data);
++  let stack = Array.make max_stack 0l and sp = ref 0 in
++  let calls = Array.make max_calls 0 and csp = ref 0 in
++  let rec exec pc count =
++    if pc >= n then ()
++    else if count >= steps then raise (Trap Step_limit)
++    else
++      let at, (i : Isa.instr) = p.instrs.(pc) in
++      let need k = if !sp < k then raise (Trap (Stack_underflow at)) in
++      let pop () = decr sp; stack.(!sp) in
++      let push v =
++        if !sp >= max_stack then raise (Trap (Stack_overflow at));
++        stack.(!sp) <- v;
++        incr sp
++      in
++      let binary f = need 2; let b = pop () in let a = pop () in push (f a b) in
++      let divide f = need 2;
++        if stack.(!sp - 1) = 0l then raise (Trap (Division_by_zero at));
++        binary f
++      in
++      let jump t =
++        match Hashtbl.find_opt index t with
++        | Some k -> k
++        | None -> raise (Trap (Bad_jump (t, at)))
++      in
++      let address () =
++        let a = Int32.to_int i.arg in
++        if a < 0 || a >= Bytecode.memory_words then raise (Trap (Bad_address (i.arg, at)));
++        a
++      in
++      let next = pc + 1 in
++      let continue_at pc' = exec pc' (count + 1) in
++      match i.op with
++      | Halt -> ()
++      | Push -> push i.arg; continue_at next
++      | Pop -> need 1; ignore (pop ()); continue_at next
++      | Dup -> need 1; push stack.(!sp - 1); continue_at next
++      | Swap ->
++          need 2;
++          let b = pop () in let a = pop () in
++          push b; push a; continue_at next
++      | Over -> need 2; push stack.(!sp - 2); continue_at next
++      | Add -> binary Int32.add; continue_at next
++      | Sub -> binary Int32.sub; continue_at next
++      | Mul -> binary Int32.mul; continue_at next
++      | Div -> divide Int32.div; continue_at next
++      | Mod -> divide Int32.rem; continue_at next
++      | Neg -> need 1; push (Int32.neg (pop ())); continue_at next
++      | Cmp -> binary (fun a b -> if a < b then -1l else if a > b then 1l else 0l); continue_at next
++      | Jmp -> continue_at (jump (Isa.target_of i))
++      | Jz | Jnz ->
++          need 1;
++          let zero = pop () = 0l in
++          if zero = (i.op = Isa.Jz) then continue_at (jump (Isa.target_of i)) else continue_at next
++      | Call ->
++          if !csp >= max_calls then raise (Trap (Stack_overflow at));
++          let k = jump (Isa.target_of i) in
++          calls.(!csp) <- (if next < n then fst p.instrs.(next) else p.code_size);
++          incr csp;
++          continue_at k
++      | Ret ->
++          if !csp = 0 then raise (Trap (Stack_underflow at));
++          decr csp;
++          continue_at (jump calls.(!csp))
++      | Load -> let a = address () in push mem.(a); continue_at next
++      | Store -> let a = address () in need 1; mem.(a) <- pop (); continue_at next
++      | Print -> need 1; print (pop ()); continue_at next
++  in
++  match exec 0 0 with () -> Ok () | exception Trap t -> Error t
+diff --git a/src/vm.mli b/src/vm.mli
+new file mode 100644
+index 0000000..f60b11a
+--- /dev/null
++++ b/src/vm.mli
+@@ -0,0 +1,18 @@
++(** The virtual machine. *)
++
++type trap =
++  | Stack_underflow of int  (** offset of the faulting instruction *)
++  | Division_by_zero of int
++  | Bad_jump of int * int  (** target, offset *)
++  | Bad_address of int32 * int
++  | Step_limit
++  | Stack_overflow of int
++
++val max_stack : int
++val max_calls : int
++
++(** Run until [halt] or the end of the code. [print] receives every printed value. *)
++val run : steps:int -> print:(int32 -> unit) -> Bytecode.program -> (unit, trap) result
++
++(** The stderr message and exit code for a trap. *)
++val describe : trap -> string * int
+diff --git a/test/dune b/test/dune
+new file mode 100644
+index 0000000..fadcccc
+--- /dev/null
++++ b/test/dune
+@@ -0,0 +1,3 @@
++(test
++ (name test_svm)
++ (libraries svm))
+diff --git a/test/test_svm.ml b/test/test_svm.ml
+new file mode 100644
+index 0000000..6538b25
+--- /dev/null
++++ b/test/test_svm.ml
+@@ -0,0 +1,78 @@
++open Svm
++
++let failures = ref 0
++let count = ref 0
++
++let check name cond =
++  incr count;
++  if not cond then (
++    incr failures;
++    Printf.printf "FAIL %s\n" name)
++
++let assemble src =
++  match Assembler.assemble src with
++  | Ok p -> p
++  | Error (l, m) -> failwith (Printf.sprintf "unexpected error line %d: %s" l m)
++
++let run ?(steps = 10_000) src =
++  let out = ref [] in
++  let result = Vm.run ~steps ~print:(fun v -> out := v :: !out) (assemble src) in
++  (List.rev !out, result)
++
++let asm_error src = match Assembler.assemble src with Ok _ -> None | Error e -> Some e
++
++let () =
++  (* encoding *)
++  let bin = Bytecode.encode (assemble "push -2\nadd\n.data x 7") in
++  check "header magic" (String.sub bin 0 5 = "SVMB\001");
++  check "code size" (String.get_int32_le bin 8 = 6l);
++  check "data count" (String.get_int32_le bin 12 = 1l);
++  check "push operand" (String.sub bin 16 5 = "\001\254\255\255\255");
++  check "file length" (String.length bin = 16 + 6 + 4);
++  check "decode roundtrip"
++    (match Bytecode.decode bin with Ok p -> Bytecode.encode p = bin | Error _ -> false);
++  check "bad magic" (Bytecode.decode ("XXXX" ^ String.sub bin 4 22) = Error "bad magic");
++  check "trailing" (Bytecode.decode (bin ^ "z") = Error "trailing data");
++  check "truncated" (Bytecode.decode (String.sub bin 0 20) = Error "truncated file");
++
++  (* execution *)
++  check "arith" (fst (run "push 7\npush 3\nsub\nprint\npush 6\npush 7\nmul\nprint") = [ 4l; 42l ]);
++  check "div trunc" (fst (run "push -7\npush 2\ndiv\nprint\npush -7\npush 2\nmod\nprint") = [ -3l; -1l ]);
++  check "wrap" (fst (run "push 0x7fffffff\npush 1\nadd\nprint") = [ Int32.min_int ]);
++  check "cmp" (fst (run "push 1\npush 2\ncmp\nprint\npush 2\npush 2\ncmp\nprint") = [ -1l; 0l ]);
++  let loop = "push 3\ntop: dup\nprint\npush 1\nsub\ndup\njnz top\npop\n" in
++  check "loop" (run loop = ([ 3l; 2l; 1l ], Ok ()));
++  check "call ret" (fst (run "push 5\ncall sq\nprint\nhalt\nsq: dup\nmul\nret") = [ 25l ]);
++  check "memory" (fst (run ".data v 10 20\nload 1\npush v\nprint\nprint\npush 9\nstore v\nload v\nprint") = [ 0l; 20l; 9l ]);
++
++  (* traps *)
++  check "underflow" (snd (run "push 1\nadd") = Error (Vm.Stack_underflow 5));
++  check "div zero" (snd (run "push 1\npush 0\ndiv") = Error (Vm.Division_by_zero 10));
++  check "bad address" (snd (run "load 256") = Error (Vm.Bad_address (256l, 0)));
++  check "step limit" (snd (run ~steps:5 "l: jmp l") = Error Vm.Step_limit);
++  check "overflow" (snd (run "f: call f") = Error (Vm.Stack_overflow 0));
++  check "output before trap" (run "push 4\nprint\nret" = ([ 4l ], Error (Vm.Stack_underflow 6)));
++
++  (* assembler errors *)
++  check "unknown" (asm_error "push 1\n  foo 3" = Some (2, "unknown instruction 'foo'"));
++  check "operand count" (asm_error "add 1" = Some (1, "'add' expects no operand"));
++  check "missing operand" (asm_error "PUSH" = Some (1, "'push' expects 1 operand"));
++  check "range" (asm_error "push 2147483648" = Some (1, "integer out of range '2147483648'"));
++  check "undefined" (asm_error "jmp nowhere\nbad!" = Some (1, "undefined label 'nowhere'"));
++  check "first line wins" (asm_error "x:\njmp y\nx: halt" = Some (2, "undefined label 'y'"));
++  check "duplicate" (asm_error "a:\na: halt" = Some (2, "duplicate label 'a'"));
++  check "data size" (asm_error (".data a " ^ String.concat " " (List.init 257 string_of_int))
++                     = Some (1, "data section too large"));
++
++  (* disassembly round trip *)
++  let src = ".data t 1 -2\nstart: push t\nload 1\njz done\ncall start\ndone:" in
++  let p = assemble src in
++  (match Disasm.render p with
++  | Ok text ->
++      check "disasm text"
++        (text = ".data data 1 -2\nL0:\n    push 0\n    load 1\n    jz L20\n    call L0\nL20:\n");
++      check "disasm roundtrip" (Bytecode.encode (assemble text) = Bytecode.encode p)
++  | Error _ -> check "disasm ok" false);
++
++  Printf.printf "%d/%d checks passed\n" (!count - !failures) !count;
++  if !failures > 0 then exit 1

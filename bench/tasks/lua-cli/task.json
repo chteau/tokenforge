@@ -1,0 +1,11 @@
+{
+  "id": "lua-cli",
+  "title": "Build the tpl Mustache-style template engine CLI in Lua",
+  "category": "greenfield",
+  "language": "lua",
+  "rubric": "coding",
+  "timeout_s": 2400,
+  "relevant_files": [],
+  "allowed_change_globs": ["**"],
+  "reference_diff_lines": 931
+}

@@ -1,0 +1,1015 @@
+diff --git a/README.md b/README.md
+index b9d721e..e5a7862 100644
+--- a/README.md
++++ b/README.md
+@@ -1 +1,30 @@
+ # tpl — Mustache-style templates from the command line
++
++Renders Mustache-style templates (variables, sections, inverted sections, partials,
++comments, custom delimiters) with data from a JSON file. Lua 5.5, standard library only.
++
++## Usage
++
++```
++bin/tpl [-d data.json] [-p partials/] [-o out.html] [--max-depth N] TEMPLATE
++```
++
++`TEMPLATE` or `-d` may be `-` to read standard input. Partials `{{> name}}` are read
++from `DIR/name.mustache`.
++
++Exit codes: 0 ok, 2 usage error, 3 template error, 4 bad data file, 5 file I/O error.
++
++## Layout
++
++- `bin/tpl` — executable wrapper
++- `tpl/json.lua` — JSON decoder
++- `tpl/parser.lua` — tokenizer, standalone lines, section tree
++- `tpl/context.lua` — name lookup, truthiness, value formatting
++- `tpl/render.lua` — renderer and partial loading
++- `tpl/cli.lua` — options, I/O, exit codes
++
++## Tests
++
++```
++lua tests/run.lua
++```
+diff --git a/bin/tpl b/bin/tpl
+new file mode 100755
+index 0000000..1b3a3b7
+--- /dev/null
++++ b/bin/tpl
+@@ -0,0 +1,5 @@
++#!/usr/bin/env lua
++-- tpl: render Mustache-style templates with JSON data. See README.md.
++local script_dir = (arg and arg[0] or ""):match("^(.*)/[^/]*$") or "."
++package.path = script_dir .. "/../?.lua;" .. package.path
++os.exit(require("tpl.cli").main(arg))
+diff --git a/tests/cli_test.lua b/tests/cli_test.lua
+new file mode 100644
+index 0000000..78a77dd
+--- /dev/null
++++ b/tests/cli_test.lua
+@@ -0,0 +1,29 @@
++local cli = require("tpl.cli")
++local errors = require("tpl.errors")
++local h = require("helpers")
++
++local T = {}
++
++local function usage_error(argv)
++  local err = h.raises(function() cli.parse_args(argv) end)
++  h.eq(err.code, errors.USAGE)
++end
++
++function T.parse_options()
++  local o = cli.parse_args({ "page.mustache", "-d", "a.json", "--data", "b.json", "--max-depth", "3" })
++  h.eq(o.template, "page.mustache")
++  h.eq(o.data, "b.json")
++  h.eq(o.max_depth, 3)
++  h.eq(cli.parse_args({ "x", "--help" }), nil)
++end
++
++function T.usage_errors()
++  usage_error({})
++  usage_error({ "a", "b" })
++  usage_error({ "a", "--bogus" })
++  usage_error({ "a", "--data" })
++  usage_error({ "a", "--max-depth", "-1" })
++  usage_error({ "-", "-d", "-" })
++end
++
++return T
+diff --git a/tests/helpers.lua b/tests/helpers.lua
+new file mode 100644
+index 0000000..c0a0b7c
+--- /dev/null
++++ b/tests/helpers.lua
+@@ -0,0 +1,18 @@
++-- Assertion helpers shared by the test files.
++local M = {}
++
++function M.eq(actual, expected, msg)
++  if actual ~= expected then
++    error(string.format("%sexpected %q, got %q", msg and (msg .. ": ") or "",
++      tostring(expected), tostring(actual)), 2)
++  end
++end
++
++--- Call fn and return the raised error value; fails if nothing was raised.
++function M.raises(fn)
++  local ok, err = pcall(fn)
++  if ok then error("expected an error", 2) end
++  return err
++end
++
++return M
+diff --git a/tests/json_test.lua b/tests/json_test.lua
+new file mode 100644
+index 0000000..8cb55b7
+--- /dev/null
++++ b/tests/json_test.lua
+@@ -0,0 +1,45 @@
++local json = require("tpl.json")
++local h = require("helpers")
++
++local T = {}
++
++function T.scalars_and_containers()
++  local v = json.decode(' {"a": [1, 2.5, -3e2], "b": {}, "c": [], "d": null, "e": true, "f": "x"} ')
++  h.eq(v.a[1], 1)
++  h.eq(v.a[2], 2.5)
++  h.eq(v.a[3], -300.0)
++  h.eq(json.is_object(v.b), true)
++  h.eq(json.is_array(v.c), true)
++  h.eq(v.d, json.null)
++  h.eq(v.e, true)
++  h.eq(v.f, "x")
++end
++
++function T.string_escapes()
++  local v = json.decode('"a\\n\\t\\"\\\\\\/\\u00e9\\ud83d\\ude00"')
++  h.eq(v, 'a\n\t"\\/\u{e9}\u{1F600}')
++end
++
++function T.duplicate_keys_last_wins()
++  h.eq(json.decode('{"k": 1, "k": 2}').k, 2)
++end
++
++local function position(text)
++  local v, line, col = json.decode(text)
++  h.eq(v, nil, "value")
++  return line .. ":" .. col
++end
++
++function T.error_positions()
++  h.eq(position("[1,]"), "1:4")
++  h.eq(position('{"a" 1}'), "1:6")
++  h.eq(position("tru}"), "1:4")
++  h.eq(position("01"), "1:2")
++  h.eq(position("{} x"), "1:4")
++  h.eq(position('{\n  "a": [1,\n'), "3:1")
++  h.eq(position(""), "1:1")
++  h.eq(position('"a\\qb"'), "1:4")
++  h.eq(position('"tab\there"'), "1:5")
++end
++
++return T
+diff --git a/tests/parser_test.lua b/tests/parser_test.lua
+new file mode 100644
+index 0000000..095ebc7
+--- /dev/null
++++ b/tests/parser_test.lua
+@@ -0,0 +1,57 @@
++local parser = require("tpl.parser")
++local errors = require("tpl.errors")
++local h = require("helpers")
++
++local T = {}
++
++local function message(src)
++  local err = h.raises(function() parser.parse(src, "t") end)
++  h.eq(errors.is(err), true, "template error")
++  h.eq(err.code, errors.TEMPLATE, "code")
++  return err.message
++end
++
++function T.names()
++  h.eq(parser.valid_name("."), true)
++  h.eq(parser.valid_name("a.b-c_1"), true)
++  h.eq(parser.valid_name("a..b"), false)
++  h.eq(parser.valid_name("a b"), false)
++  h.eq(parser.valid_partial_name("mail/footer"), true)
++  h.eq(parser.valid_partial_name("../x"), false)
++end
++
++function T.section_tree()
++  local tree = parser.parse("a{{#s}}b{{x}}{{/s}}", "t")
++  h.eq(#tree, 2)
++  h.eq(tree[2].type, "#")
++  h.eq(tree[2].children[2].name, "x")
++end
++
++function T.standalone_lines_removed()
++  local tree = parser.parse("  {{#s}}  \r\nx\n{{/s}}", "t")
++  h.eq(#tree, 1)
++  h.eq(tree[1].children[1].value, "x\n")
++end
++
++function T.standalone_partial_indent()
++  local tree = parser.parse("\t {{> p}}\n", "t")
++  h.eq(tree[1].type, ">")
++  h.eq(tree[1].indent, "\t ")
++end
++
++function T.errors()
++  h.eq(message("x\n{{#a}}\n"), "t:2: unclosed section 'a'")
++  h.eq(message("{{/a}}"), "t:1: unexpected closing tag 'a'")
++  h.eq(message("{{#a}}\n{{/b}}"), "t:2: mismatched closing tag 'b', expected 'a'")
++  h.eq(message("\n\nok {{ x"), "t:3: unclosed tag")
++  h.eq(message("{{a b}}"), "t:1: invalid tag name 'a b'")
++  h.eq(message("{{> a.b}}"), "t:1: invalid partial name 'a.b'")
++  h.eq(message("{{=<% %>}}"), "t:1: invalid delimiter tag")
++  h.eq(message("{{/x}}\n{{bad name}}"), "t:1: unexpected closing tag 'x'")
++end
++
++function T.multiline_comment_counts_lines()
++  h.eq(message("{{! one\ntwo }}\n{{/x}}"), "t:3: unexpected closing tag 'x'")
++end
++
++return T
+diff --git a/tests/render_test.lua b/tests/render_test.lua
+new file mode 100644
+index 0000000..2bb0822
+--- /dev/null
++++ b/tests/render_test.lua
+@@ -0,0 +1,47 @@
++local render = require("tpl.render")
++local json = require("tpl.json")
++local h = require("helpers")
++
++local T = {}
++
++local function r(template, data_text, opts)
++  return render.render(template, json.decode(data_text or "{}"), opts or {})
++end
++
++function T.escaping_and_raw()
++  local data = '{"x": "<a href=\\"q\\">&\'"}'
++  h.eq(r("{{x}}", data), "&lt;a href=&quot;q&quot;&gt;&amp;&#39;")
++  h.eq(r("{{{x}}}|{{& x}}", data), '<a href="q">&\'|<a href="q">&\'')
++end
++
++function T.numbers_and_literals()
++  h.eq(r("{{a}} {{b}} {{c}} {{d}} {{e}} {{f}}", '{"a": 2.0, "b": 1.5, "c": 1e20, "d": true, "e": null, "f": -7}'),
++    "2 1.5 1e+20 true  -7")
++end
++
++function T.dotted_and_parent_lookup()
++  local data = '{"user": {"name": "Ann", "tags": ["x"]}, "site": "S"}'
++  h.eq(r("{{user.name}}{{#user}}{{site}}{{name}}{{/user}}{{user.nope.x}}", data), "AnnSAnn")
++  h.eq(r("{{#user.tags}}{{.}}{{user.name}}{{/user.tags}}", data), "xAnn")
++end
++
++function T.null_key_stops_search()
++  h.eq(r("{{#inner}}[{{v}}]{{/inner}}", '{"v": "outer", "inner": {"v": null}}'), "[]")
++end
++
++function T.falsy_values()
++  local data = '{"s": "", "a": [], "f": false, "n": null, "z": 0, "o": {}}'
++  h.eq(r("{{#s}}1{{/s}}{{#a}}2{{/a}}{{#f}}3{{/f}}{{#n}}4{{/n}}{{#m}}5{{/m}}", data), "")
++  h.eq(r("{{^s}}1{{/s}}{{^a}}2{{/a}}{{#z}}{{.}}{{/z}}{{#o}}o{{/o}}", data), "120o")
++end
++
++function T.interpolating_container_fails()
++  local err = h.raises(function() r("\n{{a}}", '{"a": [1]}', { source = "page" }) end)
++  h.eq(err.message, "page:2: cannot interpolate array: a")
++end
++
++function T.set_delimiters()
++  h.eq(r("{{=<% %>=}}<% a %>{{a}}<%={{ }}=%>{{{a}}}", '{"a": "<"}'), "&lt;{{a}}<")
++end
++
++return T
+diff --git a/tests/run.lua b/tests/run.lua
+new file mode 100644
+index 0000000..7338442
+--- /dev/null
++++ b/tests/run.lua
+@@ -0,0 +1,24 @@
++-- Minimal test runner: `lua tests/run.lua` from the repository root.
++package.path = "./?.lua;./tests/?.lua;" .. package.path
++
++local SUITES = { "json_test", "parser_test", "render_test", "cli_test" }
++
++local total, failures = 0, 0
++for _, suite in ipairs(SUITES) do
++  local cases = require(suite)
++  local names = {}
++  for name in pairs(cases) do names[#names + 1] = name end
++  table.sort(names)
++  for _, name in ipairs(names) do
++    total = total + 1
++    local ok, err = pcall(cases[name])
++    if ok then
++      print("ok   " .. suite .. "." .. name)
++    else
++      failures = failures + 1
++      print("FAIL " .. suite .. "." .. name .. ": " .. tostring(err))
++    end
++  end
++end
++print(string.format("tests: %d, failures: %d", total, failures))
++os.exit(failures == 0 and 0 or 1)
+diff --git a/tpl/cli.lua b/tpl/cli.lua
+new file mode 100644
+index 0000000..2c4b2ee
+--- /dev/null
++++ b/tpl/cli.lua
+@@ -0,0 +1,116 @@
++-- Command-line handling: options, file I/O and exit codes.
++local errors = require("tpl.errors")
++local json = require("tpl.json")
++local render = require("tpl.render")
++
++local M = {}
++
++M.USAGE = [[
++Usage: tpl [options] TEMPLATE
++
++Render a Mustache-style TEMPLATE (a file, or - for stdin) with JSON data.
++
++Options:
++  -d, --data FILE      JSON data file (- for stdin); default: empty object
++  -p, --partials DIR   directory with partial templates (NAME.mustache)
++  -o, --output FILE    write the result to FILE instead of stdout
++      --max-depth N    maximum partial nesting depth (default 10)
++  -h, --help           show this help
++]]
++
++local VALUE_OPTIONS = {
++  ["-d"] = "data", ["--data"] = "data",
++  ["-p"] = "partials", ["--partials"] = "partials",
++  ["-o"] = "output", ["--output"] = "output",
++  ["--max-depth"] = "max_depth",
++}
++
++--- Parse argv into an options table; returns nil when help was requested.
++function M.parse_args(argv)
++  local opts, positional = {}, {}
++  local i = 1
++  while i <= #argv do
++    local a = argv[i]
++    if a == "-h" or a == "--help" then
++      return nil
++    elseif VALUE_OPTIONS[a] then
++      if argv[i + 1] == nil then errors.raise(errors.USAGE, "option " .. a .. " requires a value") end
++      opts[VALUE_OPTIONS[a]] = argv[i + 1]
++      i = i + 1
++    elseif a:sub(1, 1) == "-" and a ~= "-" then
++      errors.raise(errors.USAGE, "unknown option " .. a)
++    else
++      positional[#positional + 1] = a
++    end
++    i = i + 1
++  end
++  if #positional ~= 1 then errors.raise(errors.USAGE, "expected exactly one TEMPLATE argument") end
++  opts.template = positional[1]
++  if opts.max_depth then
++    local n = opts.max_depth:match("^%d+$") and math.tointeger(tonumber(opts.max_depth))
++    if not n then errors.raise(errors.USAGE, "invalid --max-depth: " .. opts.max_depth) end
++    opts.max_depth = n
++  end
++  if opts.template == "-" and opts.data == "-" then
++    errors.raise(errors.USAGE, "template and data cannot both be read from stdin")
++  end
++  return opts
++end
++
++local function read_file(path, code)
++  if path == "-" then return io.stdin:read("a") or "" end
++  local f, err = io.open(path, "rb")
++  local text = f and f:read("a")
++  if f then f:close() end
++  if not text then errors.raise(code, "cannot read " .. path .. ": " .. tostring(err or "read failed")) end
++  return text
++end
++
++local function load_data(path)
++  if not path then return json.object() end
++  local value, line, column = json.decode(read_file(path, errors.DATA))
++  if value == nil then
++    errors.raise(errors.DATA, string.format("%s: invalid JSON at line %d, column %d", path, line, column))
++  end
++  if not json.is_object(value) then errors.raise(errors.DATA, path .. ": top-level value must be an object") end
++  return value
++end
++
++local function write_output(path, text)
++  if not path then
++    io.stdout:write(text)
++    return
++  end
++  local f, err = io.open(path, "wb")
++  if not f then errors.raise(errors.IO, "cannot write " .. path .. ": " .. tostring(err)) end
++  f:write(text)
++  f:close()
++end
++
++local function run(argv)
++  local opts = M.parse_args(argv)
++  if not opts then
++    io.stdout:write(M.USAGE)
++    return
++  end
++  local data = load_data(opts.data)
++  local template = read_file(opts.template, errors.IO)
++  local result = render.render(template, data, {
++    source = opts.template, partials_dir = opts.partials, max_depth = opts.max_depth,
++  })
++  write_output(opts.output, result)
++end
++
++--- Run the tool; returns the process exit code.
++function M.main(argv)
++  local ok, err = pcall(run, argv)
++  if ok then return 0 end
++  if errors.is(err) then
++    io.stderr:write("error: ", err.message, "\n")
++    return err.code
++  end
++  io.stderr:write("error: internal error: ", tostring(err), "\n")
++  return 1
++end
++
++return M
+diff --git a/tpl/context.lua b/tpl/context.lua
+new file mode 100644
+index 0000000..fd77999
+--- /dev/null
++++ b/tpl/context.lua
+@@ -0,0 +1,56 @@
++-- Context-stack lookup and value conversion rules.
++local json = require("tpl.json")
++
++local M = {}
++
++--- Resolve a (dotted) name against a context stack (innermost frame last).
++-- Returns nil when the name is missing.
++function M.lookup(stack, name)
++  if name == "." then return stack[#stack] end
++  local first, rest = name:match("^([^.]+)(.*)$")
++  local value
++  for i = #stack, 1, -1 do
++    local frame = stack[i]
++    if json.is_object(frame) and frame[first] ~= nil then
++      value = frame[first]
++      break
++    end
++  end
++  if value == nil then return nil end
++  for segment in rest:gmatch("[^.]+") do
++    if not json.is_object(value) or value[segment] == nil then return nil end
++    value = value[segment]
++  end
++  return value
++end
++
++function M.truthy(value)
++  if value == nil or value == json.null or value == false or value == "" then return false end
++  if json.is_array(value) then return #value > 0 end
++  return true
++end
++
++local function number_text(n)
++  if n == math.floor(n) and math.abs(n) < 1e15 then
++    return string.format("%d", math.tointeger(n))
++  end
++  return string.format("%.14g", n)
++end
++
++--- Text of a scalar value; returns nil and "array"/"object" for containers.
++function M.text(value)
++  local t = type(value)
++  if value == nil or value == json.null then return "" end
++  if t == "string" then return value end
++  if t == "number" then return number_text(value) end
++  if t == "boolean" then return tostring(value) end
++  return nil, json.is_array(value) and "array" or "object"
++end
++
++local ESCAPES = { ["&"] = "&amp;", ["<"] = "&lt;", [">"] = "&gt;", ['"'] = "&quot;", ["'"] = "&#39;" }
++
++function M.escape(s)
++  return (s:gsub("[&<>\"']", ESCAPES))
++end
++
++return M
+diff --git a/tpl/errors.lua b/tpl/errors.lua
+new file mode 100644
+index 0000000..aa2a698
+--- /dev/null
++++ b/tpl/errors.lua
+@@ -0,0 +1,29 @@
++-- Error values carried through `error()` and turned into exit codes by the CLI.
++local M = {}
++
++M.USAGE = 2
++M.TEMPLATE = 3
++M.DATA = 4
++M.IO = 5
++
++local Error = {}
++Error.__index = Error
++Error.__tostring = function(e)
++  return e.message
++end
++
++--- Raise an error that the command line reports as `error: <message>` with exit `code`.
++function M.raise(code, message)
++  error(setmetatable({ code = code, message = message }, Error), 0)
++end
++
++--- Raise a template error located at `source:line`.
++function M.template(source, line, fmt, ...)
++  M.raise(M.TEMPLATE, string.format("%s:%d: %s", source, line, string.format(fmt, ...)))
++end
++
++function M.is(value)
++  return getmetatable(value) == Error
++end
++
++return M
+diff --git a/tpl/json.lua b/tpl/json.lua
+new file mode 100644
+index 0000000..0c3eaf9
+--- /dev/null
++++ b/tpl/json.lua
+@@ -0,0 +1,212 @@
++-- A strict RFC 8259 JSON decoder.
++--
++-- Arrays and objects are tables tagged with distinct metatables so that `[]` and `{}`
++-- stay distinguishable, and JSON null is the `M.null` sentinel.
++local M = {}
++
++M.null = setmetatable({}, { __tostring = function() return "null" end })
++
++local ARRAY = { __name = "json.array" }
++local OBJECT = { __name = "json.object" }
++
++function M.is_array(v)
++  return type(v) == "table" and getmetatable(v) == ARRAY
++end
++
++function M.is_object(v)
++  return type(v) == "table" and getmetatable(v) == OBJECT
++end
++
++function M.array(t)
++  return setmetatable(t or {}, ARRAY)
++end
++
++function M.object(t)
++  return setmetatable(t or {}, OBJECT)
++end
++
++-- Parse failure at byte index `pos` (#s + 1 means "unexpected end of input").
++local SyntaxError = {}
++
++local function fail(s, pos)
++  local line, line_start = 1, 1
++  local i = s:find("\n", 1, true)
++  while i and i < pos do
++    line = line + 1
++    line_start = i + 1
++    i = s:find("\n", i + 1, true)
++  end
++  error(setmetatable({ line = line, column = pos - line_start + 1 }, SyntaxError), 0)
++end
++
++local function skip_ws(s, i)
++  return s:find("[^ \t\r\n]", i) or #s + 1
++end
++
++local function is_digit(c)
++  return c ~= nil and c >= 48 and c <= 57
++end
++
++local function skip_digits(s, i)
++  return s:find("[^0-9]", i) or #s + 1
++end
++
++local function parse_literal(s, i, word, value)
++  for k = 1, #word do
++    if s:byte(i + k - 1) ~= word:byte(k) then
++      fail(s, i + k - 1)
++    end
++  end
++  return value, i + #word
++end
++
++local function parse_number(s, i)
++  local start = i
++  if s:byte(i) == 45 then -- '-'
++    i = i + 1
++  end
++  local c = s:byte(i)
++  if c == 48 then
++    i = i + 1
++  elseif is_digit(c) then
++    i = skip_digits(s, i)
++  else
++    fail(s, i)
++  end
++  if s:byte(i) == 46 then -- '.'
++    i = i + 1
++    if not is_digit(s:byte(i)) then fail(s, i) end
++    i = skip_digits(s, i)
++  end
++  c = s:byte(i)
++  if c == 101 or c == 69 then -- 'e' / 'E'
++    i = i + 1
++    c = s:byte(i)
++    if c == 43 or c == 45 then i = i + 1 end
++    if not is_digit(s:byte(i)) then fail(s, i) end
++    i = skip_digits(s, i)
++  end
++  return tonumber(s:sub(start, i - 1)), i
++end
++
++local function parse_hex4(s, i)
++  for k = 0, 3 do
++    if not s:sub(i + k, i + k):match("%x") then fail(s, i + k) end
++  end
++  return tonumber(s:sub(i, i + 3), 16), i + 4
++end
++
++local ESCAPES = {
++  [34] = '"', [92] = "\\", [47] = "/", [98] = "\b",
++  [102] = "\f", [110] = "\n", [114] = "\r", [116] = "\t",
++}
++
++local function parse_unicode_escape(s, i)
++  -- s:sub(i - 2, i - 1) == "\\u"
++  local cp, j = parse_hex4(s, i)
++  if cp >= 0xDC00 and cp <= 0xDFFF then fail(s, i) end
++  if cp >= 0xD800 and cp <= 0xDBFF then
++    if s:byte(j) ~= 92 then fail(s, j) end
++    if s:byte(j + 1) ~= 117 then fail(s, j + 1) end
++    local low
++    low, j = parse_hex4(s, j + 2)
++    if low < 0xDC00 or low > 0xDFFF then fail(s, j - 4) end
++    cp = 0x10000 + (cp - 0xD800) * 0x400 + (low - 0xDC00)
++  end
++  return utf8.char(cp), j
++end
++
++local function parse_string(s, i)
++  local buf = {}
++  i = i + 1
++  while true do
++    local j = s:find('[\0-\31"\\]', i)
++    if not j then fail(s, #s + 1) end
++    buf[#buf + 1] = s:sub(i, j - 1)
++    local c = s:byte(j)
++    if c == 34 then
++      return table.concat(buf), j + 1
++    elseif c == 92 then
++      local e = s:byte(j + 1)
++      if e == 117 then
++        buf[#buf + 1], i = parse_unicode_escape(s, j + 2)
++      elseif ESCAPES[e] then
++        buf[#buf + 1] = ESCAPES[e]
++        i = j + 2
++      else
++        fail(s, j + 1)
++      end
++    else
++      fail(s, j)
++    end
++  end
++end
++
++local parse_value
++
++local function parse_array(s, i)
++  local arr = M.array()
++  i = skip_ws(s, i + 1)
++  if s:byte(i) == 93 then return arr, i + 1 end
++  while true do
++    local v
++    v, i = parse_value(s, i)
++    arr[#arr + 1] = v
++    i = skip_ws(s, i)
++    local c = s:byte(i)
++    if c == 93 then return arr, i + 1 end
++    if c ~= 44 then fail(s, i) end
++    i = i + 1
++  end
++end
++
++local function parse_object(s, i)
++  local obj = M.object()
++  i = skip_ws(s, i + 1)
++  if s:byte(i) == 125 then return obj, i + 1 end
++  while true do
++    if s:byte(i) ~= 34 then fail(s, i) end
++    local key, v
++    key, i = parse_string(s, i)
++    i = skip_ws(s, i)
++    if s:byte(i) ~= 58 then fail(s, i) end
++    v, i = parse_value(s, i + 1)
++    obj[key] = v
++    i = skip_ws(s, i)
++    local c = s:byte(i)
++    if c == 125 then return obj, i + 1 end
++    if c ~= 44 then fail(s, i) end
++    i = skip_ws(s, i + 1)
++  end
++end
++
++parse_value = function(s, i)
++  i = skip_ws(s, i)
++  local c = s:byte(i)
++  if c == 123 then return parse_object(s, i)
++  elseif c == 91 then return parse_array(s, i)
++  elseif c == 34 then return parse_string(s, i)
++  elseif c == 116 then return parse_literal(s, i, "true", true)
++  elseif c == 102 then return parse_literal(s, i, "false", false)
++  elseif c == 110 then return parse_literal(s, i, "null", M.null)
++  elseif c == 45 or is_digit(c) then return parse_number(s, i)
++  end
++  fail(s, i)
++end
++
++--- Decode a JSON text. Returns the value, or nil, line, column on a syntax error.
++function M.decode(text)
++  local ok, result = pcall(function()
++    local v, i = parse_value(text, 1)
++    i = skip_ws(text, i)
++    if i <= #text then fail(text, i) end
++    return v
++  end)
++  if ok then return result end
++  if getmetatable(result) == SyntaxError then
++    return nil, result.line, result.column
++  end
++  error(result, 0)
++end
++
++return M
+diff --git a/tpl/parser.lua b/tpl/parser.lua
+new file mode 100644
+index 0000000..eff7316
+--- /dev/null
++++ b/tpl/parser.lua
+@@ -0,0 +1,183 @@
++-- Template parsing: tokenizer, standalone-line handling and tree building.
++--
++-- A parsed template is a list of nodes:
++--   { type = "text", value = s }
++--   { type = "name" | "&", name = n, line = l }           escaped / raw variable
++--   { type = "#" | "^", name = n, line = l, children = {...} }
++--   { type = ">", name = n, line = l, indent = s }         partial
++local errors = require("tpl.errors")
++
++local M = {}
++
++local SECTION_TYPES = { ["#"] = true, ["^"] = true }
++local STANDALONE_TYPES = { ["#"] = true, ["^"] = true, ["/"] = true, ["!"] = true, [">"] = true, ["="] = true }
++local SIGILS = { ["#"] = true, ["^"] = true, ["/"] = true, [">"] = true, ["&"] = true }
++
++local function trim(s)
++  return s:match("^%s*(.-)%s*$")
++end
++
++local function count_newlines(s)
++  local _, n = s:gsub("\n", "")
++  return n
++end
++
++local function valid_segments(name, sep)
++  if name == "" then return false end
++  for segment in (name .. sep):gmatch("(.-)%" .. sep) do
++    if not segment:match("^[%w_%-]+$") then return false end
++  end
++  return true
++end
++
++function M.valid_name(name)
++  return name == "." or valid_segments(name, ".")
++end
++
++function M.valid_partial_name(name)
++  return valid_segments(name, "/")
++end
++
++-- Append text tokens to `tokens`, split so that each token holds at most one line ending.
++local function add_text(tokens, text)
++  local start = 1
++  while start <= #text do
++    local nl = text:find("\n", start, true)
++    if not nl then
++      tokens[#tokens + 1] = { type = "text", value = text:sub(start) }
++      return
++    end
++    tokens[#tokens + 1] = { type = "text", value = text:sub(start, nl), newline = true }
++    start = nl + 1
++  end
++end
++
++-- Turn the content of one tag into a token, or raise a template error.
++local function make_tag(content, triple, source, line)
++  if triple then
++    local name = trim(content)
++    if not M.valid_name(name) then errors.template(source, line, "invalid tag name '%s'", name) end
++    return { type = "&", name = name, line = line }
++  end
++  local sigil = content:sub(1, 1)
++  if sigil == "!" then
++    return { type = "!", line = line }
++  elseif sigil == "=" then
++    if #content < 2 or content:sub(-1) ~= "=" then errors.template(source, line, "invalid delimiter tag") end
++    local open, close = trim(content:sub(2, -2)):match("^(%S+)%s+(%S+)$")
++    if not open or open:find("=", 1, true) or close:find("=", 1, true) then
++      errors.template(source, line, "invalid delimiter tag")
++    end
++    return { type = "=", line = line, open = open, close = close }
++  end
++  local kind = SIGILS[sigil] and sigil or "name"
++  local name = trim(kind == "name" and content or content:sub(2))
++  if kind == ">" then
++    if not M.valid_partial_name(name) then errors.template(source, line, "invalid partial name '%s'", name) end
++  elseif not M.valid_name(name) then
++    errors.template(source, line, "invalid tag name '%s'", name)
++  end
++  return { type = kind, name = name, line = line }
++end
++
++-- Split `src` into text and tag tokens, checking section nesting on the way so that the
++-- first problem in source order is the one reported.
++local function tokenize(src, source)
++  local tokens, open_sections = {}, {}
++  local open, close = "{{", "}}"
++  local pos, line = 1, 1
++  while pos <= #src do
++    local s = src:find(open, pos, true)
++    if not s then
++      add_text(tokens, src:sub(pos))
++      break
++    end
++    local text = src:sub(pos, s - 1)
++    add_text(tokens, text)
++    line = line + count_newlines(text)
++
++    local triple = open == "{{" and close == "}}" and src:sub(s + 2, s + 2) == "{"
++    local content_start = s + (triple and 3 or #open)
++    local closer = triple and "}}}" or close
++    local e = src:find(closer, content_start, true)
++    if not e then errors.template(source, line, "unclosed tag") end
++    local content = src:sub(content_start, e - 1)
++    local tag = make_tag(content, triple, source, line)
++
++    if SECTION_TYPES[tag.type] then
++      open_sections[#open_sections + 1] = tag
++    elseif tag.type == "/" then
++      local top = open_sections[#open_sections]
++      if not top then errors.template(source, line, "unexpected closing tag '%s'", tag.name) end
++      if top.name ~= tag.name then
++        errors.template(source, line, "mismatched closing tag '%s', expected '%s'", tag.name, top.name)
++      end
++      open_sections[#open_sections] = nil
++    elseif tag.type == "=" then
++      open, close = tag.open, tag.close
++    end
++    tokens[#tokens + 1] = tag
++    line = line + count_newlines(content)
++    pos = e + #closer
++  end
++  local top = open_sections[#open_sections]
++  if top then errors.template(source, top.line, "unclosed section '%s'", top.name) end
++  return tokens
++end
++
++-- Drop the whitespace and line ending around standalone tags.
++local function strip_standalone(tokens)
++  local out = {}
++  local i, n = 1, #tokens
++  while i <= n do
++    local last = i
++    while last < n and not tokens[last].newline do last = last + 1 end
++    local tag, standalone = nil, true
++    for k = i, last do
++      local t = tokens[k]
++      if t.type == "text" then
++        local blank = t.newline and "^[ \t]*\r?\n$" or "^[ \t]*$"
++        if not t.value:match(blank) then standalone = false break end
++      elseif STANDALONE_TYPES[t.type] and not tag then
++        tag = t
++      else
++        standalone = false
++        break
++      end
++    end
++    if standalone and tag then
++      if tag.type == ">" and tokens[i].type == "text" then tag.indent = tokens[i].value end
++      out[#out + 1] = tag
++    else
++      table.move(tokens, i, last, #out + 1, out)
++    end
++    i = last + 1
++  end
++  return out
++end
++
++-- Nest section contents; comments and delimiter changes produce no nodes.
++local function build_tree(tokens)
++  local root = {}
++  local stack, current = {}, root
++  for _, t in ipairs(tokens) do
++    if SECTION_TYPES[t.type] then
++      t.children = {}
++      current[#current + 1] = t
++      stack[#stack + 1] = current
++      current = t.children
++    elseif t.type == "/" then
++      current = table.remove(stack)
++    elseif t.type ~= "!" and t.type ~= "=" then
++      current[#current + 1] = t
++    end
++  end
++  return root
++end
++
++--- Parse template text. `source` names the file in error messages.
++function M.parse(src, source)
++  return build_tree(strip_standalone(tokenize(src, source)))
++end
++
++return M
+diff --git a/tpl/render.lua b/tpl/render.lua
+new file mode 100644
+index 0000000..cc47eed
+--- /dev/null
++++ b/tpl/render.lua
+@@ -0,0 +1,81 @@
++-- Rendering of parsed templates, including partial loading.
++local context = require("tpl.context")
++local errors = require("tpl.errors")
++local json = require("tpl.json")
++local parser = require("tpl.parser")
++
++local M = {}
++
++-- Insert `indent` at the start of `text` and after every newline that does not end it.
++local function indent_lines(text, indent)
++  if indent == "" or text == "" then return text end
++  local ends_with_newline = text:sub(-1) == "\n"
++  local body = ends_with_newline and text:sub(1, -2) or text
++  return indent .. body:gsub("\n", "\n" .. indent) .. (ends_with_newline and "\n" or "")
++end
++
++local Renderer = {}
++Renderer.__index = Renderer
++
++function Renderer:partial_path(name)
++  local dir = self.partials_dir
++  if dir:sub(-1) == "/" then return dir .. name .. ".mustache" end
++  return dir .. "/" .. name .. ".mustache"
++end
++
++function Renderer:load_partial(node, source)
++  if not self.partials_dir then errors.template(source, node.line, "partial not found: %s", node.name) end
++  local path = self:partial_path(node.name)
++  local f = io.open(path, "rb")
++  if not f then errors.template(source, node.line, "partial not found: %s", node.name) end
++  local text = f:read("a")
++  f:close()
++  if not text then errors.template(source, node.line, "partial not found: %s", node.name) end
++  local indent = node.indent or ""
++  return parser.parse(indent_lines(text, indent), path), path
++end
++
++function Renderer:render_nodes(nodes, stack, out, source, depth)
++  for _, node in ipairs(nodes) do
++    local kind = node.type
++    if kind == "text" then
++      out[#out + 1] = node.value
++    elseif kind == "name" or kind == "&" then
++      local text, container = context.text(context.lookup(stack, node.name))
++      if not text then errors.template(source, node.line, "cannot interpolate %s: %s", container, node.name) end
++      out[#out + 1] = kind == "name" and context.escape(text) or text
++    elseif kind == "#" then
++      local value = context.lookup(stack, node.name)
++      if context.truthy(value) then
++        local items = json.is_array(value) and value or { value }
++        for _, item in ipairs(items) do
++          stack[#stack + 1] = item
++          self:render_nodes(node.children, stack, out, source, depth)
++          stack[#stack] = nil
++        end
++      end
++    elseif kind == "^" then
++      if not context.truthy(context.lookup(stack, node.name)) then
++        self:render_nodes(node.children, stack, out, source, depth)
++      end
++    elseif kind == ">" then
++      if depth + 1 > self.max_depth then
++        errors.template(source, node.line, "partial depth limit exceeded: %s", node.name)
++      end
++      local tree, path = self:load_partial(node, source)
++      self:render_nodes(tree, stack, out, path, depth + 1)
++    end
++  end
++end
++
++--- Render template text with `data`.
++-- opts: source (name for errors), partials_dir (or nil), max_depth.
++function M.render(template, data, opts)
++  local self = setmetatable({ partials_dir = opts.partials_dir, max_depth = opts.max_depth or 10 }, Renderer)
++  local tree = parser.parse(template, opts.source or "-")
++  local out = {}
++  self:render_nodes(tree, { data }, out, opts.source or "-", 0)
++  return table.concat(out)
++end
++
++return M

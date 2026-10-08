@@ -41,7 +41,7 @@ A long Claude Code session re-sends its whole context on every turn. A build tha
 
 **Against clean Claude Code.** Every benchmark run uses **Claude Opus 5.5** (`claude-opus-5-5`) on Claude Code 2.1.293, on both sides. This is verified from the model field of every API response in the saved transcripts, not just the `--model` flag. `bench/` runs the same task on the same repo commit in sandboxed sessions, once with clean Claude Code (no plugins, skills, hooks, MCP or CLAUDE.md) and once with tokenforge 0.7.0 at its defaults, and scores quality with hidden tests.
 
-**Across all 26 tasks, tokenforge used about half the tokens: median −52%, mean −49%, pooled −51%. It was cheaper on 26 of 26 tasks, with equal or better quality on all but one.** Weighted by price, which is roughly what usage limits count (cache reads cost 0.1×, and most of the savings are cache reads), the median is −31%.
+**Across all 34 tasks, tokenforge used about half the tokens: median −53%, mean −50%, pooled −52%. It was cheaper on 34 of 34 tasks, with equal or better quality on all but two.** Weighted by price, which is roughly what usage limits count (cache reads cost 0.1×, and most of the savings are cache reads), the median is −29%. Median tool calls: −49%.
 
 ![From scratch: total tokens per project](docs/img/bench-greenfield.svg)
 
@@ -53,18 +53,26 @@ A long Claude Code session re-sends its whole context on every turn. A build tha
 | Java URL shortener (JDK HTTP) | 813k | 237k | **−71%** | 100 → 100 |
 | Rust TUI (ratatui) | 802k | 251k | **−69%** | 100 → 100 |
 | Luau inventory (Roblox-style) | 245k | 84k | **−66%** | 100 → 100 |
+| F# expense splitter (.NET) | 847k | 324k | **−62%** | 97.5 → 100 |
+| OCaml assembler + VM (dune) | 684k | 270k | **−60%** | 97 → 100 |
+| Lua template engine | 781k | 323k | **−59%** | 100 → 100 |
+| Zig JSON toolkit | 965k | 412k | **−57%** | 97.07 → 97.07 |
+| R survey statistics | 660k | 285k | **−57%** | 97.07 → 97.07 |
 | PHP ticketing API (SQLite) | 1.07M | 479k | **−55%** | 100 → 100 |
 | Swift cron tool (SwiftPM) | 419k | 192k | **−54%** | 100 → 100 |
 | Node static site generator | 434k | 207k | **−52%** | 100 → 100 |
+| Elixir job queue (GenServer) | 540k | 267k | **−51%** | 96.94 → 100 |
 | Python CLI | 386k | 191k | **−51%** | 100 → 100 |
 | C++ key-value store (CMake) | 303k | 157k | **−48%** | 100 → 100 |
 | TypeScript library | 284k | 156k | **−45%** | 100 → 100 |
 | Dart habit tracker | 443k | 245k | **−45%** | 100 → 100 |
 | Bash backup rotation | 623k | 363k | **−42%** | 100 → 100 |
+| Perl config linter + merger | 598k | 377k | **−37%** | 100 → 97 |
+| Haskell spreadsheet evaluator | 599k | 402k | **−33%** | 100 → 100 |
 | C CSV query tool (Make) | 723k | 569k | **−21%** | 100 → 100 |
 | Kotlin Markdown converter | 464k | 418k | **−10%** | 100 → 100 |
 
-Median −53% over 16 projects in 15 languages. The agent gets a spec and an empty repo, and hidden black-box tests check the result (CLI, HTTP contract, headless browser, scripted TUI, lune for Luau). A Ruby log analyzer was also run once per side and is left out of these results: tokenforge used 14% more tokens on it (443k vs 390k), quality 96.25 vs 96.83. `bench/benchmark.config.json` lists the exclusion and the runs are kept.
+Median −55% over 24 projects in 23 languages. Perl config merger: every hidden test passes, but tokenforge scores 97 on the structural checks (the entry script is longer than the 30 lines the spec asks for). The agent gets a spec and an empty repo, and hidden black-box tests check the result (CLI, HTTP contract, headless browser, scripted TUI, lune for Luau). A Ruby log analyzer was also run once per side and is left out of these results: tokenforge used 14% more tokens on it (443k vs 390k), quality 96.25 vs 96.83. `bench/benchmark.config.json` lists the exclusion and the runs are kept.
 
 ![Existing codebases: total tokens per task](docs/img/bench-existing.svg)
 

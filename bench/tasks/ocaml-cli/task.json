@@ -1,0 +1,11 @@
+{
+  "id": "ocaml-cli",
+  "title": "Build the asm stack-machine assembler, disassembler and VM in OCaml",
+  "category": "greenfield",
+  "language": "ocaml",
+  "rubric": "coding",
+  "timeout_s": 2400,
+  "relevant_files": [],
+  "allowed_change_globs": ["**"],
+  "reference_diff_lines": 637
+}

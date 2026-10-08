@@ -1,0 +1,799 @@
+diff --git a/Makefile b/Makefile
+new file mode 100644
+index 0000000..88c5de3
+--- /dev/null
++++ b/Makefile
+@@ -0,0 +1,16 @@
++GHC ?= ghc
++GHCFLAGS = -Wall -isrc
++
++.PHONY: build test clean
++
++build:
++	mkdir -p build
++	$(GHC) --make $(GHCFLAGS) -outputdir build/obj -o build/cells app/Main.hs
++
++test:
++	mkdir -p build
++	$(GHC) --make $(GHCFLAGS) -outputdir build/test-obj -o build/cells-test test/Main.hs
++	./build/cells-test
++
++clean:
++	rm -rf build
+diff --git a/README.md b/README.md
+index 3aa414b..5ab21d3 100644
+--- a/README.md
++++ b/README.md
+@@ -1 +1,29 @@
+ # cells — a spreadsheet formula evaluator for the command line
++
++Evaluates a comma-separated grid of numbers, text and formulas (`=A1+B2*2`,
++`=SUM(A1:A9)`, `AVG`, `MIN`, `MAX`, `COUNT`, `IF`, comparisons, `&`) in
++dependency order and reports cycles and errors (`#CYCLE!`, `#REF!`, `#DIV/0!`,
++`#VALUE!`, `#NUM!`, `#PARSE!`, `#NAME?`).
++
++## Build
++
++Requires GHC 9.14 (boot packages only).
++
++    make build     # produces build/cells
++    make test      # builds and runs the test suite
++
++## Usage
++
++    cells eval sheet.csv          # print the evaluated grid
++    cells get sheet.csv B3        # print one cell (exit 1 if it is an error)
++    cells errors sheet.csv        # list error cells (exit 1 if any)
++    cells eval -                  # read the sheet from standard input
++
++## Layout
++
++- `src/Sheet/Ref.hs` — cell references
++- `src/Sheet/Grid.hs` — splitting lines into cells and classifying them
++- `src/Sheet/Formula.hs` — formula syntax tree and parser
++- `src/Sheet/Eval.hs` — cycle detection and evaluation
++- `src/Sheet/Format.hs`, `src/Sheet/Output.hs` — number formatting and rendering
++- `app/Main.hs` — command line
+diff --git a/app/Main.hs b/app/Main.hs
+new file mode 100644
+index 0000000..273c1b9
+--- /dev/null
++++ b/app/Main.hs
+@@ -0,0 +1,70 @@
++module Main (main) where
++
++import Control.Exception (IOException, try)
++import qualified Data.ByteString as BS
++import qualified Data.Text as T
++import qualified Data.Text.Encoding as TE
++import Data.Text.Encoding.Error (lenientDecode)
++import qualified Data.Map as M
++import System.Environment (getArgs)
++import System.Exit (ExitCode (..), exitWith)
++import System.IO (hPutStrLn, hSetEncoding, stderr, stdout, utf8)
++
++import Sheet.Eval
++import Sheet.Grid
++import Sheet.Output
++import Sheet.Ref
++
++usage :: String
++usage =
++  unlines
++    [ "usage: cells <command> <file> [args]"
++    , ""
++    , "  cells eval <file>          print the evaluated grid"
++    , "  cells get <file> <cell>    print the value of one cell"
++    , "  cells errors <file>        list cells whose value is an error"
++    , ""
++    , "<file> may be - for standard input."
++    ]
++
++main :: IO ()
++main = do
++  mapM_ (`hSetEncoding` utf8) [stdout, stderr]
++  args <- getArgs
++  case args of
++    ["--help"] -> putStr usage
++    ["-h"] -> putStr usage
++    ["eval", file] -> do
++      sheet <- loadSheet file
++      putStr (renderGrid sheet (evaluateSheet sheet))
++    ["get", file, cell] -> case parseRef cell of
++      Nothing -> failWith 2 ("invalid cell reference: " ++ cell)
++      Just ref -> do
++        sheet <- loadSheet file
++        if inBounds sheet ref
++          then do
++            let res = M.findWithDefault (Right VEmpty) ref (evaluateSheet sheet)
++            putStrLn (renderValue res)
++            either (const (exitWith (ExitFailure 1))) (const (pure ())) res
++          else failWith 2 ("no such cell: " ++ cell)
++    ["errors", file] -> do
++      sheet <- loadSheet file
++      let ls = errorLines sheet (evaluateSheet sheet)
++      mapM_ putStrLn ls
++      if null ls then pure () else exitWith (ExitFailure 1)
++    [] -> failWith 2 "missing command (try --help)"
++    cmd : _
++      | cmd `elem` ["eval", "get", "errors"] -> failWith 2 ("wrong number of arguments for " ++ cmd)
++      | otherwise -> failWith 2 ("unknown command: " ++ cmd)
++
++loadSheet :: FilePath -> IO Sheet
++loadSheet file = do
++  bytes <- try (if file == "-" then BS.getContents else BS.readFile file)
++  case bytes :: Either IOException BS.ByteString of
++    Left _ -> failWith 3 ("cannot read " ++ file)
++    Right b -> pure (parseSheet (T.unpack (TE.decodeUtf8With lenientDecode b)))
++
++failWith :: Int -> String -> IO a
++failWith code msg = do
++  hPutStrLn stderr ("error: " ++ msg)
++  exitWith (ExitFailure code)
+diff --git a/src/Sheet/Eval.hs b/src/Sheet/Eval.hs
+new file mode 100644
+index 0000000..5bc3e5f
+--- /dev/null
++++ b/src/Sheet/Eval.hs
+@@ -0,0 +1,174 @@
++-- | Evaluation of a whole sheet: cycle detection, then lazy, memoised
++-- evaluation of every cell.
++module Sheet.Eval
++  ( Value (..)
++  , CellError (..)
++  , Result
++  , evaluateSheet
++  , errorCode
++  ) where
++
++import Data.Graph (SCC (..), stronglyConnComp)
++import qualified Data.Map as M
++import qualified Data.Set as S
++
++import Sheet.Format (formatNumber)
++import Sheet.Formula
++import Sheet.Grid
++import Sheet.Ref
++
++data CellError = ErrParse | ErrName | ErrCycle | ErrRef | ErrDiv0 | ErrValue | ErrNum
++  deriving (Eq, Show)
++
++data Value = VNumber Double | VText String | VEmpty
++  deriving (Eq, Show)
++
++type Result = Either CellError Value
++
++errorCode :: CellError -> String
++errorCode e = case e of
++  ErrParse -> "#PARSE!"
++  ErrName -> "#NAME?"
++  ErrCycle -> "#CYCLE!"
++  ErrRef -> "#REF!"
++  ErrDiv0 -> "#DIV/0!"
++  ErrValue -> "#VALUE!"
++  ErrNum -> "#NUM!"
++
++-- | The value of every cell in the grid.
++evaluateSheet :: Sheet -> M.Map Ref Result
++evaluateSheet sheet = results
++  where
++    formulas = M.mapMaybe asFormula (sheetCells sheet)
++    asFormula (RawFormula src) = Just (parseFormula src)
++    asFormula _ = Nothing
++    graph = [(r, r, dependencies sheet e) | (r, Right e) <- M.toList formulas]
++    cyclic = S.fromList [r | CyclicSCC rs <- stronglyConnComp graph, r <- rs]
++    -- A lazy map: each entry is evaluated on first use, at most once.
++    results = M.fromList [(r, cellResult r) | r <- allRefs sheet]
++    look r
++      | inBounds sheet r = M.findWithDefault (Right VEmpty) r results
++      | otherwise = Left ErrRef
++    cellResult r = case rawAt sheet r of
++      RawEmpty -> Right VEmpty
++      RawNumber n -> Right (VNumber n)
++      RawText t -> Right (VText t)
++      RawFormula _ -> case M.lookup r formulas of
++        Just (Left SyntaxError) -> Left ErrParse
++        Just (Left UnknownFunction) -> Left ErrName
++        Just (Right e)
++          | r `S.member` cyclic -> Left ErrCycle
++          | otherwise -> emptyIsZero <$> evalExpr sheet look e
++        Nothing -> Right VEmpty
++    emptyIsZero VEmpty = VNumber 0
++    emptyIsZero v = v
++
++dependencies :: Sheet -> Expr -> [Ref]
++dependencies sheet e =
++  [ r
++  | (a, b) <- references e
++  , inBounds sheet a && inBounds sheet b
++  , r <- expand a b
++  ]
++
++-- | Cells of a range, row by row.
++expand :: Ref -> Ref -> [Ref]
++expand (Ref r1 c1) (Ref r2 c2) =
++  [Ref r c | r <- [min r1 r2 .. max r1 r2], c <- [min c1 c2 .. max c1 c2]]
++
++evalExpr :: Sheet -> (Ref -> Result) -> Expr -> Result
++evalExpr sheet look = go
++  where
++    go ex = case ex of
++      Number n -> Right (VNumber n)
++      Str s -> Right (VText s)
++      Cell r -> look r
++      Range _ _ -> Left ErrValue
++      Neg a -> go a >>= toNumber >>= numeric . negate
++      Bin op a b -> do
++        x <- go a
++        y <- go b
++        binary op x y
++      Call name args -> call name args
++
++    call "IF" [c, t, f] = do
++      n <- go c >>= toNumber
++      if n /= 0 then go t else go f
++    call "COUNT" args = numeric . fromIntegral . length =<< collect countable args
++    call name args = collect (fmap pure . toNumber) args >>= aggregate name
++
++    countable (VNumber n) = Right [n]
++    countable _ = Right []
++
++    collect direct args = concat <$> mapM one args
++      where
++        one (Range a b)
++          | inBounds sheet a && inBounds sheet b = do
++              vals <- mapM look (expand a b)
++              pure [n | VNumber n <- vals]
++          | otherwise = Left ErrRef
++        one e = go e >>= direct
++
++aggregate :: String -> [Double] -> Result
++aggregate name ns = case name of
++  "SUM" -> numeric (sum ns)
++  "AVG"
++    | null ns -> Left ErrDiv0
++    | otherwise -> numeric (sum ns / fromIntegral (length ns))
++  "MIN" -> numeric (if null ns then 0 else minimum ns)
++  "MAX" -> numeric (if null ns then 0 else maximum ns)
++  _ -> Left ErrName
++
++binary :: BinOp -> Value -> Value -> Result
++binary op x y = case op of
++  Add -> arith (+)
++  Sub -> arith (-)
++  Mul -> arith (*)
++  Div -> do
++    a <- toNumber x
++    b <- toNumber y
++    if b == 0 then Left ErrDiv0 else numeric (a / b)
++  Concat -> Right (VText (toText x ++ toText y))
++  _ -> do
++    o <- compareValues x y
++    Right (VNumber (if holds op o then 1 else 0))
++  where
++    arith f = do
++      a <- toNumber x
++      b <- toNumber y
++      numeric (f a b)
++
++holds :: BinOp -> Ordering -> Bool
++holds op o = case op of
++  Eq -> o == EQ
++  Ne -> o /= EQ
++  Lt -> o == LT
++  Le -> o /= GT
++  Gt -> o == GT
++  _ -> o /= LT
++
++compareValues :: Value -> Value -> Either CellError Ordering
++compareValues x y = case (x, y) of
++  (VText a, VText b) -> Right (compare a b)
++  (VText a, VEmpty) -> Right (compare a "")
++  (VEmpty, VText b) -> Right (compare "" b)
++  (VText _, _) -> Left ErrValue
++  (_, VText _) -> Left ErrValue
++  _ -> compare <$> toNumber x <*> toNumber y
++
++numeric :: Double -> Result
++numeric n
++  | isNaN n || isInfinite n = Left ErrNum
++  | otherwise = Right (VNumber n)
++
++toNumber :: Value -> Either CellError Double
++toNumber v = case v of
++  VNumber n -> Right n
++  VEmpty -> Right 0
++  VText _ -> Left ErrValue
++
++toText :: Value -> String
++toText v = case v of
++  VNumber n -> formatNumber n
++  VText s -> s
++  VEmpty -> ""
+diff --git a/src/Sheet/Format.hs b/src/Sheet/Format.hs
+new file mode 100644
+index 0000000..158a6e1
+--- /dev/null
++++ b/src/Sheet/Format.hs
+@@ -0,0 +1,39 @@
++-- | Text formatting of numbers and output fields.
++module Sheet.Format
++  ( formatNumber
++  , needsQuotes
++  , quoteField
++  ) where
++
++import Data.List (dropWhileEnd)
++import Data.Maybe (isJust)
++import Numeric (showFFloat)
++
++import Sheet.Grid (readNumber)
++
++-- | Six decimals, then trailing zeros and a trailing dot removed.
++formatNumber :: Double -> String
++formatNumber x
++  | trimmed == "-0" = "0"
++  | otherwise = trimmed
++  where
++    trimmed = dropWhileEnd (== '.') (dropWhileEnd (== '0') (showFFloat (Just 6) x ""))
++
++-- | Whether a text value must be quoted so that it reads back as the same text.
++needsQuotes :: String -> Bool
++needsQuotes t = case t of
++  [] -> True
++  c : _ ->
++    any (`elem` ",\"()") t
++      || blank c
++      || blank (last t)
++      || c `elem` "=#"
++      || isJust (readNumber t)
++  where
++    blank ch = ch == ' ' || ch == '\t'
++
++quoteField :: String -> String
++quoteField t = '"' : concatMap esc t ++ "\""
++  where
++    esc '"' = "\"\""
++    esc c = [c]
+diff --git a/src/Sheet/Formula.hs b/src/Sheet/Formula.hs
+new file mode 100644
+index 0000000..3f0574e
+--- /dev/null
++++ b/src/Sheet/Formula.hs
+@@ -0,0 +1,136 @@
++-- | Formula syntax tree and parser.
++module Sheet.Formula
++  ( Expr (..)
++  , BinOp (..)
++  , FormulaError (..)
++  , parseFormula
++  , references
++  , knownFunctions
++  ) where
++
++import Data.Char (isAsciiLower, isAsciiUpper, toUpper)
++import Data.Functor (($>))
++import Text.Parsec
++import Text.Parsec.String (Parser)
++
++import Sheet.Ref
++
++data BinOp = Add | Sub | Mul | Div | Concat | Eq | Ne | Lt | Le | Gt | Ge
++  deriving (Eq, Show)
++
++data Expr
++  = Number Double
++  | Str String
++  | Cell Ref
++  | Range Ref Ref
++  | Neg Expr
++  | Bin BinOp Expr Expr
++  | Call String [Expr]
++  deriving (Eq, Show)
++
++data FormulaError = SyntaxError | UnknownFunction
++  deriving (Eq, Show)
++
++knownFunctions :: [String]
++knownFunctions = ["SUM", "AVG", "MIN", "MAX", "COUNT", "IF"]
++
++-- | Parse the text after the leading @=@ and validate function calls.
++parseFormula :: String -> Either FormulaError Expr
++parseFormula src = do
++  e <- either (const (Left SyntaxError)) Right (parse (spaces *> expr <* eof) "" src)
++  let calls = callsOf e
++  if any badArity calls
++    then Left SyntaxError
++    else
++      if any ((`notElem` knownFunctions) . fst) calls
++        then Left UnknownFunction
++        else Right e
++  where
++    badArity ("IF", n) = n /= 3
++    badArity (name, n) = name `elem` knownFunctions && n == 0
++
++callsOf :: Expr -> [(String, Int)]
++callsOf ex = case ex of
++  Call name args -> (name, length args) : concatMap callsOf args
++  Neg a -> callsOf a
++  Bin _ a b -> callsOf a ++ callsOf b
++  _ -> []
++
++-- | Every reference in an expression as a (corner, corner) pair; a single
++-- cell is a pair of equal corners.
++references :: Expr -> [(Ref, Ref)]
++references ex = case ex of
++  Cell r -> [(r, r)]
++  Range a b -> [(a, b)]
++  Neg a -> references a
++  Bin _ a b -> references a ++ references b
++  Call _ args -> concatMap references args
++  _ -> []
++
++lexeme :: Parser a -> Parser a
++lexeme p = p <* spaces
++
++sym :: String -> Parser String
++sym = lexeme . try . string
++
++expr :: Parser Expr
++expr = chainl1 concatenation (Bin <$> comparison)
++  where
++    comparison =
++      choice
++        [ sym "<=" $> Le, sym "<>" $> Ne, sym ">=" $> Ge
++        , sym "<" $> Lt, sym ">" $> Gt, sym "=" $> Eq
++        ]
++
++concatenation :: Parser Expr
++concatenation = chainl1 additive (sym "&" $> Bin Concat)
++
++additive :: Parser Expr
++additive = chainl1 term (sym "+" $> Bin Add <|> sym "-" $> Bin Sub)
++
++term :: Parser Expr
++term = chainl1 unary (sym "*" $> Bin Mul <|> sym "/" $> Bin Div)
++
++unary :: Parser Expr
++unary = (sym "-" *> (Neg <$> unary)) <|> primary
++
++primary :: Parser Expr
++primary = number <|> stringLit <|> between (sym "(") (sym ")") expr <|> nameOrRef
++
++number :: Parser Expr
++number = lexeme $ do
++  ip <- many1 digit
++  fp <- option "0" (char '.' *> many1 digit)
++  pure (Number (read (ip ++ "." ++ fp)))
++
++stringLit :: Parser Expr
++stringLit = lexeme (Str <$> (char '"' *> many strChar <* char '"'))
++  where
++    strChar = noneOf "\"" <|> try (string "\"\"" $> '"')
++
++asciiLetter :: Parser Char
++asciiLetter = satisfy (\c -> isAsciiUpper c || isAsciiLower c)
++
++-- | A cell reference, or a function call when the letters are followed by
++-- an opening parenthesis.
++nameOrRef :: Parser Expr
++nameOrRef = do
++  letters <- many1 asciiLetter
++  digits <- many digit
++  if null digits
++    then do
++      spaces
++      args <- between (sym "(") (sym ")") (argument `sepBy` sym ",")
++      pure (Call (map toUpper letters) args)
++    else Cell <$> toRef (letters ++ digits) <* spaces
++
++argument :: Parser Expr
++argument = try (Range <$> refToken <* sym ":" <*> refToken) <|> expr
++  where
++    refToken = lexeme $ do
++      letters <- many1 asciiLetter
++      digits <- many1 digit
++      toRef (letters ++ digits)
++
++toRef :: String -> Parser Ref
++toRef s = maybe (fail ("bad reference " ++ s)) pure (parseRef s)
+diff --git a/src/Sheet/Grid.hs b/src/Sheet/Grid.hs
+new file mode 100644
+index 0000000..deaa7e2
+--- /dev/null
++++ b/src/Sheet/Grid.hs
+@@ -0,0 +1,105 @@
++-- | Reading the comma-separated grid and classifying raw cell contents.
++module Sheet.Grid
++  ( Raw (..)
++  , Sheet (..)
++  , parseSheet
++  , splitCells
++  , classify
++  , readNumber
++  , inBounds
++  , rawAt
++  , allRefs
++  ) where
++
++import Data.Char (isDigit)
++import Data.List (dropWhileEnd)
++import qualified Data.Map.Strict as M
++
++import Sheet.Ref
++
++-- | The contents of a cell before evaluation.
++data Raw
++  = RawEmpty
++  | RawNumber Double
++  | RawText String
++  | RawFormula String
++  deriving (Eq, Show)
++
++data Sheet = Sheet
++  { sheetRows :: Int
++  , sheetCols :: Int
++  , sheetCells :: M.Map Ref Raw
++  -- ^ non-empty cells only
++  }
++  deriving (Show)
++
++parseSheet :: String -> Sheet
++parseSheet input = Sheet (length rows) width cells
++  where
++    rows = map (splitCells . dropWhileEnd (== '\r')) (lines input)
++    width = maximum (0 : map length rows)
++    cells =
++      M.fromList
++        [ (Ref r c, raw)
++        | (r, row) <- zip [0 ..] rows
++        , (c, txt) <- zip [0 ..] row
++        , let raw = classify txt
++        , raw /= RawEmpty
++        ]
++
++-- | Split a line at commas that are outside quotes and parentheses.
++splitCells :: String -> [String]
++splitCells = go (0 :: Int) False ""
++  where
++    go _ _ acc [] = [reverse acc]
++    go depth quoted acc (c : cs)
++      | c == '"' = go depth (not quoted) (c : acc) cs
++      | quoted = go depth quoted (c : acc) cs
++      | c == '(' = go (depth + 1) quoted (c : acc) cs
++      | c == ')' = go (max 0 (depth - 1)) quoted (c : acc) cs
++      | c == ',' && depth == 0 = reverse acc : go 0 False "" cs
++      | otherwise = go depth quoted (c : acc) cs
++
++classify :: String -> Raw
++classify txt = case trim txt of
++  "" -> RawEmpty
++  '=' : formula -> RawFormula formula
++  s
++    | Just inner <- unquote s -> RawText inner
++    | Just n <- readNumber s -> RawNumber n
++    | otherwise -> RawText s
++  where
++    trim = dropWhileEnd blank . dropWhile blank
++    blank c = c == ' ' || c == '\t'
++
++-- | Contents of a quoted field, or Nothing if the text is not one.
++unquote :: String -> Maybe String
++unquote ('"' : rest) = go rest
++  where
++    go "\"" = Just ""
++    go ('"' : '"' : more) = ('"' :) <$> go more
++    go ('"' : _) = Nothing
++    go (c : more) = (c :) <$> go more
++    go [] = Nothing
++unquote _ = Nothing
++
++-- | A number literal: optional minus, digits, optional fraction.
++readNumber :: String -> Maybe Double
++readNumber ('-' : rest) = negate <$> unsigned rest
++readNumber s = unsigned s
++
++unsigned :: String -> Maybe Double
++unsigned t = case span isDigit t of
++  (ip@(_ : _), "") -> Just (read (ip ++ ".0"))
++  (ip@(_ : _), '.' : fp@(_ : _)) | all isDigit fp -> Just (read (ip ++ "." ++ fp))
++  _ -> Nothing
++
++inBounds :: Sheet -> Ref -> Bool
++inBounds sheet (Ref r c) = r >= 0 && c >= 0 && r < sheetRows sheet && c < sheetCols sheet
++
++rawAt :: Sheet -> Ref -> Raw
++rawAt sheet ref = M.findWithDefault RawEmpty ref (sheetCells sheet)
++
++-- | Every cell of the grid, row by row.
++allRefs :: Sheet -> [Ref]
++allRefs sheet = [Ref r c | r <- [0 .. sheetRows sheet - 1], c <- [0 .. sheetCols sheet - 1]]
+diff --git a/src/Sheet/Output.hs b/src/Sheet/Output.hs
+new file mode 100644
+index 0000000..9126ee3
+--- /dev/null
++++ b/src/Sheet/Output.hs
+@@ -0,0 +1,41 @@
++-- | Rendering evaluated sheets for the three commands.
++module Sheet.Output
++  ( renderGrid
++  , renderValue
++  , errorLines
++  ) where
++
++import Data.List (intercalate)
++import qualified Data.Map as M
++
++import Sheet.Eval
++import Sheet.Format
++import Sheet.Grid
++import Sheet.Ref
++
++resultAt :: M.Map Ref Result -> Ref -> Result
++resultAt results r = M.findWithDefault (Right VEmpty) r results
++
++-- | The whole grid, one line per row, every row as wide as the grid.
++renderGrid :: Sheet -> M.Map Ref Result -> String
++renderGrid sheet results =
++  unlines
++    [ intercalate "," [field (resultAt results (Ref r c)) | c <- [0 .. sheetCols sheet - 1]]
++    | r <- [0 .. sheetRows sheet - 1]
++    ]
++  where
++    field (Right (VText t)) | needsQuotes t = quoteField t
++    field res = renderValue res
++
++-- | A single value as shown by @get@ (text unquoted).
++renderValue :: Result -> String
++renderValue res = case res of
++  Left e -> errorCode e
++  Right (VNumber n) -> formatNumber n
++  Right (VText t) -> t
++  Right VEmpty -> ""
++
++-- | @<cell> <code>@ for every error cell, row by row.
++errorLines :: Sheet -> M.Map Ref Result -> [String]
++errorLines sheet results =
++  [showRef r ++ " " ++ errorCode e | r <- allRefs sheet, Left e <- [resultAt results r]]
+diff --git a/src/Sheet/Ref.hs b/src/Sheet/Ref.hs
+new file mode 100644
+index 0000000..2d4baa6
+--- /dev/null
++++ b/src/Sheet/Ref.hs
+@@ -0,0 +1,52 @@
++-- | Cell references such as @A1@, @b7@ or @AA10@.
++module Sheet.Ref
++  ( Ref (..)
++  , parseRef
++  , showRef
++  , columnIndex
++  , columnName
++  ) where
++
++import Data.Char (chr, isAsciiLower, isAsciiUpper, isDigit, ord, toUpper)
++
++-- | A zero-based cell position: row 0 is the first line, column 0 is @A@.
++data Ref = Ref
++  { refRow :: !Int
++  , refCol :: !Int
++  }
++  deriving (Eq, Ord, Show)
++
++-- | Indices saturate here so that absurd references stay out of bounds
++-- instead of overflowing.
++limit :: Int
++limit = 1000000000
++
++-- | Parse a whole string as a reference (letters, then digits).
++parseRef :: String -> Maybe Ref
++parseRef s = case span isLetter s of
++  (letters@(_ : _), digits@(_ : _))
++    | all isDigit digits -> Just (Ref (rowIndex digits) (columnIndex letters))
++  _ -> Nothing
++  where
++    isLetter c = isAsciiUpper c || isAsciiLower c
++
++rowIndex :: String -> Int
++rowIndex ds = fromInteger (min (toInteger limit) (read ds)) - 1
++
++-- | Zero-based index of a column name: @A@ is 0, @Z@ is 25, @AA@ is 26.
++columnIndex :: String -> Int
++columnIndex = subtract 1 . foldl step 0
++  where
++    step acc c = min limit (acc * 26 + ord (toUpper c) - ord 'A' + 1)
++
++-- | Column name of a zero-based index.
++columnName :: Int -> String
++columnName = go . (+ 1)
++  where
++    go n
++      | n <= 0 = ""
++      | otherwise = let (q, r) = (n - 1) `divMod` 26 in go q ++ [chr (ord 'A' + r)]
++
++-- | Canonical upper-case spelling of a reference.
++showRef :: Ref -> String
++showRef (Ref r c) = columnName c ++ show (r + 1)
+diff --git a/test/Main.hs b/test/Main.hs
+new file mode 100644
+index 0000000..0f55186
+--- /dev/null
++++ b/test/Main.hs
+@@ -0,0 +1,78 @@
++module Main (main) where
++
++import Control.Monad (unless)
++import Data.IORef
++import qualified Data.Map as M
++import System.Exit (exitFailure)
++
++import Sheet.Eval
++import Sheet.Format
++import Sheet.Grid
++import Sheet.Output
++import Sheet.Ref
++
++valueOf :: String -> String -> String
++valueOf input cell = case parseRef cell of
++  Nothing -> error ("bad ref in test: " ++ cell)
++  Just r ->
++    let sheet = parseSheet input
++     in renderValue (M.findWithDefault (Right VEmpty) r (evaluateSheet sheet))
++
++evalGrid :: String -> String
++evalGrid input = let s = parseSheet input in renderGrid s (evaluateSheet s)
++
++cases :: [(String, String, String)]
++cases =
++  [ ("refs", showRef (Ref 0 0) ++ showRef (Ref 9 27), "A1AB10")
++  , ("column index", show (map columnIndex ["A", "z", "AA", "AZ"]), "[0,25,26,51]")
++  , ("split respects quotes and parens", show (splitCells "a,\"b,c\",=SUM(A1,B1),d"), show ["a", "\"b,c\"", "=SUM(A1,B1)", "d"])
++  , ("classify number", show (classify " -3.50 "), show (RawNumber (-3.5)))
++  , ("classify non-numbers", show (map classify ["+1", ".5", "1.", "1e3"]), show (map RawText ["+1", ".5", "1.", "1e3"]))
++  , ("classify quoted", show (classify "\"a\"\"b\""), show (RawText "a\"b"))
++  , ("format integer", formatNumber 42, "42")
++  , ("format fraction", formatNumber (1 / 3), "0.333333")
++  , ("format negative zero", formatNumber (-0.0000001), "0")
++  , ("format large", formatNumber 1e20, "100000000000000000000")
++  , ("precedence", valueOf "=1+2*3-4/2" "A1", "5")
++  , ("unary minus", valueOf "=-2*-3" "A1", "6")
++  , ("concat", valueOf "=1.5&\"x\"&A2\n\n" "A1", "1.5x")
++  , ("comparison", valueOf "=1<2,=\"b\"<\"a\",=A9=0" "A1", "1")
++  , ("text comparison", valueOf "=1<2,=\"b\"<\"a\"" "B1", "0")
++  , ("compare mixed", valueOf "=1<\"a\"" "A1", "#VALUE!")
++  , ("sum range skips text", valueOf "1,x,3,=SUM(A1:C1)" "D1", "4")
++  , ("avg empty", valueOf "x,=AVG(A1:A1)" "B1", "#DIV/0!")
++  , ("min max", valueOf "4,-2,9,=MAX(A1:C1)-MIN(A1:C1)" "D1", "11")
++  , ("count", valueOf "1,a,,=COUNT(A1:C1,5,\"t\")" "D1", "2")
++  , ("if lazy", valueOf "=IF(0,1/0,7)" "A1", "7")
++  , ("if text cond", valueOf "=IF(\"y\",1,2)" "A1", "#VALUE!")
++  , ("div zero", valueOf "=1/(2-2)" "A1", "#DIV/0!")
++  , ("text arithmetic", valueOf "abc,=A1+1" "B1", "#VALUE!")
++  , ("empty is zero", valueOf "=B1,," "A1", "0")
++  , ("out of grid", valueOf "=C1,1" "A1", "#REF!")
++  , ("range out of grid", valueOf "=SUM(A1:A5)" "A1", "#REF!")
++  , ("syntax", valueOf "=1+" "A1", "#PARSE!")
++  , ("bare range", valueOf "=A1:B1,2" "A1", "#PARSE!")
++  , ("if arity", valueOf "=IF(1,2)" "A1", "#PARSE!")
++  , ("unknown function", valueOf "=FOO(1)" "A1", "#NAME?")
++  , ("self cycle", valueOf "=A1+1" "A1", "#CYCLE!")
++  , ("cycle via range", valueOf "1,=SUM(A1:C1),=B1" "C1", "#CYCLE!")
++  , ("propagated cycle", valueOf "=B1,=A1,=A1*2" "C1", "#CYCLE!")
++  , ("first error wins", valueOf "=1/0,=Z1,=A1+B1" "C1", "#DIV/0!")
++  , ("case insensitive", valueOf "2,=sum(a1:a1)*b0" "B1", "#REF!")
++  , ("grid padding", evalGrid "1,2,3\n=A1\n", "1,2,3\n1,,\n")
++  , ("grid quoting", evalGrid "\"42\",\"a,b\",=\"\",#x,plain", "\"42\",\"a,b\",\"\",\"#x\",plain\n")
++  ]
++
++main :: IO ()
++main = do
++  failures <- newIORef (0 :: Int)
++  mapM_ (check failures) cases
++  n <- readIORef failures
++  putStrLn (show (length cases - n) ++ "/" ++ show (length cases) ++ " tests passed")
++  unless (n == 0) exitFailure
++  where
++    check failures (name, actual, expected)
++      | actual == expected = pure ()
++      | otherwise = do
++          modifyIORef failures (+ 1)
++          putStrLn ("FAIL " ++ name ++ ": expected " ++ show expected ++ ", got " ++ show actual)

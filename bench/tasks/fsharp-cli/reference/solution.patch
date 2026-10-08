@@ -1,0 +1,1036 @@
+diff --git a/README.md b/README.md
+index 4f7d6d7..30839ac 100644
+--- a/README.md
++++ b/README.md
+@@ -1 +1,28 @@
+ # tally — split shared expenses between friends
++
++Groups, members, expenses split equally / by percentage / by exact amounts, payments,
++fixed exchange rates, balances and settle-up suggestions. Data lives in one JSON file.
++
++## Build and test
++
++Requires the .NET 8 SDK; no packages beyond FSharp.Core.
++
++```
++dotnet build src/Tally/Tally.fsproj
++dotnet run --project tests/Tally.Tests      # exits non-zero on failure
++```
++
++## Usage
++
++```
++dotnet run --project src/Tally -- --help
++tally [--data FILE] group add trip EUR
++tally member add trip alice
++tally rate set trip USD 0.92
++tally expense trip alice 30 "Dinner" --split percent --shares alice=50,bob=50
++tally pay trip bob alice 15
++tally balances trip
++tally settle trip
++```
++
++The data file is `--data FILE`, else `$TALLY_DATA`, else `./tally.json`.
+diff --git a/src/Tally/Commands.fs b/src/Tally/Commands.fs
+new file mode 100644
+index 0000000..10ea9dc
+--- /dev/null
++++ b/src/Tally/Commands.fs
+@@ -0,0 +1,269 @@
++/// Command parsing and execution against an in-memory book. Pure: no I/O.
++module Tally.Commands
++
++open Tally.Domain
++
++/// Lines to print, and the new book when the command changed data.
++type Output = { Lines: string list; Changed: Book option }
++
++let private show lines = Ok { Lines = lines; Changed = None }
++let private check cond failure = if cond then Ok() else Error failure
++
++let private findGroup (book: Book) name =
++    match book.TryFind name with
++    | Some g -> Ok g
++    | None -> reject "unknown group: %s" name
++
++let private amountOf text =
++    match Money.parseAmount text with
++    | Some c -> Ok c
++    | None -> reject "invalid amount: %s" text
++
++let private currencyOf text =
++    if Money.isValidCurrency text then Ok text else reject "invalid currency: %s" text
++
++/// Parse `--opt value` pairs; every option at most once.
++let private parseOptions (allowed: string list) (args: string list) =
++    let rec go (acc: Map<string, string>) =
++        function
++        | [] -> Ok acc
++        | opt :: rest when List.contains opt allowed ->
++            match rest with
++            | _ when acc.ContainsKey opt -> usage "repeated option: %s" opt
++            | value :: rest' -> go (acc.Add(opt, value)) rest'
++            | [] -> usage "option %s needs a value" opt
++        | other :: _ -> usage "unknown option: %s" other
++
++    go Map.empty args
++
++let private parseShares (text: string) =
++    text.Split(',')
++    |> List.ofArray
++    |> traverse (fun item ->
++        match item.Split('=', 2) with
++        | [| name; value |] -> Ok(name, value)
++        | _ -> usage "invalid --shares item: %s" item)
++
++let private money (group: Group) amount currency baseCents =
++    if currency = group.Currency then
++        sprintf "%s %s" (Money.format amount) currency
++    else
++        sprintf "%s %s = %s %s" (Money.format amount) currency (Money.format baseCents) group.Currency
++
++let entryLine (group: Group) =
++    function
++    | ExpenseEntry e ->
++        sprintf "#%d expense %s %s \"%s\"" e.Id e.Payer (money group e.Amount e.Currency e.BaseCents) e.Description
++    | PaymentEntry p -> sprintf "#%d payment %s -> %s %s" p.Id p.From p.To (money group p.Amount p.Currency p.BaseCents)
++
++let private firstDuplicate (names: string list) =
++    names
++    |> List.countBy id
++    |> List.tryFind (fun (_, n) -> n > 1)
++    |> Option.map fst
++
++let private weightsFor (group: Group) kind (opts: Map<string, string>) =
++    let valued parse what =
++        opts["--shares"]
++        |> parseShares
++        |> Result.bind (
++            traverse (fun (name, v) ->
++                match parse v with
++                | Some w -> Ok(name, w)
++                | None -> reject "invalid %s: %s" what v)
++        )
++
++    match kind with
++    | Equal ->
++        let names =
++            match opts.TryFind "--among" with
++            | Some s -> s.Split(',') |> List.ofArray
++            | None -> group.Members
++
++        Ok(names |> List.map (fun n -> n, 1L))
++    | Exact -> valued Money.parseAmount "amount"
++    | Percent -> valued Money.parsePercent "percentage"
++
++let private addExpense (book: Book) groupName payer amountText desc optArgs =
++    outcome {
++        let! opts = parseOptions [ "--currency"; "--split"; "--among"; "--shares" ] optArgs
++
++        let! kind =
++            match opts.TryFind "--split" with
++            | None -> Ok Equal
++            | Some s ->
++                match SplitKind.tryParse s with
++                | Some k -> Ok k
++                | None -> usage "unknown split type: %s" s
++
++        do!
++            match kind, opts.ContainsKey "--among", opts.ContainsKey "--shares" with
++            | Equal, _, true -> usage "--shares is not allowed with --split equal"
++            | (Exact | Percent), true, _ -> usage "--among is only allowed with --split equal"
++            | (Exact | Percent), _, false -> usage "--shares is required for --split %s" (SplitKind.name kind)
++            | _ -> Ok()
++
++        do! opts.TryFind "--shares" |> Option.map (parseShares >> Result.map ignore) |> Option.defaultValue (Ok())
++        let! group = findGroup book groupName
++        let! _ = requireMember group payer
++        let! cents = amountOf amountText
++        do! check (desc <> "") (Rejected "description must not be empty")
++        let! currency = opts.TryFind "--currency" |> Option.defaultValue group.Currency |> currencyOf
++        let! total = toBase group currency cents
++        let! weights = weightsFor group kind opts
++        let names = List.map fst weights
++        let! _ = traverse (requireMember group) names
++
++        do!
++            match firstDuplicate names with
++            | Some n -> reject "duplicate participant: %s" n
++            | None -> Ok()
++
++        do! check (not names.IsEmpty) (Rejected "expense has no participants")
++        let sum = List.sumBy snd weights
++
++        do!
++            match kind with
++            | Exact when sum <> cents ->
++                reject "exact shares sum to %s but the amount is %s" (Money.format sum) (Money.format cents)
++            | Percent when sum <> 10_000L -> reject "percentages sum to %s, expected 100" (Money.format sum)
++            | _ -> Ok()
++
++        let group', id =
++            addEntry group (fun id ->
++                ExpenseEntry
++                    { Id = id
++                      Payer = payer
++                      Amount = cents
++                      Currency = currency
++                      BaseCents = total
++                      Description = desc
++                      Split = kind
++                      Shares = allocate total weights })
++
++        return
++            { Lines = [ sprintf "added expense #%d: %s %s" id (Money.format total) group.Currency ]
++              Changed = Some(book.Add(groupName, group')) }
++    }
++
++let private addPayment (book: Book) groupName from recipient amountText optArgs =
++    outcome {
++        let! opts = parseOptions [ "--currency" ] optArgs
++        let! group = findGroup book groupName
++        let! _ = requireMember group from
++        let! _ = requireMember group recipient
++        do! check (from <> recipient) (Rejected "a member cannot pay themselves")
++        let! cents = amountOf amountText
++        let! currency = opts.TryFind "--currency" |> Option.defaultValue group.Currency |> currencyOf
++        let! total = toBase group currency cents
++
++        let group', id =
++            addEntry group (fun id ->
++                PaymentEntry
++                    { Id = id
++                      From = from
++                      To = recipient
++                      Amount = cents
++                      Currency = currency
++                      BaseCents = total })
++
++        return
++            { Lines = [ sprintf "added payment #%d: %s %s" id (Money.format total) group.Currency ]
++              Changed = Some(book.Add(groupName, group')) }
++    }
++
++let private entryOf (group: Group) (idText: string) =
++    match System.Int32.TryParse idText with
++    | true, id when id > 0 ->
++        match tryEntry group id with
++        | Some e -> Ok e
++        | None -> reject "unknown entry: %s" idText
++    | _ -> reject "unknown entry: %s" idText
++
++/// Execute one command (arguments after the optional `--data FILE`).
++let execute (book: Book) (args: string list) : Result<Output, CliError> =
++    match args with
++    | [ "group"; "add"; name; currency ] ->
++        outcome {
++            do! check (Money.isValidName name) (Rejected $"invalid name: {name}")
++            let! currency = currencyOf currency
++            do! check (not (book.ContainsKey name)) (Rejected $"group already exists: {name}")
++
++            return
++                { Lines = [ $"created group {name} ({currency})" ]
++                  Changed = Some(book.Add(name, newGroup name currency)) }
++        }
++    | [ "group"; "list" ] ->
++        book
++        |> Map.toList
++        |> List.sortWith (fun (a, _) (b, _) -> System.String.CompareOrdinal(a, b))
++        |> List.map (fun (_, g) -> $"{g.Name} {g.Currency} members={g.Members.Length} entries={g.Entries.Length}")
++        |> show
++    | [ "member"; "add"; groupName; name ] ->
++        outcome {
++            let! group = findGroup book groupName
++            do! check (Money.isValidName name) (Rejected $"invalid name: {name}")
++            do! check (not (List.contains name group.Members)) (Rejected $"member already exists: {name}")
++            let group' = { group with Members = group.Members @ [ name ] }
++
++            return
++                { Lines = [ $"added member {name} to {groupName}" ]
++                  Changed = Some(book.Add(groupName, group')) }
++        }
++    | [ "rate"; "set"; groupName; currency; rateText ] ->
++        outcome {
++            let! group = findGroup book groupName
++            let! currency = currencyOf currency
++            do! check (currency <> group.Currency) (Rejected "cannot set a rate for the base currency")
++            let! rate = Money.parseRate rateText |> Option.map Ok |> Option.defaultValue (reject "invalid rate: %s" rateText)
++            let group' = { group with Rates = group.Rates.Add(currency, rate) }
++
++            return
++                { Lines = [ $"rate {currency}->{group.Currency} {rateText}" ]
++                  Changed = Some(book.Add(groupName, group')) }
++        }
++    | "expense" :: groupName :: payer :: amount :: desc :: opts -> addExpense book groupName payer amount desc opts
++    | "pay" :: groupName :: from :: recipient :: amount :: opts -> addPayment book groupName from recipient amount opts
++    | [ "list"; groupName ] -> findGroup book groupName |> Result.bind (fun g -> g.Entries |> List.map (entryLine g) |> show)
++    | [ "show"; groupName; idText ] ->
++        outcome {
++            let! group = findGroup book groupName
++            let! entry = entryOf group idText
++
++            let shares =
++                match entry with
++                | ExpenseEntry e -> e.Shares |> List.map (fun s -> $"  {s.Member} {Money.format s.Cents}")
++                | PaymentEntry _ -> []
++
++            return! show (entryLine group entry :: shares)
++        }
++    | [ "rm"; groupName; idText ] ->
++        outcome {
++            let! group = findGroup book groupName
++            let! entry = entryOf group idText
++            let id = Entry.id entry
++            let group' = { group with Entries = group.Entries |> List.filter (fun e -> Entry.id e <> id) }
++
++            return
++                { Lines = [ $"removed #{id}" ]
++                  Changed = Some(book.Add(groupName, group')) }
++        }
++    | [ "balances"; groupName ] ->
++        findGroup book groupName
++        |> Result.bind (fun g ->
++            balances g
++            |> List.map (fun (m, c) -> $"{m} {Money.formatSigned c} {g.Currency}")
++            |> show)
++    | [ "settle"; groupName ] ->
++        findGroup book groupName
++        |> Result.bind (fun g ->
++            match Settle.suggest (balances g) with
++            | [] -> show [ "all settled" ]
++            | transfers ->
++                transfers
++                |> List.map (fun t -> $"{t.Debtor} -> {t.Creditor} {Money.format t.Cents} {g.Currency}")
++                |> show)
++    | [] -> usage "missing command (try --help)"
++    | cmd :: _ when List.contains cmd [ "group"; "member"; "rate"; "expense"; "pay"; "list"; "show"; "rm"; "balances"; "settle" ] ->
++        usage "wrong arguments for %s (try --help)" cmd
++    | cmd :: _ -> usage "unknown command: %s" cmd
+diff --git a/src/Tally/Domain.fs b/src/Tally/Domain.fs
+new file mode 100644
+index 0000000..b6d0e5f
+--- /dev/null
++++ b/src/Tally/Domain.fs
+@@ -0,0 +1,130 @@
++/// Groups, entries, splitting and balances. Pure: no I/O.
++module Tally.Domain
++
++type SplitKind =
++    | Equal
++    | Exact
++    | Percent
++
++module SplitKind =
++    let name =
++        function
++        | Equal -> "equal"
++        | Exact -> "exact"
++        | Percent -> "percent"
++
++    let tryParse =
++        function
++        | "equal" -> Some Equal
++        | "exact" -> Some Exact
++        | "percent" -> Some Percent
++        | _ -> None
++
++type Share = { Member: string; Cents: int64 }
++
++type Expense =
++    { Id: int
++      Payer: string
++      Amount: int64
++      Currency: string
++      BaseCents: int64
++      Description: string
++      Split: SplitKind
++      Shares: Share list }
++
++type Payment =
++    { Id: int
++      From: string
++      To: string
++      Amount: int64
++      Currency: string
++      BaseCents: int64 }
++
++type Entry =
++    | ExpenseEntry of Expense
++    | PaymentEntry of Payment
++
++module Entry =
++    let id =
++        function
++        | ExpenseEntry e -> e.Id
++        | PaymentEntry p -> p.Id
++
++type Group =
++    { Name: string
++      Currency: string
++      Members: string list
++      Rates: Map<string, decimal>
++      Entries: Entry list
++      NextId: int }
++
++/// All groups, keyed by name.
++type Book = Map<string, Group>
++
++let newGroup name currency =
++    { Name = name
++      Currency = currency
++      Members = []
++      Rates = Map.empty
++      Entries = []
++      NextId = 1 }
++
++/// Split `total` cents by integer weights using the largest-remainder method.
++/// Remainder ties go to the participant listed first.
++let allocate (total: int64) (weights: (string * int64) list) : Share list =
++    let w = weights |> List.sumBy snd |> bigint
++    let t = bigint total
++
++    let parts =
++        weights
++        |> List.mapi (fun i (name, wi) ->
++            let q = t * bigint wi
++            i, name, int64 (q / w), q % w)
++
++    let missing = total - (parts |> List.sumBy (fun (_, _, floor, _) -> floor))
++
++    let bonus =
++        parts
++        |> List.sortBy (fun (i, _, _, rem) -> -rem, i)
++        |> List.truncate (int missing)
++        |> List.map (fun (i, _, _, _) -> i)
++        |> Set.ofList
++
++    parts
++    |> List.map (fun (i, name, floor, _) ->
++        { Member = name
++          Cents = floor + (if bonus.Contains i then 1L else 0L) })
++
++/// Base cents of `cents` expressed in `currency`.
++let toBase (group: Group) (currency: string) (cents: int64) : Result<int64, CliError> =
++    if currency = group.Currency then
++        Ok cents
++    else
++        match group.Rates.TryFind currency with
++        | Some rate -> Ok(Money.convert cents rate)
++        | None -> reject "no rate for currency: %s" currency
++
++let requireMember (group: Group) (name: string) =
++    if List.contains name group.Members then Ok name else reject "unknown member: %s" name
++
++let addEntry (group: Group) (makeEntry: int -> Entry) =
++    let entry = makeEntry group.NextId
++
++    { group with
++        Entries = group.Entries @ [ entry ]
++        NextId = group.NextId + 1 },
++    Entry.id entry
++
++let tryEntry (group: Group) (id: int) =
++    group.Entries |> List.tryFind (fun e -> Entry.id e = id)
++
++/// Balance of every member in member order: paid minus consumed, in base cents.
++let balances (group: Group) : (string * int64) list =
++    let deltas =
++        group.Entries
++        |> List.collect (function
++            | ExpenseEntry e -> (e.Payer, e.BaseCents) :: (e.Shares |> List.map (fun s -> s.Member, -s.Cents))
++            | PaymentEntry p -> [ p.From, p.BaseCents; p.To, -p.BaseCents ])
++
++    group.Members
++    |> List.map (fun m -> m, deltas |> List.sumBy (fun (n, c) -> if n = m then c else 0L))
+diff --git a/src/Tally/Money.fs b/src/Tally/Money.fs
+new file mode 100644
+index 0000000..f3236de
+--- /dev/null
++++ b/src/Tally/Money.fs
+@@ -0,0 +1,57 @@
++/// Parsing, conversion and formatting of money. Amounts are integer cents.
++module Tally.Money
++
++open System
++open System.Globalization
++open System.Text.RegularExpressions
++
++let private amountRe = Regex(@"^[0-9]{1,10}(\.[0-9]{1,2})?$")
++let private rateRe = Regex(@"^[0-9]{1,10}(\.[0-9]{1,6})?$")
++let private nameRe = Regex(@"^[A-Za-z][A-Za-z0-9_-]{0,31}$")
++let private currencyRe = Regex(@"^[A-Z]{3}$")
++
++let maxAmountCents = 100_000_000L
++
++let private parseDecimal (s: string) =
++    Decimal.Parse(s, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture)
++
++let isValidName (s: string) = nameRe.IsMatch s
++let isValidCurrency (s: string) = currencyRe.IsMatch s
++
++/// A positive amount with at most two decimals and at most 1,000,000.00, as cents.
++let parseAmount (s: string) : int64 option =
++    if amountRe.IsMatch s then
++        let cents = int64 (parseDecimal s * 100m)
++        if cents > 0L && cents <= maxAmountCents then Some cents else None
++    else
++        None
++
++/// A positive percentage with at most two decimals, as hundredths of a percent.
++let parsePercent (s: string) : int64 option =
++    if amountRe.IsMatch s then
++        let hundredths = int64 (parseDecimal s * 100m)
++        if hundredths > 0L && hundredths <= 10_000L then Some hundredths else None
++    else
++        None
++
++/// A positive exchange rate with at most six decimals.
++let parseRate (s: string) : decimal option =
++    if rateRe.IsMatch s then
++        let r = parseDecimal s
++        if r > 0m then Some r else None
++    else
++        None
++
++/// Convert cents in a foreign currency to base cents, rounding half to even.
++let convert (cents: int64) (rate: decimal) : int64 =
++    let exact = decimal cents * rate / 100m
++    int64 (Math.Round(exact, 2, MidpointRounding.ToEven) * 100m)
++
++/// 1234 -> "12.34", -5 -> "-0.05".
++let format (cents: int64) =
++    let a = abs cents
++    sprintf "%s%d.%02d" (if cents < 0L then "-" else "") (a / 100L) (a % 100L)
++
++/// Like format, but positive values get a leading '+'.
++let formatSigned (cents: int64) =
++    if cents > 0L then "+" + format cents else format cents
+diff --git a/src/Tally/Outcome.fs b/src/Tally/Outcome.fs
+new file mode 100644
+index 0000000..0a18d32
+--- /dev/null
++++ b/src/Tally/Outcome.fs
+@@ -0,0 +1,46 @@
++namespace Tally
++
++/// Why a command failed; each case maps to one process exit code.
++type CliError =
++    | Rejected of string // exit 1: well-formed request that is not allowed
++    | Usage of string // exit 2: malformed command line
++    | Storage of string // exit 3: data file problems
++
++module CliError =
++    let exitCode =
++        function
++        | Rejected _ -> 1
++        | Usage _ -> 2
++        | Storage _ -> 3
++
++    let message =
++        function
++        | Rejected m
++        | Usage m
++        | Storage m -> m
++
++/// Minimal computation expression for Result<'T, CliError>.
++type OutcomeBuilder() =
++    member _.Return(x) : Result<'T, CliError> = Ok x
++    member _.ReturnFrom(r: Result<'T, CliError>) = r
++    member _.Bind(r: Result<'T, CliError>, f: 'T -> Result<'U, CliError>) = Result.bind f r
++    member _.Zero() : Result<unit, CliError> = Ok()
++    member _.Combine(r: Result<unit, CliError>, f: unit -> Result<'T, CliError>) = Result.bind f r
++    member _.Delay(f: unit -> Result<'T, CliError>) = f
++    member _.Run(f: unit -> Result<'T, CliError>) = f ()
++
++[<AutoOpen>]
++module OutcomeSyntax =
++    let outcome = OutcomeBuilder()
++
++    let reject fmt = Printf.ksprintf (Rejected >> Error) fmt
++    let usage fmt = Printf.ksprintf (Usage >> Error) fmt
++
++    /// Apply f to each item, stopping at the first failure.
++    let traverse (f: 'a -> Result<'b, CliError>) (items: 'a list) : Result<'b list, CliError> =
++        let folder acc item =
++            match acc with
++            | Error e -> Error e
++            | Ok xs -> f item |> Result.map (fun x -> x :: xs)
++
++        items |> List.fold folder (Ok []) |> Result.map List.rev
+diff --git a/src/Tally/Program.fs b/src/Tally/Program.fs
+new file mode 100644
+index 0000000..148ce8c
+--- /dev/null
++++ b/src/Tally/Program.fs
+@@ -0,0 +1,63 @@
++module Tally.Program
++
++open System
++
++let usageText =
++    """usage: tally [--data FILE] <command> [args...]
++
++commands:
++  group add <group> <CUR>            create a group with a base currency
++  group list                         list groups
++  member add <group> <name>          add a member to a group
++  rate set <group> <CUR> <rate>      1 CUR = rate base currency
++  expense <group> <payer> <amount> <description>
++          [--currency CUR] [--split equal|exact|percent]
++          [--among a,b,...] [--shares a=V,b=V,...]
++  pay <group> <from> <to> <amount> [--currency CUR]
++  list <group>                       list entries
++  show <group> <id>                  show an entry and its shares
++  rm <group> <id>                    remove an entry
++  balances <group>                   member balances
++  settle <group>                     suggested transfers
++
++The data file is --data FILE, else $TALLY_DATA, else ./tally.json."""
++
++let private run (args: string list) =
++    let dataPath, rest =
++        match args with
++        | "--data" :: path :: rest -> Ok path, rest
++        | [ "--data" ] -> Error(Usage "option --data needs a value"), []
++        | rest ->
++            match Environment.GetEnvironmentVariable "TALLY_DATA" with
++            | null
++            | "" -> Ok "tally.json", rest
++            | path -> Ok path, rest
++
++    outcome {
++        let! path = dataPath
++        let! book = Store.load path
++        let! output = Commands.execute book rest
++
++        do!
++            match output.Changed with
++            | Some book' -> Store.save path book'
++            | None -> Ok()
++
++        return output.Lines
++    }
++
++[<EntryPoint>]
++let main argv =
++    match List.ofArray argv with
++    | [ "--help" ]
++    | [ "-h" ] ->
++        stdout.Write(usageText + "\n")
++        0
++    | args ->
++        match run args with
++        | Ok lines ->
++            lines |> List.iter (fun l -> stdout.Write(l + "\n"))
++            0
++        | Error failure ->
++            eprintf "error: %s\n" (CliError.message failure)
++            CliError.exitCode failure
+diff --git a/src/Tally/Settle.fs b/src/Tally/Settle.fs
+new file mode 100644
+index 0000000..eeaf5ed
+--- /dev/null
++++ b/src/Tally/Settle.fs
+@@ -0,0 +1,46 @@
++/// Settle-up suggestions. Pure: no I/O.
++module Tally.Settle
++
++type Transfer =
++    { Debtor: string
++      Creditor: string
++      Cents: int64 }
++
++/// Step 1: pair each debtor (member order) with the earliest creditor owed exactly that amount.
++let private exactMatches (names: string list) (start: Map<string, int64>) =
++    let step (bals: Map<string, int64>, acc) debtor =
++        let debt = -bals[debtor]
++
++        if debt <= 0L then
++            bals, acc
++        else
++            match names |> List.tryFind (fun c -> bals[c] = debt) with
++            | Some creditor ->
++                bals.Add(debtor, 0L).Add(creditor, 0L),
++                { Debtor = debtor
++                  Creditor = creditor
++                  Cents = debt }
++                :: acc
++            | None -> bals, acc
++
++    let bals, acc = names |> List.fold step (start, [])
++    bals, List.rev acc
++
++/// Step 2: largest debtor pays largest creditor (ties: member order) until all are zero.
++let rec private greedy (names: string list) (bals: Map<string, int64>) acc =
++    // List.sortBy is stable, so equal amounts keep member order.
++    let debtors = names |> List.filter (fun n -> bals[n] < 0L) |> List.sortBy (fun n -> bals[n])
++    let creditors = names |> List.filter (fun n -> bals[n] > 0L) |> List.sortBy (fun n -> -bals[n])
++
++    match debtors, creditors with
++    | d :: _, c :: _ ->
++        let amount = min -bals[d] bals[c]
++        let next = bals.Add(d, bals[d] + amount).Add(c, bals[c] - amount)
++        greedy names next ({ Debtor = d; Creditor = c; Cents = amount } :: acc)
++    | _ -> List.rev acc
++
++/// Transfers that bring every balance to zero (balances must sum to zero).
++let suggest (balances: (string * int64) list) : Transfer list =
++    let names = balances |> List.map fst
++    let bals, first = exactMatches names (Map.ofList balances)
++    first @ greedy names bals []
+diff --git a/src/Tally/Store.fs b/src/Tally/Store.fs
+new file mode 100644
+index 0000000..6185fe5
+--- /dev/null
++++ b/src/Tally/Store.fs
+@@ -0,0 +1,134 @@
++/// JSON persistence of the whole book of groups.
++module Tally.Store
++
++open System
++open System.Globalization
++open System.IO
++open System.Text.Json
++open System.Text.Json.Nodes
++open Tally.Domain
++
++let private str (node: JsonNode) (key: string) = node[key].GetValue<string>()
++let private int64Of (node: JsonNode) (key: string) = node[key].GetValue<int64>()
++let private items (node: JsonNode) (key: string) = node[key].AsArray() |> Seq.map id |> List.ofSeq
++
++let private strings (values: string seq) =
++    JsonArray(values |> Seq.map (fun v -> JsonValue.Create(v) :> JsonNode) |> Array.ofSeq)
++
++let private shareToJson (s: Share) =
++    JsonObject(dict [ "member", JsonValue.Create(s.Member) :> JsonNode; "cents", JsonValue.Create(s.Cents) ])
++
++let private entryToJson entry : JsonNode =
++    match entry with
++    | ExpenseEntry e ->
++        JsonObject(
++            dict
++                [ "kind", JsonValue.Create("expense") :> JsonNode
++                  "id", JsonValue.Create(e.Id)
++                  "payer", JsonValue.Create(e.Payer)
++                  "amount", JsonValue.Create(e.Amount)
++                  "currency", JsonValue.Create(e.Currency)
++                  "baseCents", JsonValue.Create(e.BaseCents)
++                  "description", JsonValue.Create(e.Description)
++                  "split", JsonValue.Create(SplitKind.name e.Split)
++                  "shares", JsonArray(e.Shares |> List.map (fun s -> shareToJson s :> JsonNode) |> Array.ofList) ]
++        )
++    | PaymentEntry p ->
++        JsonObject(
++            dict
++                [ "kind", JsonValue.Create("payment") :> JsonNode
++                  "id", JsonValue.Create(p.Id)
++                  "from", JsonValue.Create(p.From)
++                  "to", JsonValue.Create(p.To)
++                  "amount", JsonValue.Create(p.Amount)
++                  "currency", JsonValue.Create(p.Currency)
++                  "baseCents", JsonValue.Create(p.BaseCents) ]
++        )
++
++let private groupToJson (g: Group) : JsonNode =
++    let rates = JsonObject()
++
++    for KeyValue(cur, rate) in g.Rates do
++        rates[cur] <- JsonValue.Create(rate.ToString(CultureInfo.InvariantCulture))
++
++    JsonObject(
++        dict
++            [ "name", JsonValue.Create(g.Name) :> JsonNode
++              "currency", JsonValue.Create(g.Currency)
++              "members", strings g.Members
++              "rates", rates
++              "nextId", JsonValue.Create(g.NextId)
++              "entries", JsonArray(g.Entries |> List.map entryToJson |> Array.ofList) ]
++    )
++
++let private entryOfJson (n: JsonNode) =
++    match str n "kind" with
++    | "expense" ->
++        ExpenseEntry
++            { Id = int (int64Of n "id")
++              Payer = str n "payer"
++              Amount = int64Of n "amount"
++              Currency = str n "currency"
++              BaseCents = int64Of n "baseCents"
++              Description = str n "description"
++              Split = SplitKind.tryParse (str n "split") |> Option.get
++              Shares =
++                items n "shares"
++                |> List.map (fun s ->
++                    { Member = str s "member"
++                      Cents = int64Of s "cents" }) }
++    | "payment" ->
++        PaymentEntry
++            { Id = int (int64Of n "id")
++              From = str n "from"
++              To = str n "to"
++              Amount = int64Of n "amount"
++              Currency = str n "currency"
++              BaseCents = int64Of n "baseCents" }
++    | other -> raise (FormatException $"unknown entry kind {other}")
++
++let private groupOfJson (n: JsonNode) =
++    { Name = str n "name"
++      Currency = str n "currency"
++      Members = items n "members" |> List.map (fun m -> m.GetValue<string>())
++      Rates =
++        n["rates"].AsObject()
++        |> Seq.map (fun kv -> kv.Key, Decimal.Parse(kv.Value.GetValue<string>(), CultureInfo.InvariantCulture))
++        |> Map.ofSeq
++      Entries = items n "entries" |> List.map entryOfJson
++      NextId = int (int64Of n "nextId") }
++
++/// Load the book; a missing file is an empty book.
++let load (path: string) : Result<Book, CliError> =
++    if not (File.Exists path) then
++        Ok Map.empty
++    else
++        try
++            let root = JsonNode.Parse(File.ReadAllText path)
++
++            items root "groups"
++            |> List.map (fun g -> let grp = groupOfJson g in grp.Name, grp)
++            |> Map.ofList
++            |> Ok
++        with ex ->
++            Error(Storage $"cannot read data file {path}: {ex.Message}")
++
++/// Save atomically: write a temporary file next to the target, then rename it.
++let save (path: string) (book: Book) : Result<unit, CliError> =
++    let root =
++        JsonObject(
++            dict
++                [ "version", JsonValue.Create(1) :> JsonNode
++                  "groups", JsonArray(book |> Map.toList |> List.map (snd >> groupToJson) |> Array.ofList) ]
++        )
++
++    let full = Path.GetFullPath path
++    let tmp = Path.Combine(Path.GetDirectoryName full, $".{Path.GetFileName full}.tmp")
++
++    try
++        File.WriteAllText(tmp, root.ToJsonString(JsonSerializerOptions(WriteIndented = true)) + "\n")
++        File.Move(tmp, full, true)
++        Ok()
++    with ex ->
++        (try File.Delete tmp with _ -> ())
++        Error(Storage $"cannot write data file {path}: {ex.Message}")
+diff --git a/src/Tally/Tally.fsproj b/src/Tally/Tally.fsproj
+new file mode 100644
+index 0000000..a04f615
+--- /dev/null
++++ b/src/Tally/Tally.fsproj
+@@ -0,0 +1,25 @@
++<Project Sdk="Microsoft.NET.Sdk">
++
++  <PropertyGroup>
++    <OutputType>Exe</OutputType>
++    <TargetFramework>net8.0</TargetFramework>
++    <AssemblyName>tally</AssemblyName>
++    <RootNamespace>Tally</RootNamespace>
++    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
++    <NuGetAudit>false</NuGetAudit>
++    <WarnOn>3390;1182</WarnOn>
++    <InvariantGlobalization>true</InvariantGlobalization>
++    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
++  </PropertyGroup>
++
++  <ItemGroup>
++    <Compile Include="Outcome.fs" />
++    <Compile Include="Money.fs" />
++    <Compile Include="Domain.fs" />
++    <Compile Include="Settle.fs" />
++    <Compile Include="Store.fs" />
++    <Compile Include="Commands.fs" />
++    <Compile Include="Program.fs" />
++  </ItemGroup>
++
++</Project>
+diff --git a/tests/Tally.Tests/Check.fs b/tests/Tally.Tests/Check.fs
+new file mode 100644
+index 0000000..09be1e9
+--- /dev/null
++++ b/tests/Tally.Tests/Check.fs
+@@ -0,0 +1,21 @@
++/// A tiny assertion harness: named checks, a summary, and a failure count.
++module Tally.Tests.Check
++
++let mutable private failures = 0
++let mutable private passed = 0
++
++let test (name: string) (body: unit -> unit) =
++    try
++        body ()
++        passed <- passed + 1
++    with ex ->
++        failures <- failures + 1
++        eprintfn "FAIL %s: %s" name ex.Message
++
++let equal (expected: 'T) (actual: 'T) =
++    if expected <> actual then
++        failwithf "expected %A, got %A" expected actual
++
++let summary () =
++    printfn "%d passed, %d failed" passed failures
++    if failures = 0 then 0 else 1
+diff --git a/tests/Tally.Tests/Tally.Tests.fsproj b/tests/Tally.Tests/Tally.Tests.fsproj
+new file mode 100644
+index 0000000..e044b4a
+--- /dev/null
++++ b/tests/Tally.Tests/Tally.Tests.fsproj
+@@ -0,0 +1,22 @@
++<Project Sdk="Microsoft.NET.Sdk">
++
++  <PropertyGroup>
++    <OutputType>Exe</OutputType>
++    <TargetFramework>net8.0</TargetFramework>
++    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
++    <NuGetAudit>false</NuGetAudit>
++    <IsPackable>false</IsPackable>
++    <InvariantGlobalization>true</InvariantGlobalization>
++    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
++  </PropertyGroup>
++
++  <ItemGroup>
++    <Compile Include="Check.fs" />
++    <Compile Include="Tests.fs" />
++  </ItemGroup>
++
++  <ItemGroup>
++    <ProjectReference Include="../../src/Tally/Tally.fsproj" />
++  </ItemGroup>
++
++</Project>
+diff --git a/tests/Tally.Tests/Tests.fs b/tests/Tally.Tests/Tests.fs
+new file mode 100644
+index 0000000..daadeed
+--- /dev/null
++++ b/tests/Tally.Tests/Tests.fs
+@@ -0,0 +1,124 @@
++module Tally.Tests.Program
++
++open Tally
++open Tally.Domain
++open Tally.Tests.Check
++
++let cents (shares: Share list) = shares |> List.map (fun s -> s.Cents)
++
++/// Run commands in sequence on a book, failing on the first error.
++let runAll (commands: string list list) =
++    commands
++    |> List.fold
++        (fun (book, _) args ->
++            match Commands.execute book args with
++            | Ok out -> (out.Changed |> Option.defaultValue book), out.Lines
++            | Error e -> failwithf "%A failed: %A" args e)
++        (Map.empty, [])
++
++let trip =
++    [ [ "group"; "add"; "trip"; "EUR" ]
++      [ "member"; "add"; "trip"; "alice" ]
++      [ "member"; "add"; "trip"; "bob" ]
++      [ "member"; "add"; "trip"; "carol" ] ]
++
++let lines commands = runAll (trip @ commands) |> snd
++
++let errorOf commands args =
++    let book, _ = runAll (trip @ commands)
++
++    match Commands.execute book args with
++    | Ok out -> failwithf "expected an error, got %A" out.Lines
++    | Error e -> e
++
++[<EntryPoint>]
++let main _ =
++    test "parse amounts" (fun () ->
++        equal (Some 1250L) (Money.parseAmount "12.5")
++        equal (Some 1200L) (Money.parseAmount "12")
++        equal None (Money.parseAmount "0")
++        equal None (Money.parseAmount "1.234")
++        equal None (Money.parseAmount ".5")
++        equal None (Money.parseAmount "-3")
++        equal (Some 100_000_000L) (Money.parseAmount "1000000.00")
++        equal None (Money.parseAmount "1000000.01"))
++
++    test "format money" (fun () ->
++        equal "3.40" (Money.format 340L)
++        equal "-0.05" (Money.format -5L)
++        equal "+20.00" (Money.formatSigned 2000L)
++        equal "0.00" (Money.formatSigned 0L))
++
++    test "banker's rounding on conversion" (fun () ->
++        equal 512L (Money.convert 1025L 0.5m)
++        equal 518L (Money.convert 1035L 0.5m)
++        equal 2760L (Money.convert 3000L 0.92m))
++
++    test "equal split hands extra cents to the first" (fun () ->
++        equal [ 334L; 333L; 333L ] (allocate 1000L [ "a", 1L; "b", 1L; "c", 1L ] |> cents)
++        equal [ 34L; 33L; 33L ] (allocate 100L [ "a", 1L; "b", 1L; "c", 1L ] |> cents))
++
++    test "largest remainder wins the cent" (fun () ->
++        equal [ 333L; 333L; 334L ] (allocate 1000L [ "a", 3333L; "b", 3333L; "c", 3334L ] |> cents))
++
++    test "exact weights reproduce exact shares" (fun () ->
++        equal [ 1250L; 750L ] (allocate 2000L [ "a", 1250L; "b", 750L ] |> cents))
++
++    test "allocations always sum to the total" (fun () ->
++        for total in [ 1L; 7L; 101L; 99_999L ] do
++            let shares = allocate total [ "a", 7L; "b", 13L; "c", 1L; "d", 29L ]
++            equal total (shares |> List.sumBy (fun s -> s.Cents)))
++
++    test "settle prefers exact matches" (fun () ->
++        let t = Settle.suggest [ "a", 1000L; "b", 500L; "c", -500L; "d", -1000L ]
++        equal [ "c", "b", 500L; "d", "a", 1000L ] (t |> List.map (fun t -> t.Debtor, t.Creditor, t.Cents)))
++
++    test "settle greedy largest first" (fun () ->
++        let t = Settle.suggest [ "a", 3000L; "b", 1000L; "c", -2500L; "d", -1500L ]
++        equal [ "c", "a", 2500L; "d", "b", 1000L; "d", "a", 500L ] (t |> List.map (fun t -> t.Debtor, t.Creditor, t.Cents)))
++
++    test "settle nothing to do" (fun () -> equal [] (Settle.suggest [ "a", 0L; "b", 0L ]))
++
++    test "expense and balances" (fun () ->
++        let out = lines [ [ "expense"; "trip"; "alice"; "30"; "Dinner" ]; [ "balances"; "trip" ] ]
++        equal [ "alice +20.00 EUR"; "bob -10.00 EUR"; "carol -10.00 EUR" ] out)
++
++    test "foreign currency list line" (fun () ->
++        let out =
++            lines
++                [ [ "rate"; "set"; "trip"; "USD"; "0.92" ]
++                  [ "expense"; "trip"; "bob"; "30"; "Taxi"; "--currency"; "USD" ]
++                  [ "list"; "trip" ] ]
++
++        equal [ "#1 expense bob 30.00 USD = 27.60 EUR \"Taxi\"" ] out)
++
++    test "ids are never reused" (fun () ->
++        let out =
++            lines
++                [ [ "expense"; "trip"; "alice"; "3"; "A" ]
++                  [ "rm"; "trip"; "1" ]
++                  [ "expense"; "trip"; "alice"; "3"; "B" ] ]
++
++        equal [ "added expense #2: 3.00 EUR" ] out)
++
++    test "missing rate is rejected" (fun () ->
++        equal
++            (Rejected "no rate for currency: GBP")
++            (errorOf [] [ "expense"; "trip"; "alice"; "3"; "A"; "--currency"; "GBP" ]))
++
++    test "exact shares must add up" (fun () ->
++        match errorOf [] [ "expense"; "trip"; "alice"; "30"; "A"; "--split"; "exact"; "--shares"; "alice=10,bob=19" ] with
++        | Rejected _ -> ()
++        | e -> failwithf "unexpected %A" e)
++
++    test "shares option is a usage error with equal split" (fun () ->
++        match errorOf [] [ "expense"; "trip"; "alice"; "30"; "A"; "--shares"; "alice=30" ] with
++        | Usage _ -> ()
++        | e -> failwithf "unexpected %A" e)
++
++    test "duplicate participant" (fun () ->
++        equal
++            (Rejected "duplicate participant: bob")
++            (errorOf [] [ "expense"; "trip"; "alice"; "30"; "A"; "--among"; "bob,bob" ]))
++
++    summary ()
