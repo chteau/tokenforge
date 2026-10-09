@@ -13,7 +13,7 @@ npm run build     # type-check, then build to dist/
 npm run preview   # serve dist/ under /tokenforge/
 ```
 
-Pages use hash routes (`#/`, `#/benchmark`, `#/docs/<page>`), so they work on GitHub Pages without server rewrites.
+Pages use hash routes (`#/`, `#/benchmark`, `#/docs/<page>`, `#/roadmap`), so they work on GitHub Pages without server rewrites.
 
 ## Data
 

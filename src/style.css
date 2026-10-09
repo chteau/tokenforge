@@ -318,9 +318,15 @@ dl.faq dd { margin: 4px 0 0; color: var(--text-secondary); }
   .section { margin-top: 40px; }
   .section-head h2 { font-size: 20px; }
 }
+@media (max-width: 520px) {
+  .brand { font-size: 0; gap: 0; }
+}
 @media (max-width: 420px) {
-  .brand { letter-spacing: 0.04em; }
+  .nav { gap: 0; }
   .nav a { padding: 6px 6px; }
+}
+@media (max-width: 360px) {
+  .nav a[data-k="home"] { display: none; }
 }
 table.wide { min-width: 860px; }
 table.wide td:first-child { min-width: 220px; }
@@ -423,3 +429,19 @@ pre.term { font-size: 14px; padding: 16px 18px; }
 .cuts .card .how { margin-top: 10px; font-size: 13px; color: var(--accent-ink); }
 @media (max-width: 900px) { .how-intro, .cuts { grid-template-columns: 1fr; } }
 @media (prefers-reduced-motion: reduce) { .acol, .astack i { transition: none; } }
+
+/* roadmap */
+.prio { display: inline-block; font-size: 11px; font-weight: 700; padding: 1px 6px; border: 1px solid currentColor; margin-right: 8px; vertical-align: 2px; }
+.prio.p0 { color: var(--critical); }
+.prio.p1 { color: var(--warning); }
+.prio.p2 { color: var(--muted); }
+@media (prefers-color-scheme: light) { .prio.p1 { color: #8a5a00; } }
+ol.rsteps { list-style: none; padding: 0; margin: 12px 0 0; }
+.rsteps li { display: grid; grid-template-columns: auto 1fr; align-items: start; margin: 10px 0; }
+.rsteps b { color: var(--text-primary); }
+.ritem p, .ritem ul { margin: 10px 0 0; color: var(--text-secondary); font-size: 14px; }
+.ritem ul { padding-left: 20px; }
+.ritem li { margin: 4px 0; }
+.ritem .today { font-size: 13.5px; background: var(--wash); padding: 8px 12px; }
+.ritem .today b { color: var(--text-primary); }
+@media (max-width: 640px) { table.stack td[data-l]::before { content: attr(data-l) ": "; color: var(--muted); } }
