@@ -146,7 +146,7 @@ A strong model writes a fresh small app in a handful of big batches, so the code
 - **Works with [SpecAudit](https://github.com/magicmoux/SpecAudit)** and other skill plugins that bring their own workflow (use `balanced`).
 - **Benchmark cost at list prices**: TokenForge cost less on 34 of 36 tasks (median −22%). The "36 of 36 cheaper" in 0.8.0 counted tokens.
 
-All releases: [CHANGELOG.md](CHANGELOG.md).
+All releases: [CHANGELOG.md](CHANGELOG.md). What comes next: [ROADMAP.md](ROADMAP.md).
 
 ## Install
 
