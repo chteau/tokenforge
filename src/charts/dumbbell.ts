@@ -1,6 +1,6 @@
 // (c) Per-task results: clean Claude Code -> tokenforge, total tokens on a log scale, direct labels.
 import { data, type Task } from '../data';
-import { bindTips, esc, fmtInt, fmtK, mountChart, type Tip } from '../util';
+import { bindTips, esc, fmtInt, fmtK, mountChart, pct, type Tip } from '../util';
 
 const LO = 50_000, HI = 3_000_000;
 const TICKS: [number, string][] = [[50_000, '50k'], [100_000, '100k'], [200_000, '200k'], [500_000, '500k'], [1_000_000, '1M'], [2_000_000, '2M']];
@@ -31,7 +31,7 @@ export function dumbbellChart(box: HTMLElement, group: Task['group']): void {
           { color: 'var(--native)', label: `clean Claude Code (quality ${qn})`, value: fmtInt(t.native.total) },
           { color: 'var(--tf)', label: `tokenforge (quality ${qt})`, value: fmtInt(t.tokenforge.total) },
           { label: 'total tokens', value: `−${Math.round(t.savings)}%` },
-          { label: 'price-weighted', value: `−${Math.round(t.savingsPriceWeighted)}%` },
+          { label: 'list price', value: pct(t.savingsPriceWeighted) },
         ],
       });
       g.push(`<rect class="hl" data-for="${i}" x="0" y="${top + i * rowH}" width="${W}" height="${rowH}"/>`);
@@ -53,7 +53,7 @@ export function dumbbellChart(box: HTMLElement, group: Task['group']): void {
 export function resultsTable(group?: Task['group'], full = false): string {
   const groups: Task['group'][] = group ? [group] : ['scratch', 'existing', 'academic'];
   const head = full
-    ? '<th>Task</th><th>Language</th><th class="num">Runs (clean / tf)</th><th class="num">Clean Claude Code</th><th class="num">tokenforge</th><th class="num">Saved</th><th class="num">Price-weighted</th><th class="num">Requests</th><th class="num">Quality</th>'
+    ? '<th>Task</th><th>Language</th><th class="num">Runs (clean / tf)</th><th class="num">Clean Claude Code</th><th class="num">tokenforge</th><th class="num">Saved</th><th class="num">List price</th><th class="num">Requests</th><th class="num">Quality</th>'
     : '<th>Task</th><th class="num">Clean Claude Code</th><th class="num">tokenforge</th><th class="num">Saved</th><th class="num">Quality</th>';
   const cols = full ? 9 : 5;
   const body = groups.map((gname) => {
@@ -65,7 +65,7 @@ export function resultsTable(group?: Task['group'], full = false): string {
       const qcell = t.qualityDiff < 0 ? `<span class="qdown" title="lower quality score">${q} ▼</span>` : q;
       const label = full ? `${esc(t.label)}<div class="muted" style="font-size:12px">${esc(t.title)}</div>` : esc(t.label);
       return full
-        ? `<tr><td>${label}</td><td>${esc(t.language)}</td><td class="num">${t.runs.native} / ${t.runs.tokenforge}</td><td class="num">${fmtInt(t.native.total)}</td><td class="num">${fmtInt(t.tokenforge.total)}</td><td class="num save">−${Math.round(t.savings)}%<span class="pbar"><span style="width:${t.savings}%"></span></span></td><td class="num">−${Math.round(t.savingsPriceWeighted)}%</td><td class="num">${t.native.requests} → ${t.tokenforge.requests}</td><td class="num">${qcell}</td></tr>`
+        ? `<tr><td>${label}</td><td>${esc(t.language)}</td><td class="num">${t.runs.native} / ${t.runs.tokenforge}</td><td class="num">${fmtInt(t.native.total)}</td><td class="num">${fmtInt(t.tokenforge.total)}</td><td class="num save">−${Math.round(t.savings)}%<span class="pbar"><span style="width:${t.savings}%"></span></span></td><td class="num">${pct(t.savingsPriceWeighted)}</td><td class="num">${t.native.requests} → ${t.tokenforge.requests}</td><td class="num">${qcell}</td></tr>`
         : `<tr><td>${label}</td><td class="num">${fmtK(t.native.total)}</td><td class="num">${fmtK(t.tokenforge.total)}</td><td class="num save">−${Math.round(t.savings)}%</td><td class="num">${qcell}</td></tr>`;
     });
     return `${groups.length > 1 ? `<tr class="group"><td colspan="${cols}">${title}</td></tr>` : ''}${rows.join('')}`;

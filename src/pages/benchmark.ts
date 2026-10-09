@@ -1,6 +1,6 @@
 import { resultsTable } from '../charts/dumbbell';
 import { data, MODEL_NAME } from '../data';
-import { bindCopy, fmtInt } from '../util';
+import { bindCopy, fmtInt, pct } from '../util';
 
 export function benchmark(view: HTMLElement): void {
   const a = data.aggregate;
@@ -13,16 +13,28 @@ export function benchmark(view: HTMLElement): void {
   </header>
 
   <section class="grid cols-4" aria-label="Summary">
-    <div class="card kpi"><span class="label">Median total tokens saved</span><span class="value">−${Math.round(a.medianSavings)}%</span><span class="note">mean −${Math.round(a.meanSavings)}%, pooled −${Math.round(a.pooledSavings)}%</span></div>
-    <div class="card kpi"><span class="label">Cheaper on</span><span class="value">${a.tasksCheaper}/${a.tasks}</span><span class="note">range −${Math.round(a.minSavings)}% to −${Math.round(a.maxSavings)}%</span></div>
-    <div class="card kpi"><span class="label">Price-weighted median</span><span class="value">−${Math.round(a.medianPriceWeighted)}%</span><span class="note">roughly what usage limits count</span></div>
+    <div class="card kpi"><span class="label">Median total tokens saved</span><span class="value">−${Math.round(a.medianSavings)}%</span><span class="note">mean −${Math.round(a.meanSavings)}%, pooled −${Math.round(a.pooledSavings)}%, fewer on ${a.tasksFewerTokens}/${a.tasks}</span></div>
+    <div class="card kpi"><span class="label">Cheaper at list prices on</span><span class="value">${a.tasksCheaper}/${a.tasks}</span><span class="note">range ${pct(a.maxPriceWeighted)} to ${pct(a.minPriceWeighted)}</span></div>
+    <div class="card kpi"><span class="label">Median cost at list prices</span><span class="value">${pct(a.medianPriceWeighted)}</span><span class="note">roughly what usage limits count</span></div>
     <div class="card kpi"><span class="label">Runs</span><span class="value">${a.runs}</span><span class="note">all answered by ${data.model.join(', ')}</span></div>
   </section>
 
   <section class="card" style="margin-top:18px">
     <h2>Per-task results</h2>
-    <p class="sub">Each row is the median of the runs on each side. “Saved” is total tokens (input, cache reads and writes, output). “Price-weighted” counts cache writes 1.25×, cache reads 0.1× and output 5×. Quality is the 0–100 score from hidden tests and checks.</p>
+    <p class="sub">Each row is the median of the runs on each side. “Saved” is total tokens (input, cache reads and writes, output). “List price” is the cost at ${MODEL_NAME} list prices: cache reads 0.05× input, cache writes 1.25× (5-minute) or 2× (1-hour, split per response as logged), output 5×. Quality is the 0–100 score from hidden tests and checks.</p>
     ${resultsTable(undefined, true)}
+  </section>
+
+  <section class="card prose" style="margin-top:18px">
+    <h2>Planning line A/B (0.9.0)</h2>
+    <p>The results above compare TokenForge ${data.tokenforgeVersion} with clean Claude Code. 0.9.0 adds a planning line to the efficiency policy: look at the repo first, plan briefly, never draft code in thinking. It was measured against the same build without it, on the same ${a.tasks} tasks (Claude Code 2.1.295, one run per task on each side):</p>
+    <ul>
+      <li>List cost −15.5% per task (95% CI −20.8% to −9.8%), −18.8% pooled; lower on 27 of 36 tasks, higher on nine.</li>
+      <li>Thinking −44%, total tokens −22%, tool calls −20%, wall-clock −21%.</li>
+      <li>Quality −0.26 points (95% CI −1.03 to +0.52); 1215 of 1219 hidden tests passed on both sides.</li>
+      <li>The line adds 106 input tokens per session, included in every figure.</li>
+    </ul>
+    <p><a href="https://github.com/chteau/tokenforge/blob/master/bench/reports/final-comparison.md">Full report →</a></p>
   </section>
 
   <div class="grid cols-2" style="margin-top:18px;align-items:start">

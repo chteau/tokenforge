@@ -66,7 +66,7 @@ for (const t of report.per_task) {
     runs: { native: t.runs.native, tokenforge: t.runs['token-forge'] },
     native: { total: n.total_tokens, inputEq: n.input_equivalent_tokens, requests: n.api_requests, toolCalls: n.tool_calls, firstContext: n.first_request_context_tokens, quality: n.quality_score, output: n.output_tokens },
     tokenforge: { total: f.total_tokens, inputEq: f.input_equivalent_tokens, requests: f.api_requests, toolCalls: f.tool_calls, firstContext: f.first_request_context_tokens, quality: f.quality_score, output: f.output_tokens },
-    savings: t.diff.token_savings_percent, savingsPriceWeighted: t.diff.input_equivalent_savings_percent, qualityDiff: t.diff.quality_diff,
+    savings: t.diff.token_savings_percent, savingsPriceWeighted: t.diff.list_cost_savings_percent, qualityDiff: t.diff.quality_diff,
   });
 }
 tasks.sort((a, b) => b.savings - a.savings);
@@ -146,9 +146,9 @@ const out = {
     tasks: a.tasks_paired, runs: a.runs_executed,
     medianSavings: a.token_savings_percent.median, meanSavings: a.token_savings_percent.mean, pooledSavings: a.pooled_token_savings_percent,
     minSavings: a.token_savings_percent.min, maxSavings: a.token_savings_percent.max,
-    medianPriceWeighted: a.input_equivalent_savings_percent.median,
+    medianPriceWeighted: a.list_cost_savings_percent.median, minPriceWeighted: a.list_cost_savings_percent.min, maxPriceWeighted: a.list_cost_savings_percent.max,
     medianToolCallReduction: a.tool_call_reduction_percent.median,
-    tasksCheaper: a.sign_test.tasks_tf_cheaper, tasksCostlier: a.sign_test.tasks_tf_costlier,
+    tasksCheaper: a.cost_sign_test.tasks_tf_cheaper, tasksCostlier: a.cost_sign_test.tasks_tf_costlier, tasksFewerTokens: a.sign_test.tasks_tf_cheaper,
     firstRequestOverhead: a.first_request_overhead_tokens.median,
     scratchMedian: groupMedian('scratch'), existingMedian: groupMedian('existing'),
     scratchTasks: tasks.filter((t) => t.group === 'scratch').length, existingTasks: tasks.filter((t) => t.group === 'existing').length, academicTasks: tasks.filter((t) => t.group === 'academic').length, academicMedian: groupMedian('academic'),

@@ -1,7 +1,7 @@
 // Docs, derived from the plugin README and CHANGELOG (github.com/chteau/tokenforge). Plain, direct language.
 import { leanTable } from '../charts/lean';
 import { data } from '../data';
-import { bindCopy, fmtK } from '../util';
+import { bindCopy, fmtK, pct } from '../util';
 
 interface Doc { slug: string; title: string; lead: string; body: () => string }
 
@@ -28,9 +28,9 @@ ${pre('/plugin marketplace add chteau/tokenforge\n/plugin install tokenforge@tok
 
 <h2>What happens on first start</h2>
 <ul>
-  <li><strong>Lean level <code>balanced</code> is set once.</strong> You get a message (shown to you, not to Claude). TokenForge writes only its own entries to <code>~/.claude/settings.json</code>: <code>permissions.deny</code> and <code>skillOverrides</code>. Plugins cannot set permissions themselves, so this is the only way. It never re-applies after you pick a level.</li>
+  <li><strong>Lean level <code>balanced</code> is set once.</strong> You get a message (shown to you, not to Claude). TokenForge writes only its own entries to <code>~/.claude/settings.json</code>: <code>permissions.deny</code>, <code>skillOverrides</code> and <code>autoCompactWindow</code>. Plugins cannot set permissions themselves, so this is the only way. It never re-applies after you pick a level.</li>
   <li><strong>The local dashboard starts in the background.</strong> It listens on <code>127.0.0.1:7878</code> (or the next free port).</li>
-  <li><strong>A small session context is added</strong>: about 640 characters. One terse-reply rule and a two-line efficiency policy.</li>
+  <li><strong>A small session context is added</strong>: a terse-reply rule of about 60 tokens and an efficiency policy of about 370, plus any instruction files Claude Code left out (see <a href="#/docs/hooks">Hooks</a>).</li>
   <li><strong>Hooks start working.</strong> Some commands get rewritten to compact tools. See <a href="#/docs/hooks">Hooks</a>.</li>
 </ul>
 <div class="callout"><b>Opt out of the settings change.</b> Set <code>TFORGE_LEAN_DEFAULT=off</code> before the first start. You can also pick another level the same way: <code>on</code>, <code>max</code> or <code>ultra</code>.</div>
@@ -66,10 +66,14 @@ ${pre('/tokenforge:lean balanced     # inside Claude Code\ntforge lean max      
 <p>The dashboard’s <strong>Settings</strong> page does the same, and also lets you pick which built-in skills Claude may still use on its own.</p>
 
 <h2>What gets written</h2>
-<p>Only TokenForge’s own entries in <code>~/.claude/settings.json</code>: <code>permissions.deny</code>, <code>skillOverrides</code>, and <code>includeGitInstructions</code> at <code>max</code>/<code>ultra</code>. <code>off</code> removes exactly those.</p>
+<p>Only TokenForge’s own entries in <code>~/.claude/settings.json</code>: <code>permissions.deny</code>, <code>skillOverrides</code>, <code>autoCompactWindow</code>, and <code>includeGitInstructions</code> at <code>max</code>/<code>ultra</code>. <code>off</code> removes exactly those.</p>
+
+<h2>When sessions compact</h2>
+<p>Each level also sets when 1M-context sessions compact (<code>autoCompactWindow</code>): at 400k tokens for <code>on</code> and <code>balanced</code>, 300k for <code>max</code>, 200k for <code>ultra</code>, instead of near 1M. Every request re-reads the whole context; replaying 14 days of sessions, 400k cut main-session input 40% and subagent input 17%, at one compaction per ~340 calls. Models with a 200k window are unaffected. A value you set yourself, or pick with <code>/autocompact</code>, wins, and <code>off</code> removes only TokenForge’s. Installs from before 0.9.0 get it once, with a notice.</p>
 
 <h2>Which one to use</h2>
-<p>Keep <code>balanced</code> unless you have a reason. On short tasks this fixed floor is most of the cost, so going lower helps. <code>ultra</code> is the smallest, but Claude loses image and PDF viewing.</p>`,
+<p>Keep <code>balanced</code> unless you have a reason. On short tasks this fixed floor is most of the cost, so going lower helps. <code>ultra</code> is the smallest, but Claude loses image and PDF viewing.</p>
+<p><code>max</code> and <code>ultra</code> hide the Skill and subagent tools that skill plugins such as <a href="https://github.com/magicmoux/SpecAudit">SpecAudit</a> run on: use <code>balanced</code> with them.</p>`,
   },
   {
     slug: 'dashboard', title: 'Dashboard',
@@ -186,7 +190,7 @@ ${pre('tread Ledger.add src/cli.rs:40-80 "src/store.rs:/fn save/"')}
 <h2>Related tools</h2>
 <ul>
   <li><strong><code>tmap</code></strong>: a bundled Rust code indexer. <code>tmap find &lt;words&gt;</code>, <code>tmap tree</code>, <code>tmap sym|callers|callees</code>, <code>tmap slice</code>. On a 1,228-file workspace: 0.9 s to index from scratch, about 25 ms per later command.</li>
-  <li><strong><code>tkit &lt;tool&gt;</code></strong>: one call with short output instead of multi-step shell work. <code>check</code> and <code>test</code> (build/lint and test summaries), <code>diff</code>, <code>debug</code>, <code>ctx</code>, <code>deps</code>, <code>edit</code> and more. Every tool has <code>--help</code>.</li>
+  <li><strong><code>tkit &lt;tool&gt;</code></strong>: one call with short output instead of multi-step shell work. <code>check</code> and <code>test</code> (build/lint and test summaries; <code>test --failed</code> reruns only what failed), <code>run</code> (any command, compacted, full log saved), <code>batch</code> (independent commands in one call), <code>eval</code> (throwaway py/js/sh code, sandboxed, leaves no files), <code>diff</code>, <code>debug</code>, <code>ctx</code>, <code>deps</code>, <code>edit</code> and more. Every tool has <code>--help</code>.</li>
 </ul>`,
   },
   {
@@ -200,6 +204,9 @@ ${pre('tread Ledger.add src/cli.rs:40-80 "src/store.rs:/fn save/"')}
   <li><strong>Raw build and test commands</strong> whose flags it fully understands become <code>tkit check</code> / <code>tkit test</code>: cargo, go, tsc, vitest/jest, npm/pnpm/yarn/bun test, dotnet, pytest, dart/flutter, mvn, gradle, mix, zig, swift, ctest, rspec, phpunit/pest, sbt (<code>.exe</code>/<code>.cmd</code> names included).</li>
   <li><strong><code>ssh HOST CMD</code> and <code>scp</code></strong> become <code>tkit ssh</code>.</li>
   <li><strong>A plain <code>cat</code> of project files totalling 12k+ characters</strong> goes through <code>tview</code> (see <a href="#/docs/tread">tread &amp; tview</a>).</li>
+  <li><strong>A <code>grep</code> or <code>rg</code> whose output is not piped</strong> goes through <code>tkit run --group</code>: each file’s path once above its lines, lines over 500 characters cut, at most 200 lines with the full output saved. A recursive <code>grep</code> also skips <code>.git</code>, <code>node_modules</code>, <code>.venv</code>, <code>__pycache__</code> and a cargo <code>target</code> it does not name. File lists, counts and quiet greps run unchanged.</li>
+  <li><strong>Noisy commands</strong> go through <code>tkit run</code> (colours and progress stripped, repeats collapsed, capped, full log saved): package installs, <code>cargo build</code>, <code>docker</code>/<code>kubectl</code> logs, <code>journalctl</code>, and <code>gh run view --log</code> (log lines differing only in numbers merged). Recursive <code>ls</code>, <code>tree</code> and <code>find</code> are capped at 150 lines; <code>git diff</code>/<code>git show</code> get one line of context and a 300-line cap. A bare <code>git status</code>/<code>git log</code> becomes one line per item, a plain <code>curl</code> becomes <code>tkit http</code>. <code>TFORGE_CAP_ALL=1</code> caps any other plain command. Plain one-line PowerShell commands are routed too.</li>
+  <li><strong>Polling loops</strong>: where the prompt cache expires after 5 idle minutes (subagents), a loop that only sleeps and reads gets at most 4 minutes instead of up to 10, with a one-time note to run it again. A longer wait lets the cache expire, and the next call rewrites the whole context at 12.5× the price of reading it (394 such waits cost 112M input-equivalent tokens in 14 days). Builds, tests, writes and background commands keep their timeout.</li>
 </ul>
 <p>A rewrite happens only when every segment of the command line becomes a tkit/tview call or is read-only (<code>grep</code>, <code>sed -n</code>, <code>ls</code>, <code>git status</code>…), or the session already bypasses permissions. Otherwise the line runs unchanged, so a rewrite never adds a permission prompt. Lines with a heredoc are never touched.</p>
 <h3>Refused, with the tkit command to use instead</h3>
@@ -207,6 +214,8 @@ ${pre('tread Ledger.add src/cli.rs:40-80 "src/store.rs:/fn save/"')}
   <li>Interactive <code>ssh HOST</code>.</li>
   <li>Reading a saved tool output of 8k+ (<code>tool-results/*.txt</code>) whole. It points to <code>grep -n</code> / <code>sed -n</code>.</li>
   <li>Whole-file dumps (<code>cat</code>, <code>less</code>, whole-file Read) inside <code>node_modules</code>, <code>~/.cargo/registry</code>, Go <code>pkg/mod</code>, <code>~/.m2</code>, <code>~/.nuget</code>, wally and pub caches. Use <code>tkit deps api</code>. Focused <code>grep</code>/<code>sed -n</code>/<code>head</code> slices there go through.</li>
+  <li>Whole-file Reads of lockfiles, minified bundles, source maps and build output, once. It points to <code>grep</code> or a Read with offset/limit; repeating the Read loads the whole file.</li>
+  <li>A command that would stop to ask a question (<code>npm init</code>, <code>apt install</code> or <code>pip uninstall</code> without <code>-y</code>): it points to the non-interactive form.</li>
 </ul>
 <p>Anything else runs unchanged.</p>
 <h3>Escape hatches</h3>
@@ -218,7 +227,14 @@ ${pre('TFORGE_RAW=1 cargo test')}
 
 <h2>Efficiency policy</h2>
 <p><strong>Events:</strong> SessionStart, SubagentStart. <strong>Off:</strong> <code>TFORGE_KIT_POLICY=0</code>.</p>
-<p>A few lines, about 210 tokens. Results are re-read on every call, so read code in one call (<code>tread</code>), batch, edit each file in one call, and run checks once and only after code changes. Plus the scope rule: every stated requirement and nothing extra (no unasked features, docs, refactors, dependencies or abstractions), reuse existing code, concise but readable code, fix shared code once, infer instead of asking, stop once the checks pass. <code>TFORGE_LAZY=0</code> drops the scope rule. Subagents get only this policy.</p>
+<p>Three lines, about 270 tokens, plus a planning line in main sessions (about 100 more). Results are re-read on every call, so read code in one call (<code>tread</code>), batch reads and independent commands (<code>tkit batch</code>), edit each file in one call, run throwaway code with <code>tkit eval</code> instead of scratch files, and run checks once and only after code changes. Plus the scope rule: every stated requirement and nothing extra (no unasked features, docs, refactors, dependencies or abstractions), reuse existing code, concise but readable code, fix shared code once, infer instead of asking, stop once the checks pass. <code>TFORGE_LAZY=0</code> drops the scope rule.</p>
+<p>The planning line: thinking is billed as output and re-read on every later call, so look at the repo first, plan briefly, and never draft code in thinking. Over 36 paired bench tasks it cut thinking 44% and list cost 15% per task (95% CI 10–21%), with the same hidden tests passed (<a href="#/benchmark">Benchmark</a>). <code>TFORGE_PLAN=0</code> drops it; <code>TFORGE_PLAN=brief</code> swaps in a shorter line that only asks for a brief plan. Subagents get the rest of the policy, and a planning line only when <code>TFORGE_PLAN</code> names one.</p>
+<p>A skill or agent definition being followed, such as <a href="https://github.com/magicmoux/SpecAudit">SpecAudit</a>’s, wins where they differ: its output format, whole-document reads, scripts, re-runs and questions.</p>
+
+<h2>Instruction files</h2>
+<p><strong>Events:</strong> SessionStart, SubagentStart, PostToolUse. <strong>Off:</strong> <code>TFORGE_INSTRUCTIONS=0</code>.</p>
+<p>Claude Code loads the <code>CLAUDE.md</code> chain, but by default skips <code>AGENTS.md</code> in a project that has a <code>CLAUDE.md</code>, loads nested files only when Read reaches their directory, and gives tforge workers none. TokenForge adds what it left out, following your <code>instructionFiles</code> setting: the <code>AGENTS.md</code> chain with its <code>@imports</code>, the file a short pointer <code>CLAUDE.md</code> names (“Read AGENTS.md first”), and the nested files of directories a tool call reaches, once per session and agent.</p>
+<p>Text already loaded is not repeated; HTML comments and badges are dropped, tables compacted, 20k characters at most. Compacted files are cached in <code>~/.cache/tokenforge/instr/</code> (keyed by size and modification time), and the injected text stays identical until a file changes, so it stays in the prompt cache. Workers get the whole chain; Explore and Plan get none, as Claude Code gives them no <code>CLAUDE.md</code>.</p>
 
 <h2>Terse rule</h2>
 <p><strong>Events:</strong> startup, <code>/clear</code>, after compaction. One reply-style rule of about 60 tokens; nothing per prompt. Answers lead with the result. Code, paths, commands, numbers and negations stay exact. Security warnings and irreversible steps stay in full sentences. Files Claude writes keep their normal style. Switch with <code>/tokenforge:terse full|lite|off</code> or <code>TFORGE_TERSE</code>.</p>
@@ -231,10 +247,21 @@ ${pre('TFORGE_RAW=1 cargo test')}
 
 <h2>Context budget</h2>
 <p><strong>Events:</strong> PostToolUse, UserPromptSubmit. <strong>Off:</strong> <code>TFORGE_WATCH=0</code>.</p>
-<p>The budget is 50k tokens of context per call, or the session’s fixed part plus 15k if that is larger. The warning is shown to you. It reaches Claude only with <code>TFORGE_WATCH_INJECT=1</code>. Over the budget your messages are never held: you get one alert per 10k step, and <code>.forge/HANDOFF.md</code> is written automatically from the session’s snapshots (no model call), so <code>/clear</code> at any moment loses nothing. A handoff you wrote yourself is never overwritten. <code>TFORGE_AUTO_HANDOFF=0</code> turns it off.</p>
+<p>The budget is 50k tokens of context per call, or the session’s fixed part plus 15k if that is larger. The warning is shown to you. It reaches Claude only with <code>TFORGE_WATCH_INJECT=1</code>. Over the budget your messages are never held: you get one alert per 10k step, and <code>.forge/HANDOFF.md</code> is written automatically from the session’s snapshots (no model call), so <code>/clear</code> at any moment loses nothing. A handoff you wrote yourself is never overwritten. The automatic one is deleted once used (when a session started after it saves its first snapshot) or after 72 hours. <code>TFORGE_AUTO_HANDOFF=0</code> turns it off.</p>
 
 <h2>Snapshots</h2>
 <p><strong>Event:</strong> Stop (after every reply). Writes <code>.forge/snapshots/</code> from the transcript; costs no tokens. <strong>Off:</strong> <code>TFORGE_CHECKPOINT=0</code>.</p>
+<p>Each chunk holds its requests, with what each one changed, read, searched, ran and concluded, and closes after 6 requests or at a compaction. Chunks are kept by use, with no model call: a chunk’s score adds up its writing and every later read (Claude reading it, the reload after <code>/clear</code>, the dashboard), each weighted 1/√(hours since + 1), and is lowered when files it changed are gone or a later chunk changed most of the same files. The newest 6 always stay; at most 50 are kept per project.</p>
+
+<h2>Disk cleanup</h2>
+<p><strong>Events:</strong> session start and Stop, in the background, at most every 6 hours (every 10 minutes on a nearly full disk); never in unattended sessions. <strong>Off:</strong> <code>TFORGE_GC=0</code>.</p>
+<p>Claude Code keeps each session’s scratch (scratchpad, task output, images) in <code>/tmp/claude-&lt;uid&gt;/</code> and never deletes it, so a few heavy sessions can fill the disk until transcript writes fail (ENOSPC). <code>tforge gc</code> frees, by rules with no model call: the scratch of ended sessions, TokenForge’s own leftovers (hook state of ended sessions, old tmap binaries and logs, indexes of deleted projects), snapshot chunks scored out and used-up automatic handoffs.</p>
+<ul>
+  <li>A session’s scratch is never touched while Claude Code’s session registry lists its process as running, while a process has its working directory or an open file inside it, or within 12 hours of its last change or transcript write (1 hour on a nearly full disk). Without the registry, none is.</li>
+  <li>Ended sessions’ scratch idle for over 7 days goes; the rest stays up to 2 GB, the oldest and largest going first.</li>
+  <li>On a nearly full disk (under 5% free, within 2–10 GB) it frees until twice that is free.</li>
+</ul>
+${pre('tforge gc --dry-run     # list what it would free')}
 
 <h2>MCP distill</h2>
 <p><strong>Event:</strong> PostToolUse on <code>mcp__.*</code>. <strong>Off:</strong> <code>TFORGE_KIT_DISTILL=0</code>.</p>
@@ -271,7 +298,9 @@ tforge run [--only a,b] [--force a,b] [-j N] [--dry-run] [--detach]
 tforge wait                 <span class="c"># wait for a detached run, print its summary</span>
 tforge status               <span class="c"># task states and spend</span>
 tforge prompt &lt;id&gt;          <span class="c"># the exact prompt a worker receives</span>
-tforge meter [--last N | --all | files...] [--json]`)}
+tforge meter [--last N | --all | files...] [--json]
+tforge meter --commands     <span class="c"># rank Bash commands by what their results cost</span>
+tforge gc [--dry-run]       <span class="c"># free disk (see Hooks › Disk cleanup)</span>`)}
 
 <h2>Plan format</h2>
 ${pre(`{
@@ -318,8 +347,8 @@ ${pre(`{
         ['TFORGE_WATCH_INJECT', '', '<code>1</code> also puts the budget notes into Claude’s context'],
         ['TFORGE_VIEW_CHARS / _FOLD / _LINES', '12000 / 8 / 40', '<code>tview</code>: dump size that folds, body lines that fold, file lines that fold'],
         ['TFORGE_CHECKPOINT', '', '<code>0</code> stops writing snapshots'],
-        ['TFORGE_SNAPSHOT_PROMPTS / _KEEP', '6 / 50', 'Requests per snapshot chunk; chunks kept per project'],
-        ['TFORGE_HANDOFF_MAX_AGE_H', '72', 'Ignore older handoffs'],
+        ['TFORGE_SNAPSHOT_PROMPTS / _KEEP', '6 / 50', 'Requests per snapshot chunk; most chunks kept per project'],
+        ['TFORGE_HANDOFF_MAX_AGE_H', '72', 'Ignore older handoffs; an older automatic one is deleted'],
         ['TFORGE_RECALL', '', '<code>inject</code> restores snapshot loading at start; <code>0</code> turns the recall hint off'],
         ['TFORGE_ANSWER_CACHE', '', '<code>0</code> turns off repeated-question answers'],
         ['TFORGE_LAZY', '', '<code>0</code> drops the scope rules from the policy'],
@@ -328,13 +357,17 @@ ${pre(`{
         ['TFORGE_REDIRECT', '', '<code>1</code> answers identifier Grep calls, identifier greps in Bash, and big whole-file reads from tmap'],
         ['TFORGE_KIT_HOOKS', '', '<code>0</code> disables all tkit hooks (policy, Bash router, prompt router, MCP distill)'],
         ['TFORGE_KIT_POLICY / _ROUTE / _DISTILL', '', '<code>0</code> disables that one hook'],
+        ['TFORGE_PLAN', '', '<code>0</code> drops the policy’s planning line, <code>brief</code> uses a shorter one; when set, subagents get it too'],
         ['TFORGE_KIT_PROMPT', '', '<code>1</code> enables the prompt router (off by default)'],
         ['TFORGE_RAW', '', '<code>TFORGE_RAW=1 cmd</code> runs a Bash command unchanged (<code>TS_RAW=1</code> works too)'],
+        ['TFORGE_CAP_ALL', '', '<code>1</code> caps the output of any other plain Bash command (<code>tkit run</code>)'],
         ['TFORGE_ROUTE_MAX_LINES / _TIMEOUT_MS', '300 / 8000', 'Prompt router: lines pre-loaded, time per tkit call'],
         ['TFORGE_DISTILL_MCP_BYTES', '6000', 'MCP results at least this large are distilled'],
         ['TFORGE_DISTILL_MODEL / _TIMEOUT / _MAX_BYTES', 'haiku / 120 / 480000', 'Model, timeout in seconds (60 in the MCP hook) and input cap for <code>tkit distill</code> and <code>web --ask</code>'],
         ['TMAP_BIN', '', 'Use this tmap binary'],
         ['TFORGE_NO_DOWNLOAD', '', '<code>1</code> never downloads tmap; build with cargo instead'],
+        ['TFORGE_GC', '', '<code>0</code> stops the automatic background <code>tforge gc</code>'],
+        ['TFORGE_INSTRUCTIONS', '', '<code>0</code> stops adding the instruction files Claude Code did not load'],
         ['TFORGE_UI', '', '<code>0</code> stops the dashboard from starting with your first session'],
         ['TFORGE_UI_PORT', '7878', 'Dashboard port (the next free one is used if taken)'],
       ];
@@ -386,8 +419,8 @@ ${rows.map(([k, d, w]) => `<tr><td><code>${k}</code></td><td>${d ? `<code>${d}</
   <dd>No. It never patches Claude Code or wraps the <code>claude</code> binary. It edits <code>~/.claude/settings.json</code> only for lean levels, with its own entries, and <code>tforge lean off</code> removes them.</dd>
   <dt>Will quality drop?</dt>
   <dd>In the benchmark, quality was equal or better on ${data.aggregate.tasks - data.aggregate.qualityWorse.length} of ${data.aggregate.tasks} tasks. On scheduled transfers, every hidden test passed, but TokenForge scored 94 on structural design checks. See <a href="#/benchmark">Benchmark</a>.</dd>
-  <dt>Why is the price-weighted saving (−${Math.round(data.aggregate.medianPriceWeighted)}%) smaller than the token saving (−${Math.round(data.aggregate.medianSavings)}%)?</dt>
-  <dd>Most of the saved tokens are cache reads, which cost 0.1× of normal input. Price-weighted counting is roughly what usage limits count.</dd>
+  <dt>Why is the saving at list prices (${pct(data.aggregate.medianPriceWeighted)}) smaller than the token saving (${pct(data.aggregate.medianSavings)})?</dt>
+  <dd>Most of the saved tokens are cache reads, which cost 0.05× of normal input, and the 1-hour cache writes Claude Code makes cost 2×. List prices are roughly what usage limits count. TokenForge cost less on ${data.aggregate.tasksCheaper} of ${data.aggregate.tasks} tasks; <code>c-cli</code> and <code>perl-cli</code> cost more, both from long up-front plans. The planning line added in 0.9.0 cuts those two by about a third.</dd>
   <dt>Claude ran a different command than it wrote. Why?</dt>
   <dd>The Bash router rewrote it to a compact tool (for example <code>cargo test</code> → <code>tkit test</code>). Prefix the command with <code>TFORGE_RAW=1</code>, or repeat the identical call, to run it unchanged. See <a href="#/docs/hooks">Hooks</a>.</dd>
   <dt>I installed it but nothing changed.</dt>
@@ -403,6 +436,36 @@ ${rows.map(([k, d, w]) => `<tr><td><code>${k}</code></td><td>${d ? `<code>${d}</
   <dt>Can I check the numbers?</dt>
   <dd>Yes. The raw report is in <code>bench/reports/</code> and <code>bench/</code> reruns everything. This site’s charts are generated from that report. The default fixed context is ${fmtK(data.lean.find((l) => l.level === 'balanced')?.tokens ?? 0, true)} per request.</dd>
 </dl>`,
+  },
+  {
+    slug: 'changelog', title: 'Changelog',
+    lead: 'What changed in the latest releases.',
+    body: () => `
+<h2>0.9.0</h2>
+<p>Disk cleanup, instruction files for every agent, a planning line, leaner shell output, SpecAudit compatibility.</p>
+<ul>
+  <li><strong>Planning line</strong>, on by default in main sessions: look at the repo first, plan briefly, never draft code in thinking. Against the same build without it, over 36 paired tasks: list cost −15% per task (95% CI −21% to −10%), thinking −44%, wall-clock −21%, the same hidden tests passed. <code>TFORGE_PLAN=0</code> turns it off (<a href="#/docs/hooks">Hooks</a>).</li>
+  <li><strong>Disk cleanup</strong>: <code>tforge gc</code> removes the per-session scratch Claude Code never deletes from <code>/tmp/claude-&lt;uid&gt;/</code>, TokenForge’s own leftovers, stale snapshots and used-up handoffs, by rules, with no model call. It runs in the background.</li>
+  <li><strong>Instruction files for every agent</strong>: sessions, subagents and workers get the <code>AGENTS.md</code>/<code>CLAUDE.md</code> text Claude Code leaves out, compacted.</li>
+  <li><strong>Earlier compaction in 1M-context sessions</strong>: lean levels set <code>autoCompactWindow</code> (400k at <code>balanced</code>). Replaying 14 days of sessions, main-session input −40% (<a href="#/docs/lean">Lean levels</a>).</li>
+  <li><strong>Leaner shell output</strong> (tmap 0.5.0): <code>tkit run</code>, <code>tkit batch</code>, <code>tkit eval</code> and <code>tkit test --failed</code>. Greps, installs, logs, diffs, recursive listings and plain <code>curl</code> are routed through them, and polling loops in subagents wait at most 4 minutes, within the cache lifetime.</li>
+  <li><strong>Fewer refusals</strong>: Bash reads, <code>cat &gt; file</code> writes, python edit scripts and definition greps are no longer refused, as each refusal cost a round trip. Interactive commands are, with their non-interactive form.</li>
+  <li><strong>Snapshots</strong> hold one node per request and are kept by use; the automatic handoff is deleted once used.</li>
+  <li><strong>Works with <a href="https://github.com/magicmoux/SpecAudit">SpecAudit</a></strong> and other skill plugins that bring their own workflow (use <code>balanced</code>).</li>
+  <li><strong>Dashboard</strong>: a “Skills and MCP servers” card lists long skill descriptions and skills or servers unused in 30 days. <code>tforge meter --commands</code> ranks Bash commands by what their results cost.</li>
+  <li><strong>Documents</strong>: <code>cat</code> of a document no longer cuts long lines, and the opt-in prompt router gives document work no code-mode context.</li>
+  <li><strong>Benchmark cost at list prices</strong>: TokenForge cost less on ${data.aggregate.tasksCheaper} of ${data.aggregate.tasks} tasks (median ${pct(data.aggregate.medianPriceWeighted)}). The “36 of 36 cheaper” in 0.8.0 counted tokens.</li>
+</ul>
+
+<h2>0.8.0</h2>
+<p>Academic work and automation.</p>
+<ul>
+  <li><code>tkit pdf</code>: PDF text with page markers.</li>
+  <li>Notebooks are read as cells, with outputs trimmed.</li>
+  <li>LaTeX builds are compacted to errors, undefined references and a box summary.</li>
+  <li>The status line shows the savings.</li>
+</ul>
+<p><a href="https://github.com/chteau/tokenforge/blob/master/CHANGELOG.md">Every release in CHANGELOG.md →</a></p>`,
   },
 ];
 

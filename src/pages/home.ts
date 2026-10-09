@@ -79,7 +79,7 @@ export function home(view: HTMLElement): void {
     <h2>Measured on ${a.tasks} real tasks, not estimated.</h2>
     <div class="pstats">
       <div class="hi"><div class="n">${Math.round(a.medianSavings)}%</div><div class="l">fewer tokens (median)</div></div>
-      <div><div class="n">${a.tasksCheaper}/${a.tasks}</div><div class="l">tasks cheaper</div></div>
+      <div><div class="n">${a.tasksCheaper}/${a.tasks}</div><div class="l">cheaper at list prices</div></div>
       <div><div class="n">${Math.round(a.scratchMedian)}%</div><div class="l">built from scratch</div></div>
       <div><div class="n">${Math.round(a.existingMedian)}%</div><div class="l">existing codebases</div></div>
       <div><div class="n">${Math.round(a.medianToolCallReduction)}%</div><div class="l">fewer tool calls</div></div>

@@ -13,7 +13,7 @@ export interface BenchData {
   claudeCodeVersion: string; tokenforgeVersion: string; defaultLean: string;
   aggregate: {
     tasks: number; runs: number; medianSavings: number; meanSavings: number; pooledSavings: number; minSavings: number; maxSavings: number;
-    medianPriceWeighted: number; medianToolCallReduction: number; tasksCheaper: number; tasksCostlier: number; firstRequestOverhead: number;
+    medianPriceWeighted: number; medianToolCallReduction: number; minPriceWeighted: number; maxPriceWeighted: number; tasksCheaper: number; tasksCostlier: number; tasksFewerTokens: number; firstRequestOverhead: number;
     scratchMedian: number; existingMedian: number; scratchTasks: number; existingTasks: number; academicTasks: number; academicMedian: number; qualityWorse: string[];
   };
   lean: { level: string; tokens: number }[];

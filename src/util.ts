@@ -10,7 +10,7 @@ export function fmtK(n: number, small = false): string {
   return `${Math.round(n / 1e3)}k`;
 }
 export const fmtInt = (n: number): string => Math.round(n).toLocaleString('en-US');
-export const pct = (n: number): string => `−${Math.round(n)}%`;
+export const pct = (n: number): string => (n < 0 ? `+${Math.round(-n)}%` : `−${Math.round(n)}%`);
 
 export const reducedMotion = (): boolean => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
