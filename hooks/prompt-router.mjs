@@ -4,7 +4,8 @@
 //   debug    "error", "fails", "crash", a stack trace                       -> playbook; a pasted trace is resolved (tkit debug --trace -)
 //   write    "add", "implement", "refactor", ...                            -> playbook; `backticked` literals pre-loaded (tkit analog)
 //   inspect  "where", "how does", "what calls", "explain", ...              -> `backticked` symbols pre-loaded (tkit ctx)
-// Silent for slash commands, short prompts, prompts that match no mode and directories outside a git repo.
+// Silent for slash commands, short prompts, document work (proofreading a manuscript, auditing a spec), prompts that
+// match no mode and directories outside a git repo.
 // No model or network calls; each tkit call has a short timeout and the injected text is capped.
 // Opt-in: TFORGE_KIT_PROMPT=1 (TFORGE_KIT_HOOKS=0 still turns it off). Cap: TFORGE_ROUTE_MAX_LINES (default 300).
 import fs from 'node:fs';
@@ -35,6 +36,12 @@ const FIX_LIGHT = re('\\b(fix|correct|corrige)\\b.{0,30}\\b(typo|typos|spelling|
 const FIRST_WRITE = /^(add|implement|create|build|write|refactor|rename|migrate|extract|tidy|make|port|convert|replace|remove|update|upgrade|ajoute|implémente|crée)$/;
 const FIRST_INSPECT = /^(where|how|explain|why|what|which|walk|show|trace|où|comment|pourquoi|explique)$/;
 const TRACE = /[A-Za-z0-9_./-]+\.[a-z]{1,5}:[0-9]+/;
+// Documents to proofread or audit (manuscripts, papers, proofs, specs; the SpecAudit plugin): code-mode context would
+// only mislead. A PR or a code file named in the same prompt keeps the routing.
+const DOC = re(
+  '\\.(md|markdown|tex|ltx|bib|rst|adoc|typ|pdf|docx?|odt)\\b|\\b(manuscripts?|manuscrits?|papers?|thesis|thèses?|proofs?|preuves?|démonstrations?|theorems?|théorèmes?|lemmas?|lemmes?|specifications?|spécifications?|chapters?|chapitres?|proofread\\w*|relecture|spec-audit)\\b',
+);
+const CODE_FILE = /\.(c|cc|cpp|cs|go|h|hpp|java|kt|swift|rs|py|rb|php|sh|sql|lua|luau|lean|dart|zig|[cm]?js|jsx|[cm]?ts|tsx|vue|svelte)\b/;
 
 export function detect(prompt) {
   const lc = prompt.toLowerCase();
@@ -43,6 +50,7 @@ export function detect(prompt) {
   if (!pr && re('\\b(pr|prs|pull request|merge request)\\b').test(lc)) pr = (/#(\d+)/.exec(prompt) || [])[1];
   const trace = TRACE.test(prompt);
   const ticks = [...new Set([...prompt.matchAll(/`([^`\s][^`]{0,80})`/g)].map((m) => m[1]))].slice(0, 3);
+  if (!pr && DOC.test(lc) && !CODE_FILE.test(lc)) return { mode: null, pr: null, trace, ticks };
   const first = (/^[a-zéèàùçô]+/u.exec(lc) || [''])[0];
   let mode = null;
   if (pr || REVIEW.test(lc)) mode = 'review';

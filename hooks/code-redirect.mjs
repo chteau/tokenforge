@@ -105,31 +105,7 @@ export function onBashGrep(input, bin = existingBinary()) {
     `tokenforge: \`${hit.sym}\` is a code identifier, so the code index answered (tkit ctx${hit.refs ? ' --refs' : ''} ${hit.sym}), cheaper than grep output:\n${out}\n` +
       'Follow with `tkit ctx SYM`, `tmap callers SYM` or a Read of the line range. For literal text, prefix TFORGE_RAW=1 or repeat the same command.',
   );
-}
-
-const DEF_PATTERN = /^(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?(?:struct|enum|trait|fn|impl|class|def|func|function|interface|type)\s+([A-Za-z_]\w{2,})/;
-
-// Bash, any segment of any command: a grep for a definition ("pub struct X", "fn y") asks for the
-// definition's lines; `tread NAME` returns them whole in one call, including from dependency dirs.
-export function onDefGrep(input) {
-  const cmd = String(input.tool_input?.command || '');
-  const segs = splitSegments(cmd);
-  if (!segs || seenBefore(input.session_id, `defgrep\0${cmd}`)) return;
-  for (const [text] of segs) {
-    const t = tokenize(splitPipes(text)[0]);
-    const toks = t && t.filter((x) => !/^[A-Za-z_]\w*=/.test(x));
-    if (!toks || !['grep', 'egrep', 'rg'].includes(exeName(toks[0]))) continue;
-    const pat = toks.slice(1).find((x) => DEF_PATTERN.test(x));
-    const name = pat && DEF_PATTERN.exec(pat)[1];
-    // a named file is a focused slice, already cheap
-    if (!name || toks.slice(1).some((x) => x !== pat && !x.startsWith('-') && /\.\w+$/.test(x))) continue;
-    deny(
-      'PreToolUse',
-      `tokenforge: \`${pat}\` looks for a definition. \`tread ${name}\` prints it whole (indexed code); for a file outside the index use \`tread FILE:/${name}/\`. ` +
-        'Both take several specs in one call. Repeat the same command to run the grep as is.',
-    );
-    return;
-  }
+  return true;
 }
 
 function tmap(bin, args, cwd) {

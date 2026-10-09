@@ -5,11 +5,14 @@ use super::util::{cache_home, cwd, die, run};
 use regex::Regex;
 
 const HELP: &str = "Run a command; print compact output.
-  tmap kit run [--fuzzy] [-n LINES] [-e REGEX] CMD..
+  tmap kit run [--fuzzy] [--group] [-n LINES] [-e REGEX] CMD..
 Strips colours and progress bars, collapses identical consecutive lines (\"line  (x N)\"; --fuzzy also
 merges lines differing only in numbers, for logs), caps at LINES (default
 TFORGE_RUN_MAX or 80: head, then tail), shows \"[exit N]\" when non-zero. -e keeps only matching lines.
+--group reads grep/rg --null output: each file's path once above its lines, lines over 500 chars cut.
 When lines were cut, the full output is saved and its path printed (grep it instead of rerunning).";
+
+const LONG_LINE: usize = 500;
 
 fn max_lines() -> usize {
     std::env::var("TFORGE_RUN_MAX").ok().and_then(|v| v.parse().ok()).unwrap_or(80)
@@ -49,6 +52,82 @@ pub fn collapse(lines: Vec<String>, fuzzy: bool) -> Vec<String> {
     out.into_iter().map(|(_, l, n)| if n > 1 { format!("{l}  (x{n})") } else { l }).collect()
 }
 
+/// grep/rg `--null` output (`path\0line`, `--` between context groups): each path once above its lines, or
+/// `path:line` when it has one; `--` only within a file. Lines without a NUL pass through.
+pub fn group(text: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut cur: Option<(&str, Vec<&str>)> = None;
+    let (mut block, mut sep) = (false, false);
+    for l in text.lines() {
+        if l == "--" {
+            sep = true;
+            continue;
+        }
+        match l.split_once('\0') {
+            Some((p, rest)) if cur.as_ref().is_some_and(|(c, _)| *c == p) => {
+                let lines = &mut cur.as_mut().unwrap().1;
+                if sep {
+                    lines.push("--");
+                }
+                lines.push(rest.trim_end());
+            }
+            Some((p, rest)) => {
+                flush(&mut out, cur.replace((p, vec![rest.trim_end()])), &mut block);
+            }
+            None => {
+                flush(&mut out, cur.take(), &mut block);
+                if block || (sep && !out.is_empty()) {
+                    out.push(if block { String::new() } else { "--".into() });
+                }
+                block = false;
+                out.push(l.trim_end().to_string());
+            }
+        }
+        sep = false;
+    }
+    flush(&mut out, cur, &mut block);
+    out
+}
+
+/// A file's lines: under a heading when several (blank lines around the block), else `path:line`.
+fn flush(out: &mut Vec<String>, cur: Option<(&str, Vec<&str>)>, block: &mut bool) {
+    let Some((path, lines)) = cur else { return };
+    let multi = lines.len() > 1;
+    if (multi || *block) && !out.is_empty() {
+        out.push(String::new());
+    }
+    if multi {
+        out.push(path.to_string());
+        out.extend(lines.into_iter().map(String::from));
+    } else {
+        out.push(format!("{path}:{}", lines[0]));
+    }
+    *block = multi;
+}
+
+/// Lines over `max` chars end in `…[+N chars]`; true when any was cut.
+pub fn cut(lines: &mut [String], max: usize) -> bool {
+    let mut any = false;
+    for l in lines.iter_mut() {
+        if let Some((i, _)) = l.char_indices().nth(max) {
+            let n = l[i..].chars().count();
+            l.truncate(i);
+            l.push_str(&format!("…[+{n} chars]"));
+            any = true;
+        }
+    }
+    any
+}
+
+/// The full output saved under the cache; its path, or "" when it could not be written.
+pub fn save_log(text: &str) -> String {
+    let dir = cache_home().join("tokenforge").join("run");
+    let _ = std::fs::create_dir_all(&dir);
+    let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis());
+    let p = dir.join(format!("{t}.log"));
+    if std::fs::write(&p, text).is_ok() { p.to_string_lossy().into_owned() } else { String::new() }
+}
+
 pub fn cap(lines: Vec<String>, max: usize, failed: bool, log: &str) -> Vec<String> {
     let n = lines.len();
     if n <= max {
@@ -68,18 +147,22 @@ pub fn main(mut a: Vec<String>) -> i32 {
         return 0;
     }
     // only leading options are ours; later ones belong to the command
-    let (mut max, mut filter, mut fuzzy) = (max_lines(), None, false);
-    while a.len() > 1 && a[0] == "--fuzzy" {
-        fuzzy = true;
-        a.remove(0);
-    }
-    while a.len() > 1 && (a[0] == "-n" || a[0] == "-e") {
-        let v = a.remove(1);
-        if a.remove(0) == "-n" {
-            max = v.parse().unwrap_or_else(|_| die("run", "-n needs a number", 2));
-        } else {
-            filter = Some(Regex::new(&v).unwrap_or_else(|e| die("run", &format!("bad regex: {e}"), 2)));
+    let (mut max, mut filter, mut fuzzy, mut grouped) = (max_lines(), None, false, false);
+    while a.len() > 1 {
+        match a[0].as_str() {
+            "--fuzzy" => fuzzy = true,
+            "--group" => grouped = true,
+            "-n" => {
+                let v = a.remove(1);
+                max = v.parse().unwrap_or_else(|_| die("run", "-n needs a number", 2));
+            }
+            "-e" => {
+                let v = a.remove(1);
+                filter = Some(Regex::new(&v).unwrap_or_else(|e| die("run", &format!("bad regex: {e}"), 2)));
+            }
+            _ => break,
         }
+        a.remove(0);
     }
     if a.is_empty() {
         die("run", "no command", 2);
@@ -87,24 +170,20 @@ pub fn main(mut a: Vec<String>) -> i32 {
     super::util::count_runs();
     let argv: Vec<&str> = a.iter().map(String::as_str).collect();
     let o = run(&argv, &cwd(), 1800, &[], None);
-    let all = o.stdout + &o.stderr;
-    let mut lines = clean(&all);
+    let all = o.stdout.clone() + &o.stderr;
+    let mut lines = if grouped { [group(&o.stdout), clean(&o.stderr)].concat() } else { clean(&all) };
     if let Some(re) = &filter {
         lines.retain(|l| re.is_match(l));
     }
+    let long = grouped && cut(&mut lines, LONG_LINE);
     let lines = collapse(lines, fuzzy);
-    let mut log = String::new();
-    if lines.len() > max {
-        let dir = cache_home().join("tokenforge").join("run");
-        let _ = std::fs::create_dir_all(&dir);
-        let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis());
-        let p = dir.join(format!("{t}.log"));
-        if std::fs::write(&p, &all).is_ok() {
-            log = p.to_string_lossy().into_owned();
-        }
-    }
+    let omits = lines.len() > max;
+    let log = if omits || long { save_log(&if grouped { all.replace('\0', ":") } else { all }) } else { String::new() };
     for l in cap(lines, max, o.code != 0, &log) {
         println!("{l}");
+    }
+    if long && !omits && !log.is_empty() {
+        println!("[long lines cut; full output: {log}]");
     }
     if o.code != 0 {
         println!("[exit {}]", o.code);
@@ -130,5 +209,15 @@ mod tests {
         let c = cap(l, 10, true, "/p");
         assert_eq!(c.len(), 11);
         assert!(c[2].contains("omitted") && c[2].contains("/p"));
+    }
+
+    #[test]
+    fn groups_by_file() {
+        let g = group("a.rs\x002:x\na.rs\x003-y  \n--\na.rs\x009:z\nb.rs\x001:w\n--\nc.rs\x004:v\nc.rs\x005:u\ngrep: d: Is a directory\n");
+        assert_eq!(g, ["a.rs", "2:x", "3-y", "--", "9:z", "", "b.rs:1:w", "", "c.rs", "4:v", "5:u", "", "grep: d: Is a directory"]);
+        assert_eq!(group("one\n--\ntwo\n"), ["one", "--", "two"]);
+        let mut l = vec!["é".repeat(LONG_LINE + 7), "short".into()];
+        assert!(cut(&mut l, LONG_LINE));
+        assert_eq!(l, [format!("{}…[+7 chars]", "é".repeat(LONG_LINE)), "short".into()]);
     }
 }

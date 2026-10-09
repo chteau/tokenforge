@@ -413,10 +413,10 @@ async function healthBanner(slot) {
 // Measured fixed context per request (Claude Code 2.1.293) and what each level removes.
 const LEAN = [
   { id: 'off', ctx: '16.9k', what: 'Claude Code as installed.' },
-  { id: 'on', ctx: '11.9k', what: 'Hides agent-orchestration tools: Workflow, Monitor, Cron, RemoteTrigger, SendMessage, worktrees, NotebookEdit.' },
+  { id: 'on', ctx: '11.9k', what: 'Hides agent-orchestration tools: Workflow, Monitor, Cron, RemoteTrigger, SendMessage, worktrees, NotebookEdit. Compacts 1M-context sessions at 400k tokens instead of near 1M.' },
   { id: 'balanced', ctx: '9.7k', what: 'Default. Also hides Claude Code\'s built-in skills from Claude; you can still type them. Your own skills, subagents and web stay.' },
-  { id: 'max', ctx: '5.8k', what: 'Also hides the Skill tool, subagents, web tools and Claude Code\'s git instructions. Slash commands you type still work.' },
-  { id: 'ultra', ctx: '4.4k', what: 'Also hides Read/Edit/Write; Claude reads and edits files with Bash. No image or PDF viewing.' },
+  { id: 'max', ctx: '5.8k', what: 'Also hides the Skill tool, subagents, web tools and Claude Code\'s git instructions. Slash commands you type still work. Compacts at 300k.' },
+  { id: 'ultra', ctx: '4.4k', what: 'Also hides Read/Edit/Write; Claude reads and edits files with Bash. No image or PDF viewing. Compacts at 200k.' },
 ];
 
 async function settingsView() {

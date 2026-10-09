@@ -14,6 +14,7 @@ pub mod symctx;
 pub mod code;
 // utilities
 pub mod edit;
+pub mod eval;
 pub mod http;
 pub mod img;
 pub mod jx;
@@ -50,6 +51,7 @@ pub const TOOLS: &[(&str, Tool, &str)] = &[
     ("port", port::main, "who listens on a port, --kill"),
     ("batch", batch::main, "several independent commands in one call, each output compacted and labelled"),
     ("run", run::main, "any command with compact output: no colours/progress, repeats collapsed, capped, full log saved"),
+    ("eval", eval::main, "throwaway py/js/sh code from stdin, sandboxed: leaves no files"),
     ("ssh", ssh::main, "ssh without prompts, capped output, reused connection"),
     ("web", web::main, "web page outline | -s terms | -n section | --ask question"),
 ];

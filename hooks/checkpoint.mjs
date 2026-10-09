@@ -2,21 +2,30 @@
 // state even when no handoff was written. Deterministic (read from the transcript, not summarized by Claude)
 // and incremental: only the transcript bytes added since the last run are parsed. The open chunk is
 // rewritten on every reply; it closes after TFORGE_SNAPSHOT_PROMPTS requests or at a compaction, and a new
-// session (after /clear) starts its own chunks. session-start.mjs reloads the newest two.
+// session (after /clear) starts its own chunks. session-start.mjs reloads the newest two. pruneSnapshots
+// forgets chunks by activation (age, loads, files still present, superseded); staleHandoff drops spent
+// automatic handoffs.
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 
-import { projectRoot } from '../lib/util.mjs';
+import { maybeGc } from '../lib/gc.mjs';
+import { stateDir } from '../lib/hookutil.mjs';
+import { projectRoot, readJson, writeJsonAtomic } from '../lib/util.mjs';
 
 const CHUNK_PROMPTS = Number(process.env.TFORGE_SNAPSHOT_PROMPTS) || 6;
 const KEEP = Number(process.env.TFORGE_SNAPSHOT_KEEP) || 50;
+export const HANDOFF_MAX_H = Number(process.env.TFORGE_HANDOFF_MAX_AGE_H) || 72;
+const PROTECT = 6; // newest chunks never pruned
+const FORGET = -3; // activation below which a chunk is pruned
 const PROMPT_CHARS = 500;
 const MAX_FILES = 40;
 const REPLY_CHARS = 1500;
 const EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit']);
 export const SNAP_DIR = 'snapshots';
+export const AUTO_MARK = '<!-- tforge auto-handoff -->';
+const LOADS = 'loads.json';
 const META_RE = /^<!-- tforge (\{.*\}) -->\n/;
+const NAME_RE = /^\d{8}-\d{4}-([\w-]+)-(\d{3})\.md$/;
 
 function readStdin() {
   try {
@@ -213,29 +222,117 @@ export function listSnapshots(cwd) {
   try {
     return fs
       .readdirSync(path.join(cwd, '.forge', SNAP_DIR))
-      .filter((f) => /^\d{8}-\d{4}-[\w-]+-\d{3}\.md$/.test(f))
+      .filter((f) => NAME_RE.test(f))
       .sort();
   } catch {
     return [];
   }
 }
 
-export function ensureIgnored(forgeDir, name) {
+export function ensureIgnored(forgeDir, ...names) {
   const gi = path.join(forgeDir, '.gitignore');
   let body = '';
   try {
     body = fs.readFileSync(gi, 'utf8');
   } catch {}
-  if (!body.split('\n').includes(name)) fs.appendFileSync(gi, (body && !body.endsWith('\n') ? '\n' : '') + name + '\n');
+  const have = body.split(/\r?\n/);
+  const add = names.filter((n) => !have.includes(n));
+  if (add.length) fs.appendFileSync(gi, (body && !body.endsWith('\n') ? '\n' : '') + add.join('\n') + '\n');
+}
+
+// Remember when snapshot chunks were read back into a session; pruneSnapshots counts each load as a use.
+export function noteLoad(cwd, names, now = Date.now()) {
+  if (!names.length) return;
+  const file = path.join(cwd, '.forge', SNAP_DIR, LOADS);
+  try {
+    const loads = readJson(file, {});
+    for (const n of names) loads[n] = [...(loads[n] || []), now].slice(-20);
+    writeJsonAtomic(file, loads);
+  } catch {}
+}
+
+const readSnapshot = (dir, name) => {
+  try {
+    return fs.readFileSync(path.join(dir, name), 'utf8');
+  } catch {
+    return '';
+  }
+};
+
+// Forget the chunks no session will need again, by ACT-R base-level activation over a chunk's uses (its
+// creation and every load back into a session): A = ln sum (hours since use + 1)^-0.5, plus ln(0.5 + 0.5 f)
+// where f is the share of the files it changed that still exist, minus 1 when a newer chunk changed at least
+// 80% of the same files. An unread chunk lasts ~17 days, ~4 once its files are gone, ~2 once superseded.
+// The newest PROTECT chunks always stay; below FORGET a chunk goes, then the weakest until KEEP remain.
+// Returns the removed (with dryRun, the doomed) names.
+export function pruneSnapshots(cwd, { now = Date.now(), dryRun = false } = {}) {
+  const dir = path.join(cwd, '.forge', SNAP_DIR);
+  let loads = {};
+  try {
+    loads = readJson(path.join(dir, LOADS), {});
+  } catch {}
+  const chunks = listSnapshots(cwd).map((name) => {
+    const text = readSnapshot(dir, name);
+    const listed = /\n## Files changed\n((?:- .*\n)*)/.exec(text)?.[1].split('\n').filter(Boolean).map((l) => l.slice(2)) || [];
+    const edited = [...text.matchAll(/^ {2}- edited: (.+)$/gm)].flatMap((m) => m[1].split(', '));
+    const files = new Set([...listed, ...edited].map((f) => path.resolve(cwd, f.replace(/:\d+(-\d+)?$/, ''))));
+    const { meta } = parseSnapshot(text);
+    const born = Date.parse(meta?.end || meta?.start) || fs.statSync(path.join(dir, name), { throwIfNoEntry: false })?.mtimeMs || now;
+    return { name, files, uses: [born, ...(loads[name] || [])] };
+  });
+  const covered = (c, d) => [...c.files].filter((f) => d.files.has(f)).length >= 0.8 * c.files.size;
+  const scored = chunks.slice(0, -PROTECT).map((c, i) => {
+    const base = Math.log(c.uses.reduce((sum, t) => sum + (Math.max(0, now - t) / 3600e3 + 1) ** -0.5, 0));
+    const present = c.files.size ? [...c.files].filter((f) => fs.existsSync(f)).length / c.files.size : 1;
+    const superseded = c.files.size > 0 && chunks.slice(i + 1).some((d) => covered(c, d));
+    return { name: c.name, a: base + Math.log(0.5 + 0.5 * present) - (superseded ? 1 : 0) };
+  });
+  const gone = scored.filter((c) => c.a < FORGET);
+  const rest = scored.filter((c) => c.a >= FORGET).sort((x, y) => x.a - y.a);
+  gone.push(...rest.slice(0, Math.max(0, chunks.length - gone.length - KEEP)));
+  const names = gone.map((c) => c.name);
+  if (dryRun || !names.length) return names;
+  for (const n of names) fs.rmSync(path.join(dir, n), { force: true });
+  const left = new Set(listSnapshots(cwd));
+  try {
+    writeJsonAtomic(path.join(dir, LOADS), Object.fromEntries(Object.entries(loads).filter(([n]) => left.has(n))));
+  } catch {}
+  return names;
+}
+
+// An automatic handoff (AUTO_MARK) has done its job once a session other than its writer started after it was
+// written (that session got it at startup), or once it is older than maxH hours; kept, it would only be
+// injected again. A handoff the user wrote is never touched. Returns true when removed (with dryRun: would be).
+export function staleHandoff(cwd, maxH, { now = Date.now(), dryRun = false } = {}) {
+  const file = path.join(cwd, '.forge', 'HANDOFF.md');
+  let head, mtime;
+  try {
+    head = fs.readFileSync(file, 'utf8').slice(0, 400);
+    mtime = fs.statSync(file).mtimeMs;
+  } catch {
+    return false;
+  }
+  if (!head.startsWith(AUTO_MARK)) return false;
+  const writer = /session ([\w-]+)/.exec(head)?.[1];
+  const dir = path.join(cwd, '.forge', SNAP_DIR);
+  const startedAfter = () =>
+    listSnapshots(cwd).some((f) => {
+      const [, sid8, n] = NAME_RE.exec(f);
+      return n === '001' && sid8 !== writer && Date.parse(parseSnapshot(readSnapshot(dir, f)).meta?.start) > mtime;
+    });
+  if (now - mtime <= maxH * 3600e3 && !startedAfter()) return false;
+  if (!dryRun) fs.rmSync(file, { force: true });
+  return true;
 }
 
 function main() {
-  if (process.env.TFORGE_CHECKPOINT === '0') return;
   const input = readStdin();
-  if (!input.transcript_path || !input.cwd) return;
+  if (!input.cwd) return;
   input.cwd = projectRoot(input.cwd);
+  maybeGc(input.cwd, input.session_id);
+  if (process.env.TFORGE_CHECKPOINT === '0' || !input.transcript_path) return;
   const sid = String(input.session_id || 'unknown').replace(/[^a-zA-Z0-9_-]/g, '');
-  const dir = path.join(os.tmpdir(), `tokenforge-${process.getuid?.() ?? 'u'}`);
+  const dir = stateDir();
   const stateFile = path.join(dir, `${sid}.snap.json`);
   let prev = {};
   try {
@@ -248,14 +345,17 @@ function main() {
     const forge = path.join(input.cwd, '.forge');
     const snaps = path.join(forge, SNAP_DIR);
     fs.mkdirSync(snaps, { recursive: true });
-    ensureIgnored(forge, `${SNAP_DIR}/`);
+    // The .gitignore ignores itself: a .forge holding only automatic files stays out of git status, `git add -A` and
+    // the clean check of `git worktree remove` (SpecAudit audits in a worktree it removes after the merge).
+    ensureIgnored(forge, '.gitignore', `${SNAP_DIR}/`, 'HANDOFF.md');
     for (const c of [...s.closed, open]) {
       // The start time names the file, so it must not change between runs.
       if (c) c.start ||= new Date().toISOString();
       if (c && (c.prompts.length || c.files.length || c.reply)) fs.writeFileSync(path.join(snaps, chunkName(c, sid)), render(c, sid, input.cwd));
     }
+    const closed = s.closed.length;
     s.closed = [];
-    for (const f of listSnapshots(input.cwd).slice(0, -KEEP)) fs.rmSync(path.join(snaps, f), { force: true });
+    if (closed) pruneSnapshots(input.cwd);
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
     fs.writeFileSync(stateFile, JSON.stringify(s));
   } catch {}

@@ -2,15 +2,20 @@
 //   Rewritten (updatedInput): raw build/test commands -> `tkit check` / `tkit test`; `ssh HOST CMD` and
 //     scp -> `tkit ssh`. Only commands whose flags are all understood; anything else runs unchanged.
 //   `cat FILES` inside the project -> `tview FILES` (long definition bodies folded, see lib/view.mjs).
+//   grep/rg printing lines -> `tkit run --group` (each path once above its lines, long lines cut, capped);
+//     noisy installs, CI logs and recursive listings -> `tkit run` (squeezed, capped, full log saved).
 //   Refused (deny + the tkit command to use): interactive `ssh HOST`, reads inside dependency
 //     registries (Bash and whole-file Read).
+//   Never refused: focused reads (grep, sed -n, head, cat) and inline edit scripts. A refusal costs a round trip
+//     that re-reads the whole context, more than the output it saves, and one script that edits a file in one
+//     call is cheaper than a chain of small Edit calls.
 //   Never rewritten: commands with a heredoc. A rewrite is auto-approved only when every segment became
 //     a tkit/tview call, or the session already approves everything; otherwise the command runs unchanged
 //     (asking would show a prompt on every rewrite, and nobody can answer it in a headless run).
-//   Inline edit scripts are allowed: one script that edits a file in one call is cheaper than a chain
-//     of small Edit calls, each of which re-reads the whole context.
+//   Polling loops (until/while/for with sleep and only reads) asking for more than 4 minutes get 4 where the prompt
+//     cache lives 5 minutes (subagents): a longer wait lets it expire, and the next call rewrites the whole context.
 // Escape hatches: a TFORGE_RAW=1 (or TS_RAW=1) prefix, or repeating the identical call.
-// With TFORGE_REDIRECT=1, identifier greps in Bash are answered from tmap too (see code-redirect.mjs).
+// With TFORGE_REDIRECT=1, identifier greps in Bash are answered from tmap first (see code-redirect.mjs).
 // Off: TFORGE_KIT_HOOKS=0 or TFORGE_KIT_ROUTE=0.
 import fs from 'node:fs';
 import path from 'node:path';
@@ -88,13 +93,14 @@ export function rewrite(t) {
       (exe === 'journalctl' && !t.includes('-n'));
     const logs = (['docker', 'kubectl'].includes(exe) && sub === 'logs') || exe === 'journalctl';
     if (noisy) return kit('run', ...(logs ? ['--fuzzy'] : []), ...t);
-    // unbounded listings and searches: capped, full list saved to a file
+    // CI logs: thousands of timestamped lines, the failure near the end
+    if (exe === 'gh' && sub === 'run' && t[2] === 'view' && t.some((a) => a === '--log' || a === '--log-failed')) return kit('run', '--fuzzy', '-n', '200', ...t);
+    // unbounded listings: capped, full list saved to a file
     const bounded = t.some((a) => ['-c', '-l', '-L', '-q', '-m', '--count', '--files-with-matches', '--max-count', '-print0', '-maxdepth', '-quit'].includes(a));
     const listing =
       (exe === 'ls' && t.some((a) => /^-[a-zA-Z]*R/.test(a) || a === '--recursive')) ||
       exe === 'tree' ||
-      (exe === 'find' && !t.some((a) => /^-(exec|execdir|delete|ok|fprint|print0|maxdepth|quit)/.test(a))) ||
-      false; // grep and rg stay with the code-redirect hook
+      (exe === 'find' && !t.some((a) => /^-(exec|execdir|delete|ok|fprint|print0|maxdepth|quit)/.test(a)));
     if (listing && !bounded) return kit('run', '-n', '150', ...t);
     // big diffs: 1 line of context instead of 3, capped
     if (exe === 'git' && (sub === 'diff' || sub === 'show') && rest.every((a) => !a.startsWith('-') || a === '--staged' || a === '--cached'))
@@ -357,14 +363,46 @@ export function catFiles(core, cwd, root) {
   return files;
 }
 
+// grep/rg printing matched lines: each path once above its lines (--null marks where it ends; `tkit run --group`
+// reads it), long lines cut, capped. Lists, counts and quiet or NUL-separated output keep their own form, and so
+// does a run whose stdout goes to /dev/null (only its exit code is wanted). toks: the segment's tokens with redirects;
+// raw: its text, kept as written after the program name so globs, ~ and $VARS still expand in the shell.
+const GREP_SKIP = new Set(['--count', '--count-matches', '--files', '--files-with-matches', '--files-without-match', '--quiet', '--silent', '--json', '--null', '--null-data', '--heading', '--pretty', '--type-list', '--help', '--version']);
+const NOISE_DIRS = ['.git', 'node_modules', '.venv', '__pycache__'];
+function grepWrap(core, toks, raw, cwd) {
+  const exe = exeName(core[0]);
+  if (!['grep', 'egrep', 'fgrep', 'rg'].includes(exe) || !onPath(core[0], cwd)) return null;
+  if (core.some((a) => /^-[a-zA-Z]*[lLqcpzZ0]/.test(a) || GREP_SKIP.has(a) || a.startsWith('--pre'))) return null;
+  if (toks.some((x) => ['>/dev/null', '&>/dev/null', '>NUL'].includes(x))) return null;
+  const extra = ['--null'];
+  if (toks.some((x) => x === '2>/dev/null' || x === '2>NUL')) extra.push('--no-messages');
+  // recursive grep: skip VCS, dependency and cache dirs the command does not name (rg skips them through .gitignore)
+  if (exe !== 'rg' && core.some((a) => /^-[a-zA-Z]*[rR]/.test(a) || /^--(dereference-)?recursive$/.test(a))) {
+    const dirs = [...NOISE_DIRS, ...(cwd && fs.existsSync(path.join(cwd, 'target', 'CACHEDIR.TAG')) ? ['target'] : [])];
+    extra.push(...dirs.filter((d) => !core.some((a) => a.includes(d))).map((d) => `--exclude-dir=${d}`));
+  }
+  const text = raw.trim();
+  const prog = /^\S+/.exec(text)[0];
+  return `${kit('run', '--group', '-n', '200')} ${prog} ${extra.join(' ')}${text.slice(prog.length)}`;
+}
+
+// A program `tkit run` can start: rg is often a shell function or alias (Claude Code ships its own).
+function onPath(name, cwd) {
+  if (/[\\/]/.test(name)) return fs.existsSync(path.resolve(cwd || '.', name));
+  const exts = process.platform === 'win32' ? ['.exe', '.cmd', ''] : [''];
+  return (process.env.PATH || '').split(path.delimiter).some((d) => d && exts.some((x) => fs.existsSync(path.join(d, name + x))));
+}
+
 // Read-only segments that keep a rewritten command auto-approvable (no redirection, checked by caller).
-const READ_ONLY = new Set(['grep', 'rg', 'head', 'tail', 'ls', 'wc', 'echo', 'printf', 'pwd', 'tree', 'nl', 'cat', 'sort', 'uniq', 'cut', 'file', 'stat', 'true']);
+const READ_ONLY = new Set(['grep', 'egrep', 'fgrep', 'rg', 'head', 'tail','ls', 'wc', 'echo', 'printf', 'pwd', 'tree', 'nl', 'cat', 'sort', 'uniq', 'cut', 'file', 'stat', 'true']);
 export function readOnly(core) {
   const exe = exeName(core[0] || '');
+  if (exe === 'rg' && core.some((x) => x.startsWith('--pre'))) return false; // runs a command per file
   if (READ_ONLY.has(exe)) return true;
   if (exe === 'sed') return core.includes('-n') && !core.some((x) => /^-i|^--in-place/.test(x));
   if (exe === 'find') return !core.some((x) => /^-(exec|execdir|delete|ok|fprint)/.test(x));
   if (exe === 'git') return ['status', 'log', 'diff', 'show', 'ls-files', 'grep', 'blame', 'rev-parse', 'branch'].includes(core[1]);
+  if (exe === 'gh') return core[1] === 'run' && core[2] === 'view';
   return false;
 }
 
@@ -459,7 +497,7 @@ export function routeCommand(cmd, { cwd, permissionMode } = {}) {
           viewed = true;
           continue;
         }
-        kitcmd = rewrite(core);
+        kitcmd = rewrite(core) || (pipes.length === 1 && !env.length ? grepWrap(core, toks, pipes[0], here) : null);
         // filters after a rewritten generic/git command would be dropped: leave piped commands alone
         if (kitcmd && pipes.length > 1 && /^(tkit run|git )/.test(kitcmd)) kitcmd = null;
         // `tkit run` wraps any command: only read-only ones may skip the permission prompt
@@ -492,28 +530,84 @@ export function routeCommand(cmd, { cwd, permissionMode } = {}) {
   return { command: out.join(''), notes, allow: true };
 }
 
-// `cat > f <<'EOF' ... EOF` blocks and nothing else; a script written and run in one call stays one call.
-const HEREDOC_WRITE = /(^|[;&\n]\s*)cat\s+>\s*\S+\s*<<-?\s*(['"]?)(\w+)\2[^\n]*\n[\s\S]*?\n\s*\3[ \t]*(?=\n|$)/g;
-export const onlyHeredocWrites = (cmd) => HEREDOC_WRITE.test(cmd) && !cmd.replace(HEREDOC_WRITE, '$1').replace(/[\s;&]+/g, '');
+// ---------- polling waits ----------
+// A subagent's prompt cache expires after 5 idle minutes. A Bash call that polls longer lets it lapse, and the next
+// request rewrites the whole context at 12.5x the price of reading it: over 14 days, 394 such waits cost 112M
+// input-equivalent tokens. There, a loop that only sleeps and looks gets 4 minutes; running it again goes on waiting.
+// Builds, tests, writes, background runs and contexts on the 1-hour cache keep the timeout they asked for.
+export const WAIT_CAP = 240e3;
+const POLL_OK = new Set(['sleep', 'test', '[', '[[', 'pgrep', 'ps', 'true', 'false', ':', 'break', 'continue', 'date']);
+const SHELL_WORDS = new Set(['until', 'while', 'do', 'done', 'if', 'then', 'elif', 'else', 'fi', '!', '{', '}']);
 
-// Our tools first: a raw read of code in Bash is refused once with the tread form; repeating the identical command runs it.
-export function toolFirst(cmd) {
-  if (/(^|[\s;&|(])(tkit|tread|tview|tmap)\s/.test(cmd) || cmd.includes('<<')) return null;
-  for (const [seg] of splitSegments(cmd) || []) {
-    const first = splitPipes(seg)[0];
-    const t = tokenize(first);
-    if (!t) continue;
-    const words = t.filter((x) => !x.startsWith('-'));
-    const exe = exeName(t[0]);
-    const files = words.slice(1).filter((x) => !/^\d+(,\d+)?p?$/.test(x));
-    if ((exe === 'rg' || (exe === 'grep' && t.some((x) => /^-[a-zA-Z]*[rR]|^--recursive/.test(x)))) && files.length)
-      return 'tokenforge: use `tread "path:/regex/"` (the definition around each match, several paths/patterns per call) instead of a recursive grep. Names: `tread NAME path`.';
-    if (exe === 'sed' && t.includes('-n') && t.every((x) => !/^-i|^--in-place/.test(x)) && words.length >= 3 && /^\d+,\d+p$/.test(words[1]))
-      return `tokenforge: use \`tread ${words[2]}:${words[1].slice(0, -1).replace(',', '-')}\` (batch several ranges in one call) instead of sed -n.`;
-    if (['cat', 'head'].includes(exe) && !seg.includes('>') && files.length === 1 && /\.(rs|[jt]sx?|mjs|py|go|java|kt|c|cc|cpp|h|hpp|cs|rb|php|swift|lua|luau|sh|toml|ya?ml|md)$/.test(files[0]) && !BULK.test(files[0]))
-      return `tokenforge: use \`tread ${files[0]}\` (or \`tread ${files[0]}:40-80\`, \`tread NAME ${files[0]}\`) instead of ${exe}.`;
+// A loop (until/while/for) that sleeps and otherwise only looks (test, grep, tail, pgrep...): cutting it short loses nothing.
+export function pollingWait(cmd) {
+  let loop = false;
+  let sleeps = false;
+  const looks = (script) => {
+    const s = script.replace(/\$\(seq [\d ]+\)/g, '1');
+    // outside quotes: no subshell, other substitution, background job, or output to anything but /dev/null
+    const bare = s.replace(/'[^']*'|"(?:[^"\\]|\\.)*"/g, '""').replace(/[\d&]?>>?\s*(\/dev\/null\b|&\d)/g, ' ');
+    if (/[()`>]|(^|[^&])&(?!&)/.test(bare)) return false;
+    const segs = splitSegments(s);
+    return Boolean(segs) && segs.every(([text]) => splitPipes(text).every((p) => {
+      const words = tokenize(p);
+      if (!words) return false;
+      const t = words.filter((x) => x !== '/dev/null' && !/^[\d&]?>/.test(x));
+      let i = 0;
+      for (; SHELL_WORDS.has(t[i]) || ENV.test(t[i]); i++) if (t[i] === 'until' || t[i] === 'while') loop = true;
+      if (t[i] === 'for') {
+        loop = true;
+        return t[i + 2] === 'in';
+      }
+      if (t[i] === 'cd') return t.length <= i + 2;
+      if (exeName(t[i]) === 'timeout') {
+        for (i++; /^-/.test(t[i]); i++) if (/^(-[sk]|--signal|--kill-after)$/.test(t[i])) i++;
+        if (!/^\d/.test(t[i])) return false;
+        i++;
+      }
+      const core = t.slice(i);
+      const exe = exeName(core[0]);
+      if (['sh', 'bash', 'zsh', 'dash'].includes(exe)) return core[1] === '-c' && core.length === 3 && looks(core[2]);
+      if (exe === 'kill') return core[1] === '-0';
+      if (exe === 'sleep') sleeps = true;
+      return !core.length || POLL_OK.has(exe) || readOnly(core);
+    }));
+  };
+  return looks(cmd) && loop && sleeps;
+}
+
+// The prompt-cache TTL this context's requests write ('5m' or '1h'), from the end of its transcript; null when unknown.
+function cacheTtl(input) {
+  if (!input.transcript_path) return null;
+  const file = input.agent_id
+    ? path.join(path.dirname(input.transcript_path), input.session_id, 'subagents', `agent-${input.agent_id}.jsonl`)
+    : input.transcript_path;
+  try {
+    const fd = fs.openSync(file, 'r');
+    try {
+      const size = fs.fstatSync(fd).size;
+      const buf = Buffer.alloc(Math.min(size, 256e3));
+      fs.readSync(fd, buf, 0, buf.length, size - buf.length);
+      return [...buf.toString('utf8').matchAll(/"ephemeral_(5m|1h)_input_tokens":[1-9]/g)].pop()?.[1] ?? null;
+    } finally {
+      fs.closeSync(fd);
+    }
+  } catch {
+    return null;
   }
-  return null;
+}
+
+// A 4-minute timeout for a polling wait on the 5-minute cache (a subagent, unless its transcript says 1h).
+function waitCap(input, cmd) {
+  const ti = input.tool_input || {};
+  const asked = Number(ti.timeout) || Number(process.env.BASH_DEFAULT_TIMEOUT_MS) || 120e3;
+  if (asked <= WAIT_CAP || ti.run_in_background || !pollingWait(cmd)) return null;
+  if ((cacheTtl(input) || (input.agent_id ? '5m' : null)) !== '5m') return null;
+  const out = { updatedInput: { ...ti, timeout: WAIT_CAP } };
+  if (!seenBefore(input.session_id, `waitcap\0${input.agent_id || ''}`, 'kit')) {
+    out.additionalContext = 'tokenforge: polling loops are cut at 4 min here (the prompt cache expires after 5 idle min); if one times out, run it again.';
+  }
+  return out;
 }
 
 async function onBash(input) {
@@ -525,30 +619,17 @@ async function onBash(input) {
     if (!seenBefore(input.session_id, `kitdeny\0${cmd}`, 'kit')) deny('PreToolUse', why + '\nRepeating the identical command runs it as is.');
     return;
   }
-  if (onlyHeredocWrites(cmd) && !seenBefore(input.session_id, `heredoc\0${cmd}`, 'kit')) {
-    deny('PreToolUse', 'tokenforge: write files with `tkit edit <<\'EOF\'` blocks `@@ path new` + `<<<`/`===`/`>>>` (many files, edits and new files in one atomic call) or the Write tool, not `cat > file <<EOF`. Repeating the identical command runs it as is.');
-    return;
+  if (process.env.TFORGE_REDIRECT === '1') {
+    const { onBashGrep } = await import('./code-redirect.mjs');
+    if (onBashGrep(input)) return;
   }
-  if (/(^|[;&|]\s*)python3?\s+-\s*<<-?\s*['"]?\w+/.test(cmd) && /\.write\(|write_text\(/.test(cmd) && !seenBefore(input.session_id, `pyedit\0${cmd}`, 'kit')) {
-    deny('PreToolUse', 'tokenforge: edit files with `tkit edit <<\'EOF\'` (`@@ path` + `<<<` old `===` new `>>>`, several per call), not a python replace script. Repeating the identical command runs it as is.');
-    return;
-  }
+  const cap = waitCap(input, cmd);
   const r = routeCommand(cmd, { cwd: input.cwd, permissionMode: input.permission_mode });
+  let out = cap;
   if (r) {
-    if (seenBefore(input.session_id, `kitrw\0${cmd}`, 'kit')) return;
-    const out = { hookEventName: 'PreToolUse', permissionDecision: 'allow', updatedInput: { ...ti, command: r.command } };
-    process.stdout.write(JSON.stringify({ hookSpecificOutput: out }));
-    return;
-  }
-  if (ownToolsOnly(cmd, input.permission_mode)) {
-    process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'allow' } }));
-    return;
-  }
-  const { onBashGrep, onDefGrep } = await import('./code-redirect.mjs');
-  onDefGrep(input);
-  if (process.env.TFORGE_REDIRECT === '1') onBashGrep(input);
-  const tf = toolFirst(cmd);
-  if (tf && !process.stdout.bytesWritten && process.env.TFORGE_TOOLS_FIRST !== '0' && !seenBefore(input.session_id, `toolfirst\0${cmd}`, 'kit')) deny('PreToolUse', tf + '\nRepeating the identical command runs it as is.');
+    if (!seenBefore(input.session_id, `kitrw\0${cmd}`, 'kit')) out = { ...cap, permissionDecision: 'allow', updatedInput: { ...ti, ...cap?.updatedInput, command: r.command } };
+  } else if (ownToolsOnly(cmd, input.permission_mode)) out = { ...cap, permissionDecision: 'allow' };
+  if (out) process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', ...out } }));
 }
 
 // Claude Code saves oversized Bash output under .../tool-results/ and shows a preview; reading the

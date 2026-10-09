@@ -1,6 +1,6 @@
 {
   "name": "tokenforge",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "description": "Build big things with far fewer tokens: plan once, then run each task in a small, stateless Claude worker checked by your tests. Includes a token meter, context-growth warnings, and session handoffs.",
   "author": { "name": "chteau" },
   "homepage": "https://github.com/chteau/tokenforge",

@@ -380,6 +380,20 @@ pub fn js_text_report(kind: &str, text: &str, rc: i32, secs: f64) -> Vec<String>
     o
 }
 
+/// Arguments for `node --test`: none without a test script, the script's own when it is a plain `node … --test …`
+/// (bare, node takes every file under test/ for a test, helpers and fixtures too). None for any other script: npm runs it.
+fn node_test_args(script: &str) -> Option<Vec<String>> {
+    if script.trim().is_empty() {
+        return Some(Vec::new());
+    }
+    let m = re!(r"^\s*node\s+([^&|;<>$`()\\]*)$").captures(script)?;
+    let w: Vec<String> = re!(r#""([^"]*)"|'([^']*)'|(\S+)"#)
+        .captures_iter(&m[1])
+        .filter_map(|c| c.iter().skip(1).flatten().next().map(|a| a.as_str().to_string()))
+        .collect();
+    w.iter().any(|a| a == "--test").then(|| w.into_iter().filter(|a| a != "--test").collect())
+}
+
 fn ts(ctx: &Ctx, tmp: &Path) -> i32 {
     let root = &ctx.root;
     let pj: Value = serde_json::from_str(&read(root.join("package.json"))).unwrap_or(Value::Null);
@@ -409,9 +423,12 @@ fn ts(ctx: &Ctx, tmp: &Path) -> i32 {
         cmd = vec![need("bun", "bun not found"), "test".into()];
         cmd.extend(flt("-t"));
         kind = "bun";
-    } else if named == Some("node --test") || script.is_empty() {
+    } else if let Some(args) = node_test_args(script) {
         cmd = vec![need("node", "node not found"), "--test".into()];
         cmd.extend(flt("--test-name-pattern"));
+        if target.is_empty() {
+            cmd.extend(args);
+        }
         kind = "node";
     } else {
         cmd = vec![need("npm", "npm not found"), "test".into(), "--silent".into(), "--".into()];
@@ -677,6 +694,18 @@ fn luau(ctx: &Ctx) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn node_test_script_args() {
+        let v = |a: &[&str]| Some(a.iter().map(|s| s.to_string()).collect::<Vec<_>>());
+        assert_eq!(node_test_args(""), v(&[]));
+        assert_eq!(node_test_args("node --test"), v(&[]));
+        assert_eq!(node_test_args("node --test test/*.test.mjs"), v(&["test/*.test.mjs"]));
+        assert_eq!(node_test_args(r#"node --import tsx --test "test/**/*.test.ts""#), v(&["--import", "tsx", "test/**/*.test.ts"]));
+        for other in ["tsc && node --test dist/", "NODE_ENV=test node --test", "node test/run.js", "c8 node --test"] {
+            assert_eq!(node_test_args(other), None, "{other}");
+        }
+    }
 
     #[test]
     fn cargo_test_summary() {

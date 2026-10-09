@@ -1227,7 +1227,7 @@ checksum = "fd3ca314f692efd6c868f8408f53fe444634a845f96c028b97d35f6a1f79f0ee"
 
 [[package]]
 name = "tmap"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "bincode",
  "ignore",

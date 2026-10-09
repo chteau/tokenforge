@@ -7,12 +7,14 @@ import { EXAMPLE_PLAN, loadPlan, planPath, topoOrder } from '../lib/plan.mjs';
 import { buildSystemPrompt, buildTaskPrompt, runPlan } from '../lib/runner.mjs';
 import { commandCosts } from '../lib/insights.mjs';
 import { formatLedger, formatSessions, listTranscripts, meterLedger, meterSessions } from '../lib/meter.mjs';
-import { FORGE_DIR, fmtUsd, readJson } from '../lib/util.mjs';
+import { FORGE_DIR, fmtUsd, projectRoot, readJson } from '../lib/util.mjs';
 import { TERSE_LEVELS, configFile, terseLevel, writeConfig } from '../lib/config.mjs';
 import { installStatusline, removeStatusline } from '../lib/limits.mjs';
 import { LEAN_DENY, leanOff, leanOn, leanStatus } from '../lib/lean.mjs';
 import { buildIndex, formatRecall, recall, sessionDetail } from '../lib/memory.mjs';
 import { uiStart, uiState, uiStop } from '../lib/ui-control.mjs';
+import { formatGc, gc } from '../lib/gc.mjs';
+import { HANDOFF_MAX_H, pruneSnapshots, staleHandoff } from '../hooks/checkpoint.mjs';
 
 const VERSION = JSON.parse(fs.readFileSync(new URL('../.claude-plugin/plugin.json', import.meta.url), 'utf8')).version;
 
@@ -48,6 +50,9 @@ Usage: tforge <command> [options]
                        local dashboard: token usage, limits and resets, sessions, code map (127.0.0.1 only)
   statusline --setup   status line with your savings ("TF -45% today") and real limits; wraps an existing one
   statusline --remove  restore the status line exactly as it was (TFORGE_STATUSLINE=0: no automatic setup)
+  gc [--dry-run] [--json]  free disk: scratch of ended Claude Code sessions (/tmp/claude-<uid>), tokenforge
+                       leftovers, snapshots no longer relevant, used-up automatic handoffs. Runs by itself every
+                       6h, every 10 min on a nearly full disk (TFORGE_GC=0: never)
 
 Options: -C <dir> project root (default: current directory)
 Env: TFORGE_CLAUDE  claude binary to use (default: claude)`;
@@ -80,6 +85,7 @@ function parseArgs(argv) {
     else if (a === '--remove') o.remove = true;
     else if (a === '--session') o.session = val();
     else if (a === '--refresh') o.refresh = true;
+    else if (a === '--auto') o.auto = true;
     else if (a === '-n') o.n = Number(val());
     else if (a === '-h' || a === '--help') o.help = true;
     else if (a === '-v' || a === '--version') o.version = true;
@@ -233,6 +239,15 @@ async function main() {
       console.log(`tforge statusline: set in your Claude Code settings${r.wrapped ? '; your status line keeps running and the savings are appended to it' : ''}.`);
       console.log('It shows an estimate of tokens saved today and records your real 5-hour and weekly limits for the dashboard. Undo: tforge statusline --remove');
       return;
+    }
+    case 'gc': {
+      const r = gc({ dryRun: o.dryRun, sessionId: o.session });
+      if (r.busy) return o.auto || console.log('tforge gc: another gc is running');
+      const project = projectRoot(root);
+      const snapshots = pruneSnapshots(project, { dryRun: o.dryRun });
+      const handoff = staleHandoff(project, HANDOFF_MAX_H, { dryRun: o.dryRun });
+      if (o.auto) return;
+      return console.log(o.json ? JSON.stringify({ ...r, snapshots, handoff }, null, 2) : formatGc(r, snapshots, handoff));
     }
     default:
       throw new Error(`unknown command ${cmd} (see tforge --help)`);

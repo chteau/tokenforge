@@ -1,3 +1,4 @@
+import './tmp.mjs';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -419,4 +420,7 @@ test('checkpoint writes chunked snapshots and session-start reloads the newest t
   assert.match(ctx, /third step[^]*after compact/, 'newest two, oldest first');
   assert.doesNotMatch(ctx, /add a budget/, 'only two snapshots loaded');
   assert.doesNotMatch(ctx, /<!-- tforge/, 'metadata line stripped');
+  fs.writeFileSync(path.join(dir, '.forge', 'HANDOFF.md'), 'next steps\n');
+  spawnSync('git', ['init', '-q', dir]);
+  assert.equal(spawnSync('git', ['-C', dir, 'status', '--porcelain', '--', '.forge'], { encoding: 'utf8' }).stdout, '', 'automatic .forge files stay out of git');
 });

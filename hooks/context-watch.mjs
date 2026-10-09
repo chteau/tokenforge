@@ -2,12 +2,15 @@
 // calls x context size. Past the budget the user sees a non-blocking alert, and .forge/HANDOFF.md is written
 // automatically from this session's snapshots (no model call), so /clear at any moment loses nothing: the next
 // session reloads it. Prompts are never held. A handoff the user wrote (/tokenforge:handoff) is never overwritten.
-import crypto from 'node:crypto';
+// After each tool call it also adds the nested instruction files of the directories the call reached (Claude Code
+// loads them only through Read) and counts reads of snapshots, which keep them from being pruned.
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { SNAP_DIR, listSnapshots, parseSnapshot } from './checkpoint.mjs';
-import { isMain } from '../lib/hookutil.mjs';
+import { AUTO_MARK, SNAP_DIR, analyzeBash, listSnapshots, noteLoad, parseSnapshot } from './checkpoint.mjs';
+import { isMain, stateDir } from '../lib/hookutil.mjs';
+import { OMITS_INSTRUCTIONS, nestedFor, readGiven, writeGiven } from '../lib/instructions.mjs';
+import { projectRoot } from '../lib/util.mjs';
 
 const BUDGET = Number(process.env.TFORGE_BUDGET) || 50000;
 // The fixed part (system prompt, tools, skills, hook text) can be most of the budget on its own.
@@ -75,7 +78,6 @@ export function limits(baseline) {
   return { limit, soft: Math.max(limit - SOFT_MARGIN, baseline + 5000) };
 }
 
-const AUTO_MARK = '<!-- tforge auto-handoff -->';
 const section = (body, name) => {
   const m = new RegExp(`## ${name}[^\\n]*\\n([\\s\\S]*?)(?=\\n## |$)`).exec(body);
   return m ? m[1].trim().split('\n').filter((l) => l.startsWith('- ')) : [];
@@ -108,7 +110,7 @@ export function autoHandoff(cwd, sid, ctx, now = Date.now()) {
   const when = new Date(now).toISOString().slice(0, 16).replace('T', ' ');
   const out = [
     AUTO_MARK,
-    `# Handoff (automatic, ${when} UTC, context ~${Math.round(ctx / 1000)}k tokens)`,
+    `# Handoff (automatic, session ${sid8}, ${when} UTC, context ~${Math.round(ctx / 1000)}k tokens)`,
     'Written by tokenforge from the session transcript; /tokenforge:handoff writes one with decisions and next steps.',
     'Continue from the last request. Read files only when the next step needs them.',
   ];
@@ -124,14 +126,50 @@ export function autoHandoff(cwd, sid, ctx, now = Date.now()) {
   }
 }
 
-function main() {
-  if (process.env.TFORGE_WATCH === '0') return;
-  const input = readStdin();
-  if (!input.transcript_path) return;
+// Absolute paths a tool call reached.
+function toolPaths(tool, ti, cwd) {
+  let base = cwd;
+  let list = [];
+  if (tool === 'Bash') {
+    const cmd = String(ti.command || '');
+    const cd = /^\s*cd\s+("[^"]+"|'[^']+'|\S+)\s*&&/.exec(cmd);
+    if (cd) base = path.resolve(cwd, cd[1].replace(/^["']|["']$/g, ''));
+    const { edits, reads } = analyzeBash(cmd);
+    list = [...(cd ? [base] : []), ...[...edits, ...reads].map((p) => p.replace(/:(\d|\/).*$/, ''))];
+  } else if (tool === 'Grep' || tool === 'Glob') list = [ti.path];
+  else list = [ti.file_path ?? ti.notebook_path];
+  return list.filter((p) => typeof p === 'string' && p).map((p) => path.resolve(base, p.replace(/^~(?=[\\/])/, os.homedir())));
+}
+
+// After a tool call: count snapshot reads, and return the nested instruction files the call reached that this agent
+// does not have yet.
+function afterTool(input) {
+  try {
+    const ti = input.tool_input || {};
+    const cwd = input.cwd || process.cwd();
+    const snaps = [...JSON.stringify(ti).matchAll(/\.forge[\\/]+snapshots[\\/]+(\d{8}-\d{4}-[\w-]+-\d{3}\.md)/g)].map((m) => m[1]);
+    if (snaps.length) noteLoad(projectRoot(cwd), [...new Set(snaps)]);
+    if (OMITS_INSTRUCTIONS.has(input.agent_type)) return '';
+    const paths = toolPaths(input.tool_name, ti, cwd);
+    if (!paths.length) return '';
+    const state = readGiven(input.session_id, input.agent_id);
+    const given = new Set(state.loaded);
+    const before = given.size;
+    const text = nestedFor(state.root || cwd, paths, { tool: input.tool_name, given });
+    if (given.size !== before) writeGiven(input.session_id, input.agent_id, { ...state, loaded: [...given] });
+    return text;
+  } catch {
+    return '';
+  }
+}
+
+// Context budget: { systemMessage, context } when the context crossed a band, else null.
+function watch(input, event) {
+  if (process.env.TFORGE_WATCH === '0' || !input.transcript_path) return null;
   const ctx = lastContext(input.transcript_path);
-  if (!ctx) return;
+  if (!ctx) return null;
   const sid = String(input.session_id || 'unknown').replace(/[^a-zA-Z0-9_-]/g, '');
-  const dir = path.join(os.tmpdir(), `tokenforge-${process.getuid?.() ?? 'u'}`);
+  const dir = stateDir();
   const stateFile = path.join(dir, `${sid}.json`);
   let state = {};
   try {
@@ -149,33 +187,29 @@ function main() {
   }
   const { limit, soft } = limits(state.baseline);
   const band = ctx < soft ? -1 : ctx < limit ? 0 : 1 + Math.floor((ctx - limit) / STEP);
-  const event = input.hook_event_name || 'PostToolUse';
   const k = (n) => `${Math.round(n / 1000)}k`;
 
   if (event === 'UserPromptSubmit') {
-    if (band < 1) return;
+    if (band < 1) return null;
     const prompt = typeof input.prompt === 'string' ? input.prompt.trim() : '';
-    if (prompt.startsWith('/')) return;
+    if (prompt.startsWith('/')) return null;
     const saved = autoHandoff(input.cwd, input.session_id, ctx);
-    if (state.alerted === band) return; // one alert per 10k step
+    if (state.alerted === band) return null; // one alert per 10k step
     state.alerted = band;
     save();
-    process.stdout.write(
-      JSON.stringify({
-        systemMessage:
-          `TokenForge: context is ~${k(ctx)} tokens (budget ${k(limit)}); every call re-reads all of it. ` +
-          (saved ? 'Handoff saved automatically (.forge/HANDOFF.md). ' : '') +
-          'Type /clear when it suits you: the next message continues from it. Your message was sent normally.',
-      }),
-    );
-    return;
+    return {
+      systemMessage:
+        `TokenForge: context is ~${k(ctx)} tokens (budget ${k(limit)}); every call re-reads all of it. ` +
+        (saved ? 'Handoff saved automatically (.forge/HANDOFF.md). ' : '') +
+        'Type /clear when it suits you: the next message continues from it. Your message was sent normally.',
+    };
   }
 
   const prev = state.band ?? -1;
-  if (band === prev) return;
+  if (band === prev) return null;
   state.band = band;
   save();
-  if (band < prev) return; // context shrank (compaction): re-arm, stay silent
+  if (band < prev) return null; // context shrank (compaction): re-arm, stay silent
   const note =
     band === 0
       ? `tokenforge: context is ~${k(ctx)} tokens, near the ${k(limit)} budget. Finish the current step, avoid large reads, ` +
@@ -183,12 +217,25 @@ function main() {
       : `tokenforge: context is ~${k(ctx)} tokens, over the ${k(limit)} budget; every further call re-reads all of it. ` +
         'Finish only the edit in progress, write the handoff with the tokenforge handoff skill, then stop and tell the user to run /clear. ' +
         'Prompts, changed files and your last reply are already saved in .forge/snapshots/.';
+  return {
+    systemMessage: `tokenforge: context ~${k(ctx)} / budget ${k(limit)}.`,
+    // The note goes into the model's context only on request: every injected line is re-read on every
+    // later call, and "stop and /clear" ends unattended tasks halfway. Default: shown to the user only.
+    context: process.env.TFORGE_WATCH_INJECT === '1' ? note : '',
+  };
+}
+
+function main() {
+  const input = readStdin();
+  const event = input.hook_event_name || 'PostToolUse';
+  const nested = event === 'PostToolUse' ? afterTool(input) : '';
+  const w = watch(input, event);
+  const context = [nested, w?.context].filter(Boolean).join('\n\n');
+  if (!context && !w?.systemMessage) return;
   process.stdout.write(
     JSON.stringify({
-      systemMessage: `tokenforge: context ~${k(ctx)} / budget ${k(limit)}.`,
-      // The note goes into the model's context only on request: every injected line is re-read on every
-      // later call, and "stop and /clear" ends unattended tasks halfway. Default: shown to the user only.
-      ...(process.env.TFORGE_WATCH_INJECT === '1' ? { hookSpecificOutput: { hookEventName: event, additionalContext: note } } : {}),
+      ...(w?.systemMessage && { systemMessage: w.systemMessage }),
+      ...(context && { hookSpecificOutput: { hookEventName: event, additionalContext: context } }),
     }),
   );
 }

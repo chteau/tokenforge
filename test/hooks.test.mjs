@@ -1,4 +1,5 @@
 // Tests for the tkit hooks: Bash/Read router, prompt router, MCP distill, kit policy at session start.
+import './tmp.mjs';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -8,7 +9,7 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { detect } from '../hooks/prompt-router.mjs';
 import { existingBinary } from '../lib/tmapbin.mjs';
-import { toolFirst, rewrite, readReason, denyReason, routeCommand } from '../hooks/kit-router.mjs';
+import { rewrite, readReason, denyReason, routeCommand, readOnly, pollingWait } from '../hooks/kit-router.mjs';
 
 // Hooks under test must never touch the developer's real Claude Code settings (session start applies the
 // first-run lean default there).
@@ -18,12 +19,12 @@ process.env.TFORGE_LEAN_DEFAULT = 'off';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const HOOK = (n) => path.join(HERE, '..', 'hooks', n);
 // The hooks must not see the developer's own switches.
-const BASE_ENV = Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^(TFORGE_|TS_RAW|TMAP_BIN)/.test(k)));
+const BASE_ENV = { ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^(TFORGE_|TS_RAW|TMAP_BIN)/.test(k))), TFORGE_GC: '0' };
 let seq = 0;
 const sid = () => `hk${process.pid}x${Date.now()}x${seq++}`;
 
 function run(hook, input, env = {}) {
-  const r = spawnSync('node', [HOOK(hook)], { input: JSON.stringify(input), encoding: 'utf8', env: { ...BASE_ENV, TFORGE_TOOLS_FIRST: '0', ...env } });
+  const r = spawnSync('node', [HOOK(hook)], { input: JSON.stringify(input), encoding: 'utf8', env: { ...BASE_ENV, ...env } });
   assert.equal(r.status, 0, r.stderr);
   return r.stdout ? JSON.parse(r.stdout).hookSpecificOutput : null;
 }
@@ -76,7 +77,7 @@ test('kit router: cat of long project files goes through tview; reads elsewhere,
   fs.writeFileSync(path.join(dir, 'b.rs'), src);
   const r = bash('cat a.rs b.rs; grep -n f1 a.rs', {}, sid(), dir);
   assert.equal(r.permissionDecision, 'allow');
-  assert.match(r.updatedInput.command, /bin\/tview'? a\.rs b\.rs ; grep -n f1 a\.rs$/);
+  assert.match(r.updatedInput.command, /bin\/tview'? a\.rs b\.rs ; tkit run --group -n 200 grep --null -n f1 a\.rs$/);
   assert.match(bash('cat a.rs b.rs | head -700', {}, sid(), dir).updatedInput.command, /tview'? a\.rs b\.rs \| head -700$/);
   assert.equal(bash('cat a.rs | sort', {}, sid(), dir), null, 'only filters after the cat');
   assert.equal(bash('cat -n a.rs', {}, sid(), dir), null);
@@ -108,7 +109,7 @@ test('kit router: ssh/scp become tkit ssh in bypass sessions, interactive ssh an
   assert.equal(bash(`python3 -c "p='a.py';s=open(p).read().replace('x','y');open(p,'w').write(s)"`), null);
   assert.equal(bash("python3 - <<'EOF'\nimport json\nd = json.load(open('a.json'))\njson.dump(d, open('a.json', 'w'))\nEOF"), null);
   assert.match(bash('cat node_modules/react/index.js').permissionDecisionReason, /tkit deps api react/);
-  assert.equal(bash('grep -n Serialize ~/.cargo/registry/src/index.crates.io-6f17d22bba15001f/serde-1.0.200/src/lib.rs'), null, 'focused registry reads go through');
+  assert.match(bash('grep -n Serialize ~/.cargo/registry/src/index.crates.io-6f17d22bba15001f/serde-1.0.200/src/lib.rs').updatedInput.command, /^tkit run --group -n 200 grep --null -n Serialize /, 'focused registry reads go through');
   assert.equal(bash("sed -n '1,40p' src/a.rs; echo ---; grep -n 'pub enum Value' -A 60 ~/.cargo/registry/src/x/duckdb-1.4.5/src/types/value.rs | head -60"), null, 'a batch with a focused registry slice is not refused');
   assert.match(bash('cat ~/.cargo/registry/src/index.crates.io-6f17d22bba15001f/serde-1.0.200/src/lib.rs').permissionDecisionReason, /tkit deps api serde/);
   assert.equal(bash("rg foo --glob '!node_modules/**' src"), null, 'exclusion globs are not registry reads');
@@ -145,7 +146,7 @@ test('kit router: with TFORGE_REDIRECT=1 an identifier grep in Bash is answered 
   const dir = tmpdir('tforge-bgrep-');
   fs.mkdirSync(path.join(dir, 'src'));
   const env = { TMAP_BIN: fakeTmap(dir), TFORGE_REDIRECT: '1' };
-  assert.equal(bash('grep -rn orbit_speed src', { TMAP_BIN: env.TMAP_BIN }, sid(), dir), null, 'opt-in');
+  assert.notEqual(bash('grep -rn orbit_speed src', { TMAP_BIN: env.TMAP_BIN }, sid(), dir)?.permissionDecision, 'deny', 'opt-in');
   const session = sid();
   const r = bash('grep -rn orbit_speed src | head -20', env, session, dir);
   assert.equal(r.permissionDecision, 'deny');
@@ -153,7 +154,7 @@ test('kit router: with TFORGE_REDIRECT=1 an identifier grep in Bash is answered 
   assert.equal(bash('grep -rn orbit_speed src | head -20', env, session, dir), null, 'identical repeat runs');
   assert.match(bash('grep -rl OrbitSpeed .', env, sid(), dir).permissionDecisionReason, /kit ctx --refs OrbitSpeed/);
   for (const c of ['grep -rni orbit_speed src', 'grep -rn "failed to open" src', 'grep -n orbit_speed src/a.rs', 'grep -rn main src', 'TFORGE_RAW=1 grep -rn orbit_speed src'])
-    assert.equal(bash(c, env, sid(), dir), null, c);
+    assert.notEqual(bash(c, env, sid(), dir)?.permissionDecision, 'deny', c);
 });
 
 // ---------- prompt router ----------
@@ -257,10 +258,13 @@ test('session start: short efficiency policy, also for subagents, with switches'
   const policy = ctx.slice(ctx.indexOf('tokenforge: tool results'));
   assert.match(policy, /tread NAME/);
   assert.match(policy, /tkit test \[FILTER\]/);
-  assert.ok(policy.length < 1070, `policy is ${policy.length} chars`);
+  assert.ok(policy.length < 1575, `policy is ${policy.length} chars`);
   assert.match(policy, /every stated requirement, nothing extra/);
   assert.doesNotMatch(ss({}, { TFORGE_LAZY: '0' }).additionalContext, /nothing extra/);
-  assert.ok(ctx.length < 1400, `whole session-start context is ${ctx.length} chars`);
+  assert.match(ctx, /^Planning: thinking is output.*Look before you plan/m);
+  assert.match(ss({}, { TFORGE_PLAN: 'brief' }).additionalContext, /^Planning: think briefly/m);
+  assert.doesNotMatch(ss({}, { TFORGE_PLAN: '0' }).additionalContext, /^Planning:/m);
+  assert.ok(ctx.length < 1905, `whole session-start context is ${ctx.length} chars`);
   assert.doesNotMatch(ss({}, { TFORGE_KIT_POLICY: '0' }).additionalContext, /tool results are re-read/);
   assert.doesNotMatch(ss({}, { TFORGE_KIT_HOOKS: '0' }).additionalContext, /tool results are re-read/);
   assert.match(ss({}, { TFORGE_TERSE: '0' }).additionalContext, /^tokenforge: tool results/, 'terse off keeps the policy');
@@ -268,6 +272,100 @@ test('session start: short efficiency policy, also for subagents, with switches'
   assert.equal(sub.hookEventName, 'SubagentStart');
   assert.match(sub.additionalContext, /^tokenforge: tool results/);
   assert.doesNotMatch(sub.additionalContext, /terse/);
+  assert.doesNotMatch(sub.additionalContext, /^Planning:/m, 'the planning default is measured on main sessions only');
+  assert.match(ss({ hook_event_name: 'SubagentStart' }, { TFORGE_PLAN: 'look' }).additionalContext, /^Planning: thinking is output/m);
+});
+
+test('instruction files: a subagent gets those Claude Code leaves out; a tool call, the nested ones it reached, once', () => {
+  const dir = tmpdir('tforge-instr-');
+  const env = { CLAUDE_CONFIG_DIR: path.join(dir, 'cfg'), XDG_CACHE_HOME: path.join(dir, 'cache'), XDG_CONFIG_HOME: dir, TFORGE_UI: '0' };
+  fs.mkdirSync(path.join(dir, 'pkg'));
+  for (const [f, text] of [['CLAUDE.md', '# Top\n'], ['AGENTS.md', 'Agents rule.\n'], ['pkg/AGENTS.md', 'Pkg rule.\n']]) fs.writeFileSync(path.join(dir, f), text);
+  const session = sid();
+  const start = (agent_type) => run('session-start.mjs', { hook_event_name: 'SubagentStart', session_id: session, agent_id: 'a1', agent_type, cwd: dir }, env).additionalContext;
+  assert.match(start('general-purpose'), /\n\ntokenforge: project instruction files[^]*AGENTS\.md:\n\nAgents rule\.$/);
+  assert.doesNotMatch(start('Explore'), /Agents rule/);
+  const grep = () => run('context-watch.mjs', { hook_event_name: 'PostToolUse', session_id: session, agent_id: 'a1', cwd: dir, tool_name: 'Grep', tool_input: { pattern: 'x', path: 'pkg' } }, env);
+  assert.match(grep().additionalContext, /^tokenforge: instruction files of the directories[^]*Pkg rule\.$/);
+  assert.equal(grep(), null);
+});
+
+test('pollingWait: loops that sleep and only look; nothing that builds, writes or runs in the background', () => {
+  for (const c of [
+    'until grep -q "png" /tmp/t/x.output; do sleep 5; done; cat /tmp/t/x.output',
+    'F=/tmp/x.log; until grep -q "^exit" $F 2>/dev/null; do sleep 10; done; cat $F',
+    'until [ -f /tmp/held ]; do sleep 2; done; echo locked',
+    "for i in $(seq 1 57); do grep -q '^exit' $L 2>/dev/null && break; sleep 10; done; grep -E 'error|warn' $L",
+    'for i in $(seq 1 55); do pgrep -x cargo > /dev/null || break; sleep 10; done; tail -5 log',
+    "timeout 590 sh -c 'while ! test -s out.txt; do sleep 20; done'; cat out.txt",
+    'while true; do if gh run view 12 --json status | grep -q completed; then break; fi; sleep 30; done',
+  ]) assert.ok(pollingWait(c), c);
+  for (const c of [
+    'sleep 300; tail -5 log',
+    'until cargo build; do sleep 5; done',
+    'until [ -f x ]; do sleep 1; done; rm x',
+    'until grep -q ok log; do sleep 5; done > out.txt',
+    'while true; do sleep 5; done &',
+    'until (grep -q ok log); do sleep 1; done',
+    'for f in $(ls); do sleep 1; done',
+    'ssh host "for i in \\$(seq 1 9); do sleep 1; done"',
+  ]) assert.ok(!pollingWait(c), c);
+});
+
+test('kit router: a long polling wait gets 4 minutes where the prompt cache lives 5', () => {
+  const dir = tmpdir('tforge-wait-');
+  const transcript = path.join(dir, 'main.jsonl');
+  const session = sid();
+  const wait = 'until [ -s out.txt ]; do sleep 20; done; cat out.txt';
+  const call = (extra = {}, ti = {}) =>
+    run('kit-router.mjs', { tool_name: 'Bash', session_id: session, cwd: dir, transcript_path: transcript, ...extra, tool_input: { command: wait, timeout: 600000, ...ti } });
+  const ttl = (file, t) => {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, `{"usage":{"cache_creation":{"ephemeral_5m_input_tokens":${t === '5m' ? 900 : 0},"ephemeral_1h_input_tokens":${t === '1h' ? 900 : 0}}}}\n`);
+  };
+  const first = call({ agent_id: 'a1' }); // a subagent: the 5-minute cache unless its transcript says otherwise
+  assert.deepEqual(first.updatedInput, { command: wait, timeout: 240000 });
+  assert.equal(first.permissionDecision, undefined, 'permissions are checked as usual');
+  assert.match(first.additionalContext, /cut at 4 min/);
+  assert.equal(call({ agent_id: 'a1' }).additionalContext, undefined, 'said once');
+  ttl(path.join(dir, session, 'subagents', 'agent-a2.jsonl'), '1h');
+  assert.equal(call({ agent_id: 'a2' }), null);
+  assert.equal(call(), null, 'a main session only when its transcript shows the 5-minute cache');
+  ttl(transcript, '5m');
+  assert.equal(call().updatedInput.timeout, 240000);
+  for (const ti of [{ timeout: 240000 }, { run_in_background: true }, { command: 'sleep 300; cat out.txt' }]) {
+    assert.equal(call({ agent_id: 'a1' }, ti), null, JSON.stringify(ti));
+  }
+});
+
+test('tforge lean: each level sets when 1M-context sessions compact, never over your own value; old installs get it once', () => {
+  const dir = tmpdir('tforge-win-');
+  const env = { CLAUDE_CONFIG_DIR: path.join(dir, 'cc'), XDG_CONFIG_HOME: path.join(dir, 'xdg'), TFORGE_UI: '0', TFORGE_BANNER: '0' };
+  const file = path.join(env.CLAUDE_CONFIG_DIR, 'settings.json');
+  const json = (f) => JSON.parse(fs.readFileSync(f, 'utf8'));
+  const drop = (f, key) => {
+    const o = json(f);
+    delete o[key];
+    fs.writeFileSync(f, JSON.stringify(o));
+  };
+  const tf = (...a) => spawnSync('node', [path.join(HERE, '..', 'bin', 'tforge'), 'lean', ...a], { encoding: 'utf8', env: { ...BASE_ENV, ...env } });
+  const start = () => JSON.parse(spawnSync('node', [HOOK('session-start.mjs')], { input: JSON.stringify({ source: 'startup', cwd: dir }), encoding: 'utf8', env: { ...BASE_ENV, ...env } }).stdout);
+  for (const [level, w] of [['on', 400000], ['max', 300000], ['ultra', 200000], ['balanced', 400000], ['off', undefined]]) {
+    tf(level);
+    assert.equal(json(file).autoCompactWindow, w, level);
+  }
+  fs.writeFileSync(file, JSON.stringify({ autoCompactWindow: 500000 }));
+  tf('max');
+  tf('off');
+  assert.equal(json(file).autoCompactWindow, 500000, 'your own value stays');
+  // an install from before the window: the next session start sets it for the active level, once, and says so
+  fs.writeFileSync(file, '{}');
+  tf('on');
+  drop(file, 'autoCompactWindow');
+  drop(path.join(env.XDG_CONFIG_HOME, 'tokenforge', 'config.json'), 'leanWindowAdded');
+  assert.match(start().systemMessage, /compact at 400k tokens/);
+  assert.equal(json(file).autoCompactWindow, 400000);
+  assert.equal(start().systemMessage, undefined, 'once');
 });
 
 test('tforge lean: adds its deny rules to user settings and removes only those', () => {
@@ -450,10 +548,10 @@ test('no URL.pathname used as a file path (breaks on Windows: /C:/...)', () => {
 test('kit router: our own read-only tools are approved without a prompt; writes, network and mixes are not', () => {
   const allow = (command) => bash(command)?.permissionDecision;
   for (const c of ['tread Ledger.add src/cli.rs:40-80', 'tkit ctx Ledger --refs | head -40', 'tforge recall budget alerts',
-    'cd src && tread parse; grep -n foo a.rs', 'tview src/big.rs', 'tkit test store', 'tkit jx get a.json .x', 'tforge lean'])
+    'cd src && tread parse; grep -n foo a.rs', 'tview src/big.rs', 'tkit test store', 'tkit jx get a.json .x', 'tforge lean', 'grep -n foo a.rs'])
     assert.equal(allow(c), 'allow', c);
   for (const c of ['tkit edit < edits.txt', 'tkit ssh web1 uptime', 'tkit http https://x', 'tforge lean max', 'tkit jx set a.json .x 1',
-    'tread x > out.txt', 'tread x; rm -rf build', 'grep -n foo a.rs', 'tread $(cat list)', 'FOO=1 tread x'])
+    'tread x > out.txt', 'tread x; rm -rf build', 'grep -n foo a.rs > out.txt', 'tread $(cat list)', 'FOO=1 tread x'])
     assert.notEqual(allow(c), 'allow', c);
   assert.notEqual(run('kit-router.mjs', { tool_name: 'Bash', session_id: sid(), cwd: os.tmpdir(), tool_input: { command: 'tread x' } }, { TFORGE_AUTO_ALLOW: '0' })?.permissionDecision, 'allow');
 });
@@ -537,13 +635,26 @@ test('proofreading is never weakened: fresh-look prompts skip the answer cache, 
     'Proofread the manuscript again from scratch', 'review the whole paper', 'vérifie le chapitre 3'])
     assert.ok(FRESH_LOOK.test(p), p);
   assert.ok(!FRESH_LOOK.test('what is the password of the local dev admin account'));
-  const { viewFile } = await import('../lib/view.mjs');
+  const { viewFile, view } = await import('../lib/view.mjs');
   const dir = tmpdir('tforge-prose-');
   const doc = path.join(dir, 'paper.tex');
   fs.writeFileSync(doc, Array.from({ length: 400 }, (_, i) => (i % 20 === 0 ? `\\section{S${i}}` : `  sentence ${i} with a typo teh`)).join('\n'));
   assert.equal(viewFile(doc).folded, 0, 'a .tex document prints whole');
+  const md = path.join(dir, 'spec.md');
+  const paras = `${'One paragraph per line, as editors soft-wrap it. '.repeat(20)}\n`.repeat(30);
+  fs.writeFileSync(md, paras);
+  assert.equal(view([md]), paras, 'long document lines are not cut');
   const { TERSE_RULES } = await import('../lib/config.mjs');
   assert.match(TERSE_RULES.full, /list the user asked for .* stays complete/i);
+});
+
+test('SpecAudit compatibility: document prompts get no code-mode routing; a skill being followed overrides the policy', async () => {
+  for (const p of ['relis le manuscrit et relève les erreurs', 'find the errors in the proof of lemma 3', 'review docs/spec.md for inconsistencies', 'vérifie la démonstration du théorème 2'])
+    assert.equal(detect(p).mode, null, p);
+  assert.equal(detect('fix the error in src/parse.ts that spec.md describes').mode, 'debug');
+  assert.equal(detect('review PR #12, it rewrites chapter 2').mode, 'review');
+  const { kitPolicy } = await import('../hooks/session-start.mjs');
+  assert.match(kitPolicy(), /skill or agent definition you follow overrides these rules/);
 });
 
 test('context budget: the handoff is written automatically from this session\'s snapshots, never over the user\'s own', async () => {
@@ -563,12 +674,8 @@ test('context budget: the handoff is written automatically from this session\'s 
   assert.match(fs.readFileSync(path.join(dir, '.forge', 'HANDOFF.md'), 'utf8'), /my own handoff/);
 });
 
-test('kit router: a definition grep in any Bash segment points to tread; cargo check -p becomes tkit check -p', () => {
-  const sid = `def-${Date.now()}`;
-  const cmd = 'cd ~/.cargo/registry/src/x && grep -rn "pub struct ExternalPaths" -A6 src | head -12; ls';
-  const run1 = () => run('kit-router.mjs', { tool_name: 'Bash', session_id: sid, cwd: os.tmpdir(), tool_input: { command: cmd } });
-  assert.match(JSON.stringify(run1()), /tread ExternalPaths/);
-  assert.equal(run1(), null);
+test('kit router: greps are never refused; build, install, git and curl rewrites', () => {
+  assert.equal(bash('cd ~/.cargo/registry/src/x && grep -rn "pub struct ExternalPaths" -A6 src | head -12; ls'), null);
   assert.match(rewrite(['cargo', 'check', '-p', 'rbx_import']), /tkit check -l rust -p rbx_import --fast/);
   assert.equal(rewrite(['npm', 'install']), 'tkit run npm install');
   assert.equal(rewrite(['git', 'status']), 'git status -sb');
@@ -589,18 +696,53 @@ test('kit router: a definition grep in any Bash segment points to tread; cargo c
   assert.equal(rewrite(['cargo', 'build', '--release']), 'tkit run cargo build --release');
 });
 
-test('kit router: cat > file <<EOF is refused once with the tkit edit hint', () => {
-  const sid = `hd-${Date.now()}`;
-  const cmd = "cat > shell/a.rs <<'EOF'\nfn a() {}\nEOF";
-  const run1 = () => run('kit-router.mjs', { tool_name: 'Bash', session_id: sid, cwd: os.tmpdir(), tool_input: { command: cmd } });
-  assert.match(JSON.stringify(run1()), /tkit edit/);
-  assert.equal(run1(), null);
+test('kit router: heredoc writes and scripts are never refused or rewritten', () => {
+  for (const c of ["cat > shell/a.rs <<'EOF'\nfn a() {}\nEOF", "cat > /tmp/a.py <<'E'\nprint(1)\nE\npython3 -I /tmp/a.py", "cat > a.rs <<'E'\nfn a(){}\nE\ncat > b.rs <<'E'\nfn b(){}\nE"])
+    assert.equal(bash(c), null, c);
 });
 
-test('kit router: a heredoc script that is run in the same call is allowed', () => {
-  const cmd = "cat > /tmp/a.py <<'E'\nprint(1)\nE\npython3 -I /tmp/a.py";
-  assert.equal(bash(cmd), null);
-  assert.match(JSON.stringify(bash("cat > a.rs <<'E'\nfn a(){}\nE\ncat > b.rs <<'E'\nfn b(){}\nE")), /tkit edit/);
+test('kit router: a lone grep/rg runs grouped by file through tkit run; output-changing flags, pipes and redirects are left alone', () => {
+  const dir = tmpdir('tforge-grep-');
+  const route = (c) => routeCommand(c, { cwd: dir })?.command ?? null;
+  const ex = '--exclude-dir=.git --exclude-dir=node_modules --exclude-dir=.venv --exclude-dir=__pycache__';
+  assert.equal(route("grep -rn --include='*.rs' foo ~/src"), `tkit run --group -n 200 grep --null ${ex} -rn --include='*.rs' foo ~/src`);
+  assert.equal(route('grep -n foo a.txt 2>/dev/null'), 'tkit run --group -n 200 grep --null --no-messages -n foo a.txt 2>/dev/null');
+  assert.match(route('grep -rn x node_modules/y'), /grep --null --exclude-dir=\.git --exclude-dir=\.venv --exclude-dir=__pycache__ -rn/);
+  fs.mkdirSync(path.join(dir, 'target'));
+  fs.writeFileSync(path.join(dir, 'target', 'CACHEDIR.TAG'), '');
+  assert.match(route('grep -R foo .'), /--exclude-dir=target -R foo \.$/);
+  for (const c of ['grep -c foo a', 'grep -rl foo .', 'grep -q foo a', 'grep foo a >/dev/null', 'grep -rn foo . | head', 'LC_ALL=C grep foo a', 'rg --files', 'rg --json foo', 'rg --pre cat foo'])
+    assert.equal(route(c), null, c);
+  const saved = process.env.PATH;
+  try {
+    process.env.PATH = dir;
+    assert.equal(route('rg foo'), null, 'rg that is only a shell function cannot be started by tkit run');
+    fs.writeFileSync(path.join(dir, 'rg'), '');
+    assert.equal(route('rg -n foo src'), 'tkit run --group -n 200 rg --null -n foo src');
+  } finally {
+    process.env.PATH = saved;
+  }
+  assert.equal(rewrite(['gh', 'run', 'view', '42', '--log-failed']), 'tkit run --fuzzy -n 200 gh run view 42 --log-failed');
+  assert.ok(readOnly(['gh', 'run', 'view', '42']) && !readOnly(['gh', 'pr', 'merge', '1']));
+});
+
+test('dashboard: a Bash call is attributed to the command that printed, not to cd, loops or heredoc text', async () => {
+  const { mainCommand } = await import('../lib/insights.mjs');
+  const cases = {
+    'cd /x && FOO=1 timeout 60 cargo test -p a': 'cargo test',
+    'for f in *.rs; do wc -l $f; done': 'wc',
+    "python3 - <<'EOF'\nimport os; print(1)\nEOF": 'python3 -',
+    'python3 -I bench/run.py': 'python3 *.py',
+    'python3 -u -m pytest -k x': 'python3 -m pytest',
+    '[ -d x ] && ls x': 'ls',
+    'echo "a; b" && sed -n 1,5p f': 'sed',
+    'git -C /p --no-pager log --oneline': 'git log',
+    'claude -p "fix it" --model haiku': 'claude',
+    "cat > a.py <<'E'\nx = 1\nE\npython3 a.py": 'python3 *.py',
+    'if ! cargo build; then echo FAIL; fi': 'cargo build',
+    'cd x': 'cd',
+  };
+  for (const [c, want] of Object.entries(cases)) assert.equal(mainCommand(c), want, c);
 });
 
 test('checkpoint: request graph links each request to its edits, reads, commands and outcome', async () => {
@@ -638,21 +780,6 @@ test('diagnose: counts skill and MCP calls from transcripts, lists long skills',
   const d = diagnose({ files: { [t]: { mtime: Date.now() } } });
   assert.deepEqual(d.skills.map((s) => [s.name, s.uses, s.tokens > d.longTokens]), [['wordy', 1, true]]);
   assert.deepEqual(d.mcps.map((m) => [m.name, m.uses]), [['idle', 0], ['used', 1]]);
-});
-
-test('toolFirst: raw code reads get the tread form, focused/other commands pass', () => {
-  assert.match(toolFirst('grep -rn foo src | head'), /tread/);
-  assert.match(toolFirst('rg foo'), /tread/);
-  assert.match(toolFirst('sed -n 40,70p src/a.rs'), /tread src\/a\.rs:40-70/);
-  assert.match(toolFirst('cat src/a.rs'), /tread/);
-  for (const c of ['grep -n x a.rs', 'ls | grep x', 'cat Cargo.lock', 'tail -5 app.log', 'cat > x.rs', 'tread a.rs', 'cat a.rs <<EOF\nx\nEOF']) assert.equal(toolFirst(c), null, c);
-});
-
-test('toolFirst end to end: denied once, repeat runs', () => {
-  const input = { session_id: 'tf-' + Math.random(), tool_name: 'Bash', tool_input: { command: 'cat src/a.rs' }, cwd: '/tmp' };
-  const run = () => spawnSync('node', [HOOK('kit-router.mjs')], { input: JSON.stringify(input), encoding: 'utf8', env: BASE_ENV }).stdout;
-  assert.match(run(), /tread src\/a\.rs/);
-  assert.equal(run(), '');
 });
 
 test('checkpoint: shell writes, reads, searches and failures land in the graph', async () => {
