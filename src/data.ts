@@ -10,7 +10,7 @@ export interface Task {
 export interface Series { run: string; lean: string | null; total: number; requests: number; points: number[]; sum: number }
 export interface BenchData {
   generated: string; source: string; model: string[]; apiModels: Record<string, number>; runsWithOtherModels: number; contaminatedRuns: number;
-  claudeCodeVersion: string; tokenforgeVersion: string; defaultLean: string;
+  claudeCodeVersion: string; tokenforgeVersion: string; pluginVersion: string; defaultLean: string;
   aggregate: {
     tasks: number; runs: number; medianSavings: number; meanSavings: number; pooledSavings: number; minSavings: number; maxSavings: number;
     medianPriceWeighted: number; medianToolCallReduction: number; minPriceWeighted: number; maxPriceWeighted: number; tasksCheaper: number; tasksCostlier: number; tasksFewerTokens: number; firstRequestOverhead: number;

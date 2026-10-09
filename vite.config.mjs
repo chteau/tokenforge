@@ -18,7 +18,7 @@ function meta() {
         TITLE: 'TokenForge: where the fuck did all my tokens go?',
         DESC: `Claude Code plugin that cuts token use. Median −${Math.round(a.medianSavings)}% total tokens vs clean Claude Code, cheaper on ${a.tasksCheaper} of ${a.tasks} tasks in ${langs} languages. Claude Opus 5.5 on both sides.`,
         IMG_ALT: `TokenForge: −${Math.round(a.medianSavings)}% median total tokens vs clean Claude Code, ${a.tasksCheaper}/${a.tasks} tasks cheaper.`,
-        VERSION: d.tokenforgeVersion,
+        VERSION: d.pluginVersion,
       };
       return html.replace(/%(SITE|TITLE|DESC|IMG_ALT|VERSION)%/g, (_, k) => vars[k].replace(/"/g, '&quot;'));
     },

@@ -11,6 +11,7 @@
  "contaminatedRuns": 0,
  "claudeCodeVersion": "2.1.293",
  "tokenforgeVersion": "0.8.0",
+ "pluginVersion": "0.9.1",
  "defaultLean": "balanced",
  "aggregate": {
   "tasks": 36,

@@ -25,7 +25,7 @@ export function home(view: HTMLElement): void {
       <a class="btn primary" href="https://github.com/chteau/tokenforge">View on GitHub</a>
       <a class="btn" href="#install" data-jump>Install</a>
     </div>
-    <p class="pmeta">Claude Code plugin · v${data.tokenforgeVersion} · MIT</p>
+    <p class="pmeta">Claude Code plugin · v${data.pluginVersion} · MIT</p>
   </header>
 
   <section class="psec" id="how">

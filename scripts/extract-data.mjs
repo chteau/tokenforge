@@ -141,6 +141,7 @@ const out = {
   contaminatedRuns: report.validation.contaminated_or_invalid_runs.length,
   claudeCodeVersion: session0.claude_code_version,
   tokenforgeVersion: report.token_forge_build.version,
+  pluginVersion: readJson(path.join(repo, '.claude-plugin', 'plugin.json')).version,
   defaultLean: report.token_forge_build.lean,
   aggregate: {
     tasks: a.tasks_paired, runs: a.runs_executed,

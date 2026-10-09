@@ -247,7 +247,7 @@ ${pre('TFORGE_RAW=1 cargo test')}
 
 <h2>Context budget</h2>
 <p><strong>Events:</strong> PostToolUse, UserPromptSubmit. <strong>Off:</strong> <code>TFORGE_WATCH=0</code>.</p>
-<p>The budget is 50k tokens of context per call, or the session’s fixed part plus 15k if that is larger. The warning is shown to you. It reaches Claude only with <code>TFORGE_WATCH_INJECT=1</code>. Over the budget your messages are never held: you get one alert per 10k step, and <code>.forge/HANDOFF.md</code> is written automatically from the session’s snapshots (no model call), so <code>/clear</code> at any moment loses nothing. A handoff you wrote yourself is never overwritten. The automatic one is deleted once used (when a session started after it saves its first snapshot) or after 72 hours. <code>TFORGE_AUTO_HANDOFF=0</code> turns it off.</p>
+<p>The budget is 50k tokens of context per call, or the session’s fixed part plus 15k if that is larger. The alert is shown to you; notes reach Claude, after tool calls, only with <code>TFORGE_WATCH_INJECT=1</code>. Over the budget your messages are never held: your next message gets an alert, and again each time the context doubles, and <code>.forge/HANDOFF.md</code> is written automatically from the session’s snapshots (no model call), so <code>/clear</code> at any moment loses nothing. A handoff you wrote yourself is never overwritten. The automatic one is deleted once used (when a session started after it saves its first snapshot) or after 72 hours. <code>TFORGE_AUTO_HANDOFF=0</code> turns it off.</p>
 
 <h2>Snapshots</h2>
 <p><strong>Event:</strong> Stop (after every reply). Writes <code>.forge/snapshots/</code> from the transcript; costs no tokens. <strong>Off:</strong> <code>TFORGE_CHECKPOINT=0</code>.</p>
@@ -441,6 +441,11 @@ ${rows.map(([k, d, w]) => `<tr><td><code>${k}</code></td><td>${d ? `<code>${d}</
     slug: 'changelog', title: 'Changelog',
     lead: 'What changed in the latest releases.',
     body: () => `
+<h2>0.9.1</h2>
+<ul>
+  <li><strong>Quieter context alert</strong>: your next message gets it once the context passes the budget, then each time the context doubles, instead of every 10k tokens and after tool calls. A session started on 0.7.0–0.7.2 keeps that version’s blocking alert (“A hook blocked your prompt”) until it ends: after updating, start a new session.</li>
+  <li><strong><code>tforge gc</code> on macOS</strong> finds the scratch a process works in with <code>lsof</code>; when that can’t be told, no scratch is removed.</li>
+</ul>
 <h2>0.9.0</h2>
 <p>Disk cleanup, instruction files for every agent, a planning line, leaner shell output, SpecAudit compatibility.</p>
 <ul>
