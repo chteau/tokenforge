@@ -1,0 +1,80 @@
+name: Bug report
+description: Something in tokenforge doesn't work or gets in the way.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Transcripts, `.forge/` files and logs can contain your code and prompts. Remove anything private before posting.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What you expected instead, and the exact message or error.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1.
+        2.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which part?
+      options:
+        - Bash router (a command was rewritten or refused)
+        - Context alert or handoff
+        - Terse replies
+        - Lean tools
+        - tmap / tkit / tread
+        - Dashboard or statusline
+        - tforge command (run, meter, gc, …)
+        - Install or update
+        - Something else
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: tokenforge version
+      description: Shown in `/plugin`, or by `tforge --version`.
+      placeholder: "0.9.1"
+    validations:
+      required: true
+  - type: input
+    id: claude
+    attributes:
+      label: Claude Code version
+      description: "`claude --version`"
+    validations:
+      required: true
+  - type: dropdown
+    id: client
+    attributes:
+      label: Where do you run Claude Code?
+      options: [Terminal, Claude Desktop, VS Code, JetBrains, Web, Other]
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options: [Linux, macOS, Windows, Windows (WSL), Other]
+    validations:
+      required: true
+  - type: dropdown
+    id: lean
+    attributes:
+      label: Lean level
+      description: "`tforge lean status` shows it."
+      options: [balanced (default), "off", "on", max, ultra, Not sure]
+  - type: textarea
+    id: output
+    attributes:
+      label: Output
+      description: Hook messages, `tforge` output or errors.
+      render: text

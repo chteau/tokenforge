@@ -1,0 +1,22 @@
+name: Feature request
+description: An idea to save tokens or make tokenforge easier to use.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What's the problem?
+      description: Where tokens go to waste, or what gets in your way.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What do you suggest?
+    validations:
+      required: true
+  - type: textarea
+    id: measure
+    attributes:
+      label: How could we measure it?
+      description: For a token saving, which task would show the difference? A saving is kept only when it's measured and Claude's work doesn't get worse.
