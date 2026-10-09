@@ -59,16 +59,30 @@ The tokenforge environment loads one plugin: a copy of this checkout without `be
 The source of truth is every transcript (`*.jsonl`) in the run's `CLAUDE_CONFIG_DIR`: the main session, subagents, and nested sessions. API requests are deduplicated by `requestId`. All token fields are exact API `usage` values:
 
 - `input_tokens` = uncached input + cache writes + cache reads (everything the model read)
-- `uncached_input_tokens` = uncached input + cache writes
+- `uncached_input_tokens` = uncached input + cache writes; `cache_creation_5m_input_tokens` and `cache_creation_1h_input_tokens` split the writes by cache lifetime (writes the log does not split are `cache_creation_ttl_unknown_input_tokens` in `telemetry.json`)
 - `cached_input_tokens` = cache reads
-- `output_tokens` (includes thinking)
+- `output_tokens` (includes thinking); `thinking_tokens` = the thinking part
 - `total_tokens` = input + output
-- `input_equivalent_tokens` = price-weighted (cache write 1.25×, cache read 0.1×, output 5×), which approximates what a run costs against your usage limits
+- `list_cost_usd` = that usage priced at `benchmark.config.json` `pricing` (list prices per model, with their source and effective date; writes at their logged lifetime, unsplit writes as 5-minute). The report flags every run where it differs from Claude Code's own `total_cost_usd` by more than 0.5%. `price_weighted_tokens` = the same cost in input tokens of the reference model. A model without a price makes both `null`.
+- `input_equivalent_tokens` = legacy fixed weights (cache write 1.25×, cache read 0.1×, output 5×), kept so old reports still compare. They are not current prices: on Opus 5.5 a cache read costs 0.05× input and the 1-hour writes Claude Code makes for the main session cost 2×. Use `list_cost_usd`.
 - `first_request_context_tokens` = the context size of the first request. The tokenforge-minus-native difference on the same task is the measured fixed overhead of tokenforge's instructions, skills and hook context.
+- `first_request_cost_usd`, `first_request_cached_input_tokens`, `first_request_thinking_tokens` = the first main-session request, the cold part of a run (`first_request_cached_input_tokens` = 0: nothing was cached yet)
+- `telemetry.json` `cache`, per transcript: `miss_requests` and `miss_rewrite_tokens` (a request whose context grew but that read more than 200 tokens less from the cache than the previous request had cached), `idle_seconds_max` and `idle_gaps_over_300s` (pauses long enough for a 5-minute cache entry to expire)
+- `hook_duration_ms` = time spent in hooks as Claude Code logs it (`hooks.duration_ms_by_event` per event)
+- `peak_rss_mb`, `cpu_seconds` = `wait4` rusage of the agent process: the largest resident set in its process tree and its user + system CPU time. Local cost, not tokens; `null` for runs recorded before they existed.
 
 Claude Code's `result` event (`usage`, `modelUsage`, `total_cost_usd`) is saved as a cross-check. Anything computed from text length (tool-result tokens, hook context tokens) is reported only under `estimated` and never mixed with exact numbers. Missing values are `null`, never 0.
 
 tokenforge's own overhead is always included: its hook-injected context, its skill listing and its nested model calls all count toward its total.
+
+After a parser or pricing change, `bench.py retelemetry [--session DIR ...]` re-derives `telemetry.json` and the manifest fields from the saved transcripts. It only adds fields: a run whose existing values would change is listed and kept unless `--force` is given. Pipeline tests: `python3 -m unittest discover -s bench/runner -p 'test_*.py'`.
+
+`scripts/optimization.py` compares benchmark arms (sessions or report JSONs, one agent each) task by task: per-task medians, the geometric-mean change with a 95% t-interval, the pooled total, a sign test, and every task whose cost or quality got worse. It also splits each run's cost by where its tokens entered the context (initial context, thinking, visible output, tool results and reminders, cache-miss rewrites); that split is a model-based estimate whose parts sum to `list_cost_usd`. Each run also gets the objective `objective_j_usd` = α·`list_cost_usd` + β·wall-clock seconds + γ·CPU seconds + δ·failure (1 − quality/100, or 1 for a run that stopped without a score), with the weights from the config's `objective` block; the weights are assumptions, and every term is reported so J can be recomputed with others. `reports/{baseline,optimization,ablation}-results.json` are its output, for example:
+
+```bash
+python3 scripts/optimization.py -a native=reports/benchmark-report.json@native \
+    -a token-forge=reports/benchmark-report.json@token-forge -p token-forge:native -o reports/baseline-results.json
+```
 
 **About the 5k–25k target in the original spec:** Claude Code's built-in system prompt and tool definitions alone are roughly 15–25k tokens, and they are re-read (from cache) on every request. A realistic run therefore totals hundreds of thousands to a few million tokens, mostly cache reads. The default `--max-tokens` is set accordingly. Pass a lower value if you want a tighter stop.
 
@@ -121,7 +135,7 @@ bench/
 ├── runs/<timestamp>/<task>/<agent>-r<n>/   immutable raw data per run
 ├── results/aggregated/
 ├── reports/                benchmark-report.md / .json
-└── scripts/validate_task.sh
+└── scripts/                validate_task.sh, optimization.py (arm comparison)
 ```
 
 Each run directory holds `manifest.json`, `environment_manifest.json`, `prompt.txt`, `stream.jsonl` (the full stream-json output), `stderr.txt`, `transcripts/`, `init.json`, `telemetry.json`, `diff.patch`, `git_status.txt`, `eval.json` and `eval.log`. The runner refuses to overwrite an existing run directory.

@@ -1,15 +1,15 @@
 {
   "environment": "token-forge",
-  "built_at": "2026-10-08T14:34:13.387164+00:00",
-  "claude_code_version": "2.1.293",
+  "built_at": "2026-10-09T16:27:15.827140+00:00",
+  "claude_code_version": "2.1.295",
   "model": "claude-opus-5-5",
-  "plugin_git_commit": "d7c74387caae6345c7e9e00705b5cfc704a88f7e",
+  "plugin_git_commit": "415385f3c0eef58690a019ab40863bbd07d65c7a",
   "plugin_git_dirty": true,
   "token_forge": true,
   "token_forge_version": "0.8.0",
-  "plugin_sha256": "31952bff7273f37197e21f0d72618573d6e19e6055fc8299c45655db37972f98",
+  "plugin_sha256": "c9de32debeea46a9c1fd8bf325f70fd5b8e9689ac4b3b92c409b5f10e65b7a6c",
   "token_forge_lean": "balanced",
-  "tmap_sha256": "5058b37aff530363edf44e7edc351225a8e50fd34dc56c83f3b0cc92aa17e2b9",
+  "tmap_sha256": "cd3bf812b91ccd071bfb6eff1a506eb8e9f7c396eddbba4da4e61aedf4405ac1",
   "plugin_source": "/mnt/data/Documents/Dev/tokenforge",
   "other_custom_components": []
 }

@@ -10,11 +10,16 @@ import statistics as st
 from collections import defaultdict
 from pathlib import Path
 
+import telemetry
+
 AGENTS = ("native", "token-forge")
 LABEL = {"native": "Native", "token-forge": "Token Forge"}
 EXECUTED = {"completed", "agent_error", "budget_exceeded", "timeout"}
 METRICS = ["total_tokens", "input_tokens", "output_tokens", "cached_input_tokens", "uncached_input_tokens",
-           "input_equivalent_tokens", "total_cost_usd_reported", "tool_calls", "duration_seconds", "quality_score"]
+           "cache_creation_input_tokens", "thinking_tokens", "input_equivalent_tokens", "price_weighted_tokens",
+           "list_cost_usd", "total_cost_usd_reported", "first_request_cost_usd", "api_requests", "tool_calls",
+           "duration_seconds", "hook_duration_ms", "peak_rss_mb", "cpu_seconds", "quality_score"]
+COST_TOLERANCE = 0.005   # list cost vs Claude Code's total_cost_usd, relative
 
 
 def load_runs(sessions):
@@ -27,6 +32,8 @@ def load_runs(sessions):
             r["_session"] = Path(s).name
             if (d / "telemetry.json").exists():
                 r["_tel"] = json.loads((d / "telemetry.json").read_text())
+                for k, v in telemetry.summary(r["_tel"]).items():
+                    r.setdefault(k, v)
             if (d / "environment_manifest.json").exists():
                 r["_lean"] = json.loads((d / "environment_manifest.json").read_text()).get("token_forge_lean")
             if (d / "eval.json").exists():
@@ -118,7 +125,7 @@ def build(sessions, root: Path, out_name="benchmark-report"):
         a, b = by_task[tid]["native"], by_task[tid]["token-forge"]
         row = {"task": tid, "category": (a or b)[0].get("category"), "runs": {"native": len(a), "token-forge": len(b)}}
         for agent, rs in (("native", a), ("token-forge", b)):
-            row[agent] = {k: med(rs, k) for k in METRICS + ["files_read", "lines_read", "bytes_read", "first_request_context_tokens", "api_requests"]}
+            row[agent] = {k: med(rs, k) for k in METRICS + ["files_read", "lines_read", "bytes_read", "first_request_context_tokens"]}
             row[agent]["redundant_reads"] = st.median([tool(r, "redundant_reads") or 0 for r in rs]) if rs else None
             row[agent]["tool_result_bytes"] = med([{"x": tool(r, "tool_result_bytes")} for r in rs], "x")
             row[agent]["files_read_incl_bash"] = med([{"x": tool(r, "files_read_incl_bash_heuristic")} for r in rs], "x")
@@ -141,6 +148,10 @@ def build(sessions, root: Path, out_name="benchmark-report"):
                 "uncached_input_savings_percent": pct(na["uncached_input_tokens"], tb["uncached_input_tokens"]),
                 "input_equivalent_savings_percent": pct(na["input_equivalent_tokens"], tb["input_equivalent_tokens"]),
                 "cost_savings_percent": pct(na["total_cost_usd_reported"], tb["total_cost_usd_reported"]),
+                "list_cost_savings_percent": pct(na["list_cost_usd"], tb["list_cost_usd"]),
+                "price_weighted_savings_percent": pct(na["price_weighted_tokens"], tb["price_weighted_tokens"]),
+                "thinking_savings_percent": pct(na["thinking_tokens"], tb["thinking_tokens"]),
+                "duration_savings_percent": pct(na["duration_seconds"], tb["duration_seconds"]),
                 "quality_diff": (tb["quality_score"] - na["quality_score"]) if None not in (na["quality_score"], tb["quality_score"]) else None,
                 "tool_call_diff_percent": pct(na["tool_calls"], tb["tool_calls"]),
                 "files_read_diff_percent": pct(na["files_read_incl_bash"], tb["files_read_incl_bash"]),
@@ -163,6 +174,10 @@ def build(sessions, root: Path, out_name="benchmark-report"):
         "uncached_input_savings_percent": dist(col("uncached_input_savings_percent")),
         "input_equivalent_savings_percent": dist(col("input_equivalent_savings_percent")),
         "cost_savings_percent": dist(col("cost_savings_percent")),
+        "list_cost_savings_percent": dist(col("list_cost_savings_percent")),
+        "price_weighted_savings_percent": dist(col("price_weighted_savings_percent")),
+        "thinking_savings_percent": dist(col("thinking_savings_percent")),
+        "duration_savings_percent": dist(col("duration_savings_percent")),
         "quality_diff": dist(col("quality_diff")),
         "tool_call_reduction_percent": dist(col("tool_call_diff_percent")),
         "files_read_reduction_percent": dist(col("files_read_diff_percent")),
@@ -173,6 +188,14 @@ def build(sessions, root: Path, out_name="benchmark-report"):
     wins = sum(1 for x in col("token_savings_percent") if x > 0)
     losses = sum(1 for x in col("token_savings_percent") if x < 0)
     agg["sign_test"] = {"tasks_tf_cheaper": wins, "tasks_tf_costlier": losses, "p_value_two_sided": sign_test(wins, losses)}
+    cw_ = sum(1 for x in col("list_cost_savings_percent") if x > 0)
+    cl_ = sum(1 for x in col("list_cost_savings_percent") if x < 0)
+    agg["cost_sign_test"] = {"tasks_tf_cheaper": cw_, "tasks_tf_costlier": cl_, "p_value_two_sided": sign_test(cw_, cl_)}
+    # every task where Token Forge cost more at list prices, not just the average
+    agg["cost_regressions"] = [{"task": r["task"], "list_cost_savings_percent": r["diff"]["list_cost_savings_percent"],
+                                "native_usd": r["native"]["list_cost_usd"], "token_forge_usd": r["token-forge"]["list_cost_usd"],
+                                "token_savings_percent": r["diff"]["token_savings_percent"]}
+                               for r in paired if (r["diff"]["list_cost_savings_percent"] or 0) < 0]
     per_agent = {}
     for a in AGENTS:
         rs = [r for r in executed if r["agent"] == a]
@@ -216,7 +239,22 @@ def build(sessions, root: Path, out_name="benchmark-report"):
         "runs_with_other_models": [r["run_id"] for r in executed if any(
             k != r.get("model") and v.get("total_tokens")
             for k, v in ((r.get("_tel") or {}).get("tokens_exact", {}).get("by_model") or {}).items())],
+        "cost_not_reconciled": [],
     }
+    # list prices x exact usage must reproduce Claude Code's own total_cost_usd (nested `claude -p` sessions are
+    # separate processes with their own result event, so they are left out of the comparison)
+    reconciled = 0
+    for r in executed:
+        tx = (r.get("_tel") or {}).get("tokens_exact") or {}
+        lc, rc = (tx.get("all") or {}).get("list_cost_usd"), r.get("total_cost_usd_reported")
+        if lc is None or not rc:
+            continue
+        lc -= (tx.get("nested_sessions") or {}).get("list_cost_usd") or 0
+        if abs(lc / rc - 1) > COST_TOLERANCE:
+            validation["cost_not_reconciled"].append((r["run_id"], round(lc, 4), rc))
+        else:
+            reconciled += 1
+    validation["cost_reconciled_runs"] = reconciled
     for tid, ags in by_task.items():
         rs = ags["native"] + ags["token-forge"]
         if len({r["repository_commit"] for r in rs}) > 1:
@@ -229,7 +267,8 @@ def build(sessions, root: Path, out_name="benchmark-report"):
         p = Path(s) / "session.json"
         if p.exists():
             meta[Path(s).name] = json.loads(p.read_text())
-    data = {"sessions": meta, "token_forge_build": {"version": cur.get("token_forge_version"), "plugin_sha256": want_sha,
+    pricing = json.loads((root / "benchmark.config.json").read_text()).get("pricing")
+    data = {"sessions": meta, "pricing": pricing, "token_forge_build": {"version": cur.get("token_forge_version"), "plugin_sha256": want_sha,
             "plugin_git_commit": cur.get("plugin_git_commit"), "plugin_git_dirty": cur.get("plugin_git_dirty"), "lean": want_lean,
             "equivalent_builds": equiv},
             "excluded_runs_other_build": [f"{r['_session']}/{r.get('run_id')}" for r in other_build],
@@ -267,10 +306,13 @@ def render_md(d):
         L += [f"Across {a['tasks_paired']} paired tasks ({a['runs_executed']} executed runs, {a['runs_not_executed']} not executed):", "",
               f"- Total-token savings per task: median **{ts['median']}%**, mean {ts['mean']}% (min {ts['min']}%, max {ts['max']}%). Pooled over all tasks: {a['pooled_token_savings_percent']}%.",
               f"- Input-token savings (median): {(a['input_savings_percent'] or {}).get('median')}%; output-token savings (median): {(a['output_savings_percent'] or {}).get('median')}%; uncached input (median): {(a['uncached_input_savings_percent'] or {}).get('median')}%.",
-              f"- Price-weighted (input-equivalent) savings (median): {(a['input_equivalent_savings_percent'] or {}).get('median')}%; reported cost savings (median): {(a['cost_savings_percent'] or {}).get('median')}%.",
+              f"- Cost savings at list prices (TTL-aware, `pricing` in benchmark.config.json, effective {(d.get('pricing') or {}).get('effective_date')}): median **{(a['list_cost_savings_percent'] or {}).get('median')}%**, mean {(a['list_cost_savings_percent'] or {}).get('mean')}%; Claude Code's reported cost (median): {(a['cost_savings_percent'] or {}).get('median')}%. Legacy fixed-weight input-equivalent savings (median): {(a['input_equivalent_savings_percent'] or {}).get('median')}%.",
+              f"- Tasks where Token Forge cost more at list prices: {a['cost_sign_test']['tasks_tf_costlier']} of {a['cost_sign_test']['tasks_tf_cheaper'] + a['cost_sign_test']['tasks_tf_costlier']}"
+              + (" (" + ", ".join(f"{x['task']} {x['list_cost_savings_percent']}%" for x in a["cost_regressions"]) + ")" if a["cost_regressions"] else "")
+              + f"; sign test p = {a['cost_sign_test']['p_value_two_sided']}.",
               f"- Task completion: Native {pa['native']['completion_rate']}, Token Forge {pa['token-forge']['completion_rate']}.",
               f"- Mean quality: Native {(pa['native']['quality_score'] or {}).get('mean')}, Token Forge {(pa['token-forge']['quality_score'] or {}).get('mean')}; median per-task quality difference (TF − native): {(a['quality_diff'] or {}).get('median')}.",
-              f"- Tasks where Token Forge was cheaper / costlier: {a['sign_test']['tasks_tf_cheaper']} / {a['sign_test']['tasks_tf_costlier']} (sign test p = {a['sign_test']['p_value_two_sided']}).",
+              f"- Tasks where Token Forge used fewer / more tokens: {a['sign_test']['tasks_tf_cheaper']} / {a['sign_test']['tasks_tf_costlier']} (sign test p = {a['sign_test']['p_value_two_sided']}).",
               f"- Fixed context added by Token Forge on the first request (median, measured): {fmt((a['first_request_overhead_tokens'] or {}).get('median'))} tokens.", ""]
     else:
         L += ["No paired measurements yet.", ""]
@@ -286,14 +328,14 @@ def render_md(d):
             L.append(f"| {r['task']} | {LABEL[ag]} | {r['runs'][ag]} | {fmt(x['total_tokens'])} | {fmt(x['input_tokens'])} | {fmt(x['output_tokens'])} | "
                      f"{fmt(x['uncached_input_tokens'])} | {fmt(x['total_cost_usd_reported'], 2)} | {fmt(x['tool_calls'])} | {fmt(x['files_read_incl_bash'])} | {tests} | "
                      f"{fmt(x['quality_score'], 1)} | {','.join(map(str, x['statuses']))} |")
-    L += ["", "| Task | Token diff | Savings % | Input % | Output % | Uncached % | Cost % | Quality Δ | Tool calls % | Files read % | Lines read % |",
-          "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|"]
+    L += ["", "| Task | Token diff | Savings % | Input % | Output % | Thinking % | Uncached % | List cost % | Quality Δ | Tool calls % | Files read % | Lines read % |",
+          "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|"]
     for r in d["per_task"]:
         if "diff" not in r:
             continue
         x = r["diff"]
         L.append(f"| {r['task']} | {fmt(x['total_tokens_abs'])} | {fmt(x['token_savings_percent'], 1)} | {fmt(x['input_savings_percent'], 1)} | "
-                 f"{fmt(x['output_savings_percent'], 1)} | {fmt(x['uncached_input_savings_percent'], 1)} | {fmt(x['cost_savings_percent'], 1)} | "
+                 f"{fmt(x['output_savings_percent'], 1)} | {fmt(x['thinking_savings_percent'], 1)} | {fmt(x['uncached_input_savings_percent'], 1)} | {fmt(x['list_cost_savings_percent'], 1)} | "
                  f"{fmt(x['quality_diff'], 1)} | {fmt(x['tool_call_diff_percent'], 1)} | {fmt(x['files_read_diff_percent'], 1)} | {fmt(x['lines_read_diff_percent'], 1)} |")
     L += ["", "## Quality-adjusted efficiency", "", "| Task | Native tokens/quality pt | TF tokens/quality pt | Native quality/Mtok | TF quality/Mtok |", "|---|---:|---:|---:|---:|"]
     for r in d["per_task"]:

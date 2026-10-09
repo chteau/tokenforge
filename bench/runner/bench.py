@@ -5,10 +5,11 @@
     bench.py env build
     bench.py list
     bench.py run --smoke
-    bench.py run --task ID [--agent native|token-forge | --both] [--reps N]
+    bench.py run --task ID[,ID...] [--agent native|token-forge | --both] [--reps N]
     bench.py run --all [--reps N] [--subset-reps ID,ID --subset-n N]
     bench.py compare [--session DIR ...]
     bench.py report  [--session DIR ...]
+    bench.py retelemetry [--session DIR ...] [--force]   re-derive telemetry.json from saved transcripts
 
 Common run options: --max-tokens N  --warn-tokens N  --max-budget-usd X  --jobs N  --seed N
 """
@@ -250,6 +251,28 @@ def install_history(task, sb, repo, env, opts):
             "tokens": telemetry.quick_total(sb["config"])}
 
 
+def reap(proc, block=False):
+    """wait4 on the agent: its rusage (CPU summed over it and the descendants it reaped, peak RSS of the largest
+    single process) once it has exited, else None. Sets returncode so Popen never waits for it again."""
+    pid, status, ru = os.wait4(proc.pid, 0 if block else os.WNOHANG)
+    if not pid:
+        return None
+    proc.returncode = os.waitstatus_to_exitcode(status)
+    return ru
+
+
+def tel_fields(tel):
+    """The manifest fields derived from telemetry.json (retelemetry refreshes them)."""
+    tk, tools = tel["tokens_exact"]["all"], tel["tools"]
+    return {"input_tokens": tk["input_tokens_total"], "output_tokens": tk["output_tokens"], "total_tokens": tk["total_tokens"],
+            "cached_input_tokens": tk["cached_input_tokens"], "uncached_input_tokens": tk["uncached_input_tokens"],
+            "cache_creation_input_tokens": tk["cache_creation_input_tokens"], "input_equivalent_tokens": tk["input_equivalent_tokens"],
+            "api_requests": tk["requests"], "first_request_context_tokens": tel["tokens_exact"]["first_request_context_tokens"],
+            **telemetry.summary(tel),
+            "tool_calls": tools["total_tool_calls"], "files_read": tools["files_read"], "lines_read": tools["lines_read"],
+            "bytes_read": tools["bytes_read"]}
+
+
 def run_one(cfg, session: Path, canon: dict, tid: str, env: str, rep: int, opts) -> dict:
     task = load_task(tid)
     label = env if env == "native" or not opts.variant else f"{env}+{opts.variant}"
@@ -340,7 +363,7 @@ def run_one(cfg, session: Path, canon: dict, tid: str, env: str, rep: int, opts)
 
     timeout = manifest["timeout_s"]
     status, warned, peak = None, False, 0
-    while proc.poll() is None:
+    while (ru := reap(proc)) is None:
         time.sleep(5)
         elapsed = (now() - start).total_seconds()
         try:
@@ -357,11 +380,15 @@ def run_one(cfg, session: Path, canon: dict, tid: str, env: str, rep: int, opts)
             log(f"{run_id}: stopping — {status} ({peak:,} tokens, {elapsed:.0f}s)")
             try:
                 os.killpg(proc.pid, signal.SIGTERM)
-                proc.wait(15)
-            except Exception:  # noqa: BLE001
-                os.killpg(proc.pid, signal.SIGKILL)
+                deadline = time.monotonic() + 15
+                while (ru := reap(proc)) is None and time.monotonic() < deadline:
+                    time.sleep(0.5)
+                if ru is None:
+                    os.killpg(proc.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
             break
-    proc.wait()
+    ru = ru or reap(proc, block=True)
     th.join(10)
     leftovers = isolation.kill_sandbox_processes(work)
     if leftovers:
@@ -395,7 +422,7 @@ def run_one(cfg, session: Path, canon: dict, tid: str, env: str, rep: int, opts)
         shutil.copytree(repo / ".forge", out / "forge_state", ignore_dangling_symlinks=True)
 
     # ---- telemetry
-    tel = telemetry.parse(sb["config"], repo, session_id, task.get("relevant_files", []))
+    tel = telemetry.parse(sb["config"], repo, session_id, task.get("relevant_files", []), pricing=cfg.get("pricing"))
     (out / "telemetry.json").write_text(json.dumps(tel, indent=2) + "\n")
     vanilla_p = ROOT / "environments" / "native-clean" / "vanilla_inventory.json"
     vanilla = json.loads(vanilla_p.read_text())["skills"] if vanilla_p.exists() else None
@@ -428,13 +455,11 @@ def run_one(cfg, session: Path, canon: dict, tid: str, env: str, rep: int, opts)
         "start_time": start.isoformat(), "end_time": end.isoformat(),
         "duration_seconds": round((end - start).total_seconds(), 1),
         "num_turns": res.get("num_turns"), "total_cost_usd_reported": res.get("total_cost_usd"),
-        "input_tokens": tk["input_tokens_total"], "output_tokens": tk["output_tokens"], "total_tokens": tk["total_tokens"],
-        "cached_input_tokens": tk["cached_input_tokens"], "uncached_input_tokens": tk["uncached_input_tokens"],
-        "cache_creation_input_tokens": tk["cache_creation_input_tokens"], "input_equivalent_tokens": tk["input_equivalent_tokens"],
-        "api_requests": tk["requests"], "first_request_context_tokens": tel["tokens_exact"]["first_request_context_tokens"],
+        **tel_fields(tel),
+        # local compute of the agent process tree (wait4): what Claude Code, its hooks and tools ran on this machine
+        "peak_rss_mb": round(ru.ru_maxrss / (2**20 if sys.platform == "darwin" else 1024), 1),
+        "cpu_seconds": round(ru.ru_utime + ru.ru_stime, 2),
         "result_event_usage": res.get("usage"), "result_event_model_usage": res.get("modelUsage"),
-        "tool_calls": tools["total_tool_calls"], "files_read": tools["files_read"], "lines_read": tools["lines_read"],
-        "bytes_read": tools["bytes_read"],
         "tests_passed": ck.get("tests_passed"), "build_passed": ck.get("build_passed"), "lint_passed": ck.get("lint_passed"),
         "format_passed": ck.get("format_passed"), "typecheck_passed": ck.get("typecheck_passed"),
         "hidden_tests_passed": ev.get("hidden_tests_passed"), "hidden_tests_total": ev.get("hidden_tests_total"),
@@ -471,7 +496,7 @@ def cmd_run(args):
     elif args.all:
         tasks, reps = all_tasks(), args.reps
     else:
-        tasks, reps = [args.task], args.reps
+        tasks, reps = args.task.split(","), args.reps
     agents = list(isolation.ENVS) if (args.both or args.all or args.smoke or not args.agent) else [args.agent]
 
     seed = args.seed if args.seed is not None else secrets.randbelow(10**6)
@@ -560,6 +585,50 @@ def cmd_compare(args):
     return 0
 
 
+def changed_fields(old, new, path=""):
+    """Paths of values in old that new drops or changes (keys only new has are additions, not changes)."""
+    out = []
+    for k, v in old.items():
+        p = f"{path}.{k}" if path else k
+        if k not in new:
+            out.append(p)
+        elif isinstance(v, dict) and isinstance(new[k], dict):
+            out += changed_fields(v, new[k], p)
+        elif v != new[k]:
+            out.append(p)
+    return out
+
+
+def cmd_retelemetry(args):
+    """Re-derive each run's telemetry.json from its saved transcripts with the current parser and pricing. A run is
+    rewritten only if every value its old telemetry.json had comes out identical, so only fields are added; --force
+    also rewrites the runs listed as differing (after a parser fix). The manifest's derived fields follow."""
+    cfg = isolation.load_config()
+    sessions = [Path(s).resolve() for s in args.session] if args.session else sorted(p for p in RUNS.iterdir() if p.is_dir())
+    kept = []
+    n = 0
+    for m in sorted(x for s in sessions for x in s.glob("*/*/manifest.json")):
+        d, man = m.parent, json.loads(m.read_text())
+        if not (d / "telemetry.json").exists() or not (d / "transcripts").exists():
+            continue
+        task = json.loads((TASKS / man["task"] / "task.json").read_text()) if (TASKS / man["task"] / "task.json").exists() else {}
+        old = json.loads((d / "telemetry.json").read_text())
+        new = telemetry.parse(d, Path(man["sandbox"]) / task.get("repo_dirname", "repo"), man["session_id"],
+                              task.get("relevant_files", []), pricing=cfg.get("pricing"), sub="transcripts")
+        diff = changed_fields(old, new)
+        if diff:
+            kept.append(f"{d.relative_to(RUNS)}: {', '.join(diff[:4])}{' …' if len(diff) > 4 else ''}")
+            if not args.force:
+                continue
+        (d / "telemetry.json").write_text(json.dumps(new, indent=2) + "\n")
+        if man.get("total_tokens") is not None:   # runs that never got telemetry keep their manifest as recorded
+            m.write_text(json.dumps(man | tel_fields(new), indent=2) + "\n")
+        n += 1
+    print(f"rewrote {n} telemetry.json; {len(kept)} whose re-derived values differ were {'rewritten' if args.force else 'kept'}:")
+    print("\n".join(kept))
+    return 0
+
+
 def main():
     ap = argparse.ArgumentParser(prog="bench")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -569,7 +638,8 @@ def main():
     sub.add_parser("list")
     r = sub.add_parser("run")
     g = r.add_mutually_exclusive_group(required=True)
-    g.add_argument("--task"); g.add_argument("--all", action="store_true"); g.add_argument("--smoke", action="store_true")
+    g.add_argument("--task", help="task id, or comma-separated ids"); g.add_argument("--all", action="store_true")
+    g.add_argument("--smoke", action="store_true")
     r.add_argument("--agent", choices=list(isolation.ENVS)); r.add_argument("--both", action="store_true")
     r.add_argument("--reps", type=int, default=1)
     r.add_argument("--subset-reps", help="comma-separated task ids that get --subset-n repetitions")
@@ -583,8 +653,9 @@ def main():
     r.add_argument("--variant", help="label for token-forge runs with --tf-env (kept apart from the main comparison)")
     r.add_argument("--use-local-login", action="store_true",
                    help="authenticate with the local Claude Code login's current access token (read-only, never refreshed)")
-    for name in ("compare", "report"):
+    for name in ("compare", "report", "retelemetry"):
         c = sub.add_parser(name); c.add_argument("--session", nargs="*")
+    c.add_argument("--force", action="store_true", help="also rewrite runs whose re-derived values differ")
     a = ap.parse_args()
     if a.cmd == "run":
         a.tf_env_map = dict(x.split("=", 1) for x in a.tf_env)
@@ -593,7 +664,7 @@ def main():
     if getattr(a, "use_local_login", False):
         os.environ["BENCH_USE_LOCAL_LOGIN"] = "1"
     fn = {"doctor": cmd_doctor, "env": cmd_env_build, "list": cmd_list, "run": cmd_run,
-          "compare": cmd_compare, "report": cmd_compare}[a.cmd]
+          "compare": cmd_compare, "report": cmd_compare, "retelemetry": cmd_retelemetry}[a.cmd]
     sys.exit(fn(a) or 0)
 
 

@@ -134,6 +134,15 @@ def _lean_deny(sb) -> list[str]:
     return names
 
 
+def _lean_window(sb, lean) -> int | None:
+    """The autoCompactWindow `tforge lean` writes for the configured level; None for builds without LEAN_WINDOW."""
+    import re as _re
+    m = _re.search(r"LEAN_WINDOW = \{([^}]*)\}", (Path(sb["plugin"]) / "lib" / "lean.mjs").read_text())
+    w = dict(_re.findall(r"(\w+): (\d+)", m.group(1))) if m else {}
+    level = lean if lean in ("balanced", "max", "ultra") else "on"
+    return int(w[level]) if level in w else None
+
+
 def make_sandbox(cfg, env, run_dir_work: Path):
     tpl = ROOT / "environments" / ENV_DIR[env] / "template"
     if not tpl.exists():
@@ -245,7 +254,10 @@ def preflight(cfg, env, sb, repo: Path, claude_args: list[str], penv: dict, hist
             s = json.loads(p.read_text())
             builtin = set(_lean_names(sb, "BUILTIN_SKILLS = ["))
             ov = s.get("skillOverrides", {})
-            if (not set(s) <= {"permissions", "skillOverrides", "includeGitInstructions"} or s.get("includeGitInstructions", False) is not False
+            window = _lean_window(sb, cfg["token_forge"]["lean"])
+            if (not set(s) <= {"permissions", "skillOverrides", "includeGitInstructions", "autoCompactWindow"}
+                    or s.get("includeGitInstructions", False) is not False
+                    or s.get("autoCompactWindow", window) != window
                     or set(s.get("permissions", {})) != {"deny"}
                     or not set(s["permissions"]["deny"]) <= set(lean_deny)
                     or not (set(ov) <= builtin and set(ov.values()) <= {"user-invocable-only"})):

@@ -12,10 +12,11 @@ Across 36 paired tasks (83 executed runs, 0 not executed):
 
 - Total-token savings per task: median **51.51%**, mean 49.61% (min 9.98%, max 75.41%). Pooled over all tasks: 51.52%.
 - Input-token savings (median): 53.59%; output-token savings (median): 21.94%; uncached input (median): 17.56%.
-- Price-weighted (input-equivalent) savings (median): 26.34%; reported cost savings (median): 22.34%.
+- Cost savings at list prices (TTL-aware, `pricing` in benchmark.config.json, effective 2026-10-09): median **22.34%**, mean 22.79%; Claude Code's reported cost (median): 22.34%. Legacy fixed-weight input-equivalent savings (median): 26.34%.
+- Tasks where Token Forge cost more at list prices: 2 of 36 (c-cli -9.51%, perl-cli -5.42%); sign test p = 0.0.
 - Task completion: Native 0.884, Token Forge 0.95.
 - Mean quality: Native 98.78, Token Forge 99.52; median per-task quality difference (TF − native): 0.0.
-- Tasks where Token Forge was cheaper / costlier: 36 / 0 (sign test p = 0.0).
+- Tasks where Token Forge used fewer / more tokens: 36 / 0 (sign test p = 0.0).
 - Fixed context added by Token Forge on the first request (median, measured): -6,735 tokens.
 
 Positive savings mean Token Forge used fewer tokens; negative means it used more. `total tokens` = input + cache writes + cache reads + output, summed over the main session, subagents and nested `claude -p` sessions.
@@ -99,44 +100,44 @@ Positive savings mean Token Forge used fewer tokens; negative means it used more
 | zig-cli | Native | 1 | 964,673 | 928,028 | 36,645 | 53,812 | 1.34 | 22 | 8 | PASS | 97.1 | completed |
 | zig-cli | Token Forge | 1 | 411,503 | 382,532 | 28,971 | 47,204 | 1.02 | 11 | 5 | PASS | 97.1 | completed |
 
-| Task | Token diff | Savings % | Input % | Output % | Uncached % | Cost % | Quality Δ | Tool calls % | Files read % | Lines read % |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| architecture | 39,249 | 10.2 | 10.2 | 9.1 | 15.0 | 13.0 | 0.0 | 9.1 | 35.6 | 26.8 |
-| banking-transfers | 811,247 | 33.4 | 33.9 | 3.5 | 16.4 | 16.0 | -6.0 | 21.9 | 13.6 | 24.2 |
-| banking-web | 926,506 | 59.3 | 59.5 | 42.1 | 34.5 | 42.6 | 0.0 | 40.0 | 15.2 | 32.7 |
-| bash-tool | 260,070 | 41.7 | 43.5 | 16.4 | 19.8 | 19.8 | 0.0 | 61.9 | -50.0 | 40.9 |
-| c-cli | 154,026 | 21.3 | 23.3 | -11.6 | -16.3 | -9.5 | 0.0 | 28.6 | -50.0 | 42.3 |
-| cpp-cli | 146,335 | 48.3 | 49.8 | 29.9 | 28.3 | 30.8 | 0.0 | 31.2 | 66.7 | 100.0 |
-| cross-module-debug | 173,190 | 65.3 | 65.5 | 44.5 | 37.6 | 44.1 | 0.0 | 50.0 | 0.0 | 44.2 |
-| csharp-api | 886,452 | 72.6 | 74.9 | 19.7 | 22.8 | 27.8 | 0.0 | 69.0 | 12.5 | -29.2 |
-| dart-cli | 198,036 | 44.7 | 45.5 | 30.6 | 29.9 | 31.9 | 0.0 | 18.2 | -66.7 | -58.8 |
-| elixir-app | 273,209 | 50.6 | 53.1 | 5.0 | 12.5 | 12.4 | 3.1 | 50.0 | 60.0 | 88.2 |
-| fsharp-cli | 523,267 | 61.8 | 64.0 | 17.8 | 18.2 | 23.1 | 2.5 | 73.1 | -80.0 | 81.7 |
-| go-api | 341,251 | 49.9 | 50.6 | 29.5 | 23.1 | 27.1 | 0.0 | 25.0 | 8.7 | 27.8 |
-| go-feature | 1,203,531 | 62.1 | 62.9 | 28.9 | 30.2 | 35.5 | 0.0 | 48.0 | 24.3 | 29.9 |
-| go-mock-api | 412,080 | 74.1 | 75.6 | 38.9 | 40.9 | 44.1 | 2.5 | 68.8 | 33.3 | 82.6 |
-| haskell-cli | 197,457 | 32.9 | 35.4 | -2.1 | 6.8 | 4.0 | 0.0 | 27.3 | -900.0 | -200.0 |
-| java-http | 576,327 | 70.9 | 73.0 | 35.8 | 36.0 | 39.5 | 0.0 | 64.7 | 0.0 | 78.8 |
-| kotlin-cli | 46,275 | 10.0 | 10.5 | 5.3 | 7.5 | 6.3 | 0.0 | 0.0 | 0.0 | 0.0 |
-| lua-cli | 458,143 | 58.7 | 61.4 | 5.0 | 11.7 | 13.4 | 0.0 | 60.0 | 50.0 | 21.4 |
-| luau-inventory | 160,656 | 65.6 | 68.1 | 34.8 | 29.0 | 35.2 | 0.0 | 57.1 | 0.0 | 4.0 |
-| node-ssg | 227,731 | 52.4 | 54.0 | 22.9 | 26.9 | 27.4 | 0.0 | 68.4 | 50.0 | 75.0 |
-| ocaml-cli | 413,534 | 60.5 | 62.9 | 11.2 | 15.8 | 18.6 | 3.0 | 60.0 | 71.4 | 25.0 |
-| paper-proofread | 81,562 | 34.2 | 35.1 | 10.3 | 2.8 | 8.3 | 2.4 | 31.2 | 83.3 | -1.4 |
-| pdf-paper-qa | 136,207 | 49.6 | 49.4 | 71.6 | -12.2 | 5.8 | 0.0 | 60.0 | 0.0 | 84.8 |
-| perl-cli | 221,020 | 37.0 | 40.5 | -12.7 | -3.8 | -5.4 | -3.0 | 57.1 | 60.0 | 79.5 |
-| php-api | 593,825 | 55.4 | 57.6 | 9.1 | 15.2 | 16.9 | 0.0 | 47.4 | 50.0 | 86.1 |
-| pr-review | 69,798 | 38.6 | 39.1 | 23.9 | 9.9 | 16.6 | 3.3 | 20.0 | -25.0 | -6.2 |
-| python-cli | 195,065 | 50.6 | 53.0 | 12.8 | 16.6 | 17.7 | 0.0 | 40.0 | 25.0 | -145.4 |
-| r-cli | 374,212 | 56.7 | 60.0 | -1.0 | 6.4 | 7.6 | 0.0 | 57.1 | 50.0 | 36.4 |
-| refactor | 65,498 | 15.8 | 15.4 | 31.3 | 16.9 | 21.5 | 0.0 | -10.0 | -5.6 | -1.8 |
-| rust-cli | 840,848 | 58.2 | 58.6 | 28.8 | 38.5 | 39.7 | 0.0 | 31.6 | -155.6 | 18.2 |
-| rust-debug | 87,200 | 43.1 | 43.6 | 24.8 | 26.0 | 28.0 | 11.5 | 14.3 | 17.6 | 1.0 |
-| rust-tui | 551,031 | 68.7 | 69.6 | 46.4 | 42.7 | 48.3 | 0.0 | 59.1 | -12.5 | 12.5 |
-| swift-cli | 227,041 | 54.1 | 57.1 | 11.2 | 16.6 | 16.9 | 0.0 | 50.0 | -25.0 | -71.4 |
-| ts-lib | 127,374 | 44.9 | 46.1 | 30.0 | 25.7 | 29.7 | 0.0 | 28.6 | 50.0 | 33.3 |
-| vite-landing | 190,862 | 75.4 | 77.1 | 38.9 | 35.7 | 42.0 | 0.0 | 66.7 | 66.7 | 71.4 |
-| zig-cli | 553,170 | 57.3 | 58.8 | 20.9 | 12.3 | 23.5 | 0.0 | 50.0 | 37.5 | 55.8 |
+| Task | Token diff | Savings % | Input % | Output % | Thinking % | Uncached % | List cost % | Quality Δ | Tool calls % | Files read % | Lines read % |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| architecture | 39,249 | 10.2 | 10.2 | 9.1 | 2.5 | 15.0 | 13.0 | 0.0 | 9.1 | 35.6 | 26.8 |
+| banking-transfers | 811,247 | 33.4 | 33.9 | 3.5 | -38.9 | 16.4 | 16.0 | -6.0 | 21.9 | 13.6 | 24.2 |
+| banking-web | 926,506 | 59.3 | 59.5 | 42.1 | 42.3 | 34.5 | 42.6 | 0.0 | 40.0 | 15.2 | 32.7 |
+| bash-tool | 260,070 | 41.7 | 43.5 | 16.4 | 4.9 | 19.8 | 19.8 | 0.0 | 61.9 | -50.0 | 40.9 |
+| c-cli | 154,026 | 21.3 | 23.3 | -11.6 | -96.4 | -16.3 | -9.5 | 0.0 | 28.6 | -50.0 | 42.3 |
+| cpp-cli | 146,335 | 48.3 | 49.8 | 29.9 | 5.8 | 28.3 | 30.8 | 0.0 | 31.2 | 66.7 | 100.0 |
+| cross-module-debug | 173,190 | 65.3 | 65.5 | 44.5 | 32.1 | 37.6 | 44.1 | 0.0 | 50.0 | 0.0 | 44.2 |
+| csharp-api | 886,452 | 72.6 | 74.9 | 19.7 | -47.4 | 22.8 | 27.8 | 0.0 | 69.0 | 12.5 | -29.2 |
+| dart-cli | 198,036 | 44.7 | 45.5 | 30.6 | 39.3 | 29.9 | 31.9 | 0.0 | 18.2 | -66.7 | -58.8 |
+| elixir-app | 273,209 | 50.6 | 53.1 | 5.0 | -152.9 | 12.5 | 12.4 | 3.1 | 50.0 | 60.0 | 88.2 |
+| fsharp-cli | 523,267 | 61.8 | 64.0 | 17.8 | -71.7 | 18.2 | 23.1 | 2.5 | 73.1 | -80.0 | 81.7 |
+| go-api | 341,251 | 49.9 | 50.6 | 29.5 | 36.7 | 23.1 | 27.1 | 0.0 | 25.0 | 8.7 | 27.8 |
+| go-feature | 1,203,531 | 62.1 | 62.9 | 28.9 | 27.2 | 30.2 | 35.5 | 0.0 | 48.0 | 24.3 | 29.9 |
+| go-mock-api | 412,080 | 74.1 | 75.6 | 38.9 | 26.9 | 40.9 | 44.1 | 2.5 | 68.8 | 33.3 | 82.6 |
+| haskell-cli | 197,457 | 32.9 | 35.4 | -2.1 | -45.9 | 6.8 | 4.0 | 0.0 | 27.3 | -900.0 | -200.0 |
+| java-http | 576,327 | 70.9 | 73.0 | 35.8 | 8.1 | 36.0 | 39.5 | 0.0 | 64.7 | 0.0 | 78.8 |
+| kotlin-cli | 46,275 | 10.0 | 10.5 | 5.3 | -9.7 | 7.5 | 6.3 | 0.0 | 0.0 | 0.0 | 0.0 |
+| lua-cli | 458,143 | 58.7 | 61.4 | 5.0 | -33.2 | 11.7 | 13.4 | 0.0 | 60.0 | 50.0 | 21.4 |
+| luau-inventory | 160,656 | 65.6 | 68.1 | 34.8 | 33.6 | 29.0 | 35.2 | 0.0 | 57.1 | 0.0 | 4.0 |
+| node-ssg | 227,731 | 52.4 | 54.0 | 22.9 | -41.3 | 26.9 | 27.4 | 0.0 | 68.4 | 50.0 | 75.0 |
+| ocaml-cli | 413,534 | 60.5 | 62.9 | 11.2 | -32.9 | 15.8 | 18.6 | 3.0 | 60.0 | 71.4 | 25.0 |
+| paper-proofread | 81,562 | 34.2 | 35.1 | 10.3 | 9.2 | 2.8 | 8.3 | 2.4 | 31.2 | 83.3 | -1.4 |
+| pdf-paper-qa | 136,207 | 49.6 | 49.4 | 71.6 | 70.0 | -12.2 | 5.8 | 0.0 | 60.0 | 0.0 | 84.8 |
+| perl-cli | 221,020 | 37.0 | 40.5 | -12.7 | -61.1 | -3.8 | -5.4 | -3.0 | 57.1 | 60.0 | 79.5 |
+| php-api | 593,825 | 55.4 | 57.6 | 9.1 | -48.8 | 15.2 | 16.9 | 0.0 | 47.4 | 50.0 | 86.1 |
+| pr-review | 69,798 | 38.6 | 39.1 | 23.9 | -0.3 | 9.9 | 16.6 | 3.3 | 20.0 | -25.0 | -6.2 |
+| python-cli | 195,065 | 50.6 | 53.0 | 12.8 | -1.8 | 16.6 | 17.7 | 0.0 | 40.0 | 25.0 | -145.4 |
+| r-cli | 374,212 | 56.7 | 60.0 | -1.0 | -49.0 | 6.4 | 7.6 | 0.0 | 57.1 | 50.0 | 36.4 |
+| refactor | 65,498 | 15.8 | 15.4 | 31.3 | 59.9 | 16.9 | 21.5 | 0.0 | -10.0 | -5.6 | -1.8 |
+| rust-cli | 840,848 | 58.2 | 58.6 | 28.8 | 47.7 | 38.5 | 39.7 | 0.0 | 31.6 | -155.6 | 18.2 |
+| rust-debug | 87,200 | 43.1 | 43.6 | 24.8 | 6.5 | 26.0 | 28.0 | 11.5 | 14.3 | 17.6 | 1.0 |
+| rust-tui | 551,031 | 68.7 | 69.6 | 46.4 | 55.1 | 42.7 | 48.3 | 0.0 | 59.1 | -12.5 | 12.5 |
+| swift-cli | 227,041 | 54.1 | 57.1 | 11.2 | -40.5 | 16.6 | 16.9 | 0.0 | 50.0 | -25.0 | -71.4 |
+| ts-lib | 127,374 | 44.9 | 46.1 | 30.0 | 35.1 | 25.7 | 29.7 | 0.0 | 28.6 | 50.0 | 33.3 |
+| vite-landing | 190,862 | 75.4 | 77.1 | 38.9 | 28.0 | 35.7 | 42.0 | 0.0 | 66.7 | 66.7 | 71.4 |
+| zig-cli | 553,170 | 57.3 | 58.8 | 20.9 | -5.3 | 12.3 | 23.5 | 0.0 | 50.0 | 37.5 | 55.8 |
 
 ## Quality-adjusted efficiency
 
@@ -191,10 +192,17 @@ Positive savings mean Token Forge used fewer tokens; negative means it used more
 | output_tokens | 24,163.14 | 23,410 | 1,165 | 51,942 | 14,751.50 |
 | cached_input_tokens | 568,413.51 | 477,937 | 108,780 | 2,287,992 | 449,559.68 |
 | uncached_input_tokens | 48,951.72 | 46,347 | 20,090 | 109,554 | 20,941.41 |
+| cache_creation_input_tokens | 48,925.35 | 46,327 | 20,074 | 109,508 | 20,933.63 |
+| thinking_tokens | 6,387.91 | 4,760 | 168 | 20,432 | 5,673.38 |
 | input_equivalent_tokens | 238,840.12 | 216,791 | 63,936 | 537,852 | 125,261.82 |
+| price_weighted_tokens | 247,113.44 | 231,160 | 70,418 | 528,475 | 118,906.17 |
+| list_cost_usd | 0.99 | 0.92 | 0.28 | 2.11 | 0.48 |
 | total_cost_usd_reported | 0.99 | 0.92 | 0.28 | 2.11 | 0.48 |
+| first_request_cost_usd | 0.08 | 0.07 | 0.05 | 0.30 | 0.04 |
+| api_requests | 13.19 | 12.00 | 4.00 | 29.00 | 5.43 |
 | tool_calls | 13.72 | 12.00 | 3.00 | 32.00 | 6.42 |
 | duration_seconds | 224.62 | 205.10 | 15.00 | 530.20 | 137.69 |
+| hook_duration_ms | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 |
 | quality_score | 98.78 | 100.00 | 87.00 | 100.00 | 2.71 |
 
 **Token Forge** (40 runs)
@@ -206,10 +214,17 @@ Positive savings mean Token Forge used fewer tokens; negative means it used more
 | output_tokens | 21,937.58 | 17,437.00 | 903 | 46,282 | 14,149.94 |
 | cached_input_tokens | 257,321.50 | 205,303.50 | 42,357 | 1,495,129 | 244,922.25 |
 | uncached_input_tokens | 40,170.03 | 38,541.00 | 13,146 | 87,227 | 16,636.95 |
+| cache_creation_input_tokens | 40,153.12 | 38,523.00 | 13,138 | 87,175 | 16,631.71 |
+| thinking_tokens | 8,880.77 | 5,145.50 | 114 | 27,065 | 8,540.97 |
 | input_equivalent_tokens | 185,628.33 | 162,173.00 | 33,621 | 430,964 | 98,561.27 |
+| price_weighted_tokens | 202,877.08 | 182,448.00 | 40,256 | 421,588 | 100,221.87 |
+| list_cost_usd | 0.81 | 0.73 | 0.16 | 1.69 | 0.40 |
 | total_cost_usd_reported | 0.81 | 0.73 | 0.16 | 1.69 | 0.40 |
+| first_request_cost_usd | 0.11 | 0.06 | 0.04 | 0.59 | 0.14 |
+| api_requests | 8.45 | 7.00 | 4.00 | 26.00 | 3.93 |
 | tool_calls | 7.55 | 6.00 | 3.00 | 25.00 | 4.03 |
 | duration_seconds | 203.55 | 177.50 | 15.00 | 495.10 | 132.01 |
+| hook_duration_ms | 214.20 | 181.50 | 124 | 646 | 99.33 |
 | quality_score | 99.52 | 100.00 | 94.00 | 100.00 | 1.37 |
 
 Per-task token savings %: mean 49.61, median 51.51, p10 27.11, p25 40.97, p75 60.8, p90 69.78
@@ -317,6 +332,8 @@ Context precision is approximate: the share of files read that match the task's 
 - missing evaluation: none
 - api models: {'claude-opus-5-5': 83}
 - runs with other models: none
+- cost not reconciled: none
+- cost reconciled runs: 83
 
 ## Statistical conclusion
 

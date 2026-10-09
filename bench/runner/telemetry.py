@@ -6,7 +6,9 @@ That includes the main session, its subagents (sidechains) and any nested `claud
 transcript writes one entry per content block, each repeating the request's usage.
 
 Everything labelled "exact" comes straight from API usage fields. Anything derived from text
-length is reported under "estimated" and never mixed with exact numbers.
+length is reported under "estimated" and never mixed with exact numbers. Dollar figures apply the
+list prices in benchmark.config.json "pricing" (dated assumptions, not provider data) to the exact
+counts; a model without a configured price makes them null.
 """
 from __future__ import annotations
 
@@ -14,12 +16,15 @@ import json
 import re
 import shlex
 from collections import Counter, defaultdict
+from datetime import datetime
 from fnmatch import fnmatch
 from pathlib import Path
 
 VIEW_CMDS = {"cat", "head", "tail", "sed", "nl", "less", "more", "bat", "awk"}
 SEARCH_CMDS = {"grep", "rg", "ag", "find", "fd", "git grep", "ack"}
 SEARCH_TOOLS = {"Grep", "Glob", "ToolSearch", "LSP"}
+MISS_TOLERANCE = 200   # tokens a request may read below the previous request's cached prefix without counting as a miss
+TTL_5M_S = 300
 
 
 def _usage_total(u: dict) -> dict:
@@ -30,13 +35,79 @@ def _usage_total(u: dict) -> dict:
     return {"input_tokens": i, "cache_creation_input_tokens": cw, "cache_read_input_tokens": cr, "output_tokens": o}
 
 
-def iter_entries(config_dir: Path):
-    for f in sorted(Path(config_dir, "projects").rglob("*.jsonl")):
-        for n, line in enumerate(f.open(errors="replace")):
-            try:
-                yield f, json.loads(line)
-            except ValueError:
-                continue
+def _cache_ttl(u: dict) -> tuple[int, int]:
+    """(5-minute, 1-hour) cache-write tokens from usage.cache_creation; writes it does not split are unknown."""
+    cc = u.get("cache_creation") or {}
+    return int(cc.get("ephemeral_5m_input_tokens") or 0), int(cc.get("ephemeral_1h_input_tokens") or 0)
+
+
+def _ctx(u: dict) -> int:
+    return u["input_tokens"] + u["cache_creation_input_tokens"] + u["cache_read_input_tokens"]
+
+
+def _ts(s: str) -> datetime:
+    return datetime.fromisoformat(s.replace("Z", "+00:00"))
+
+
+def _cost(r: dict, pricing: dict) -> float | None:
+    """USD at the configured list prices. Writes without a TTL split are priced as 5-minute writes (the API default)."""
+    u = r["usage"]
+    p = pricing["usd_per_mtok"].get(r["model"])
+    if p is None:
+        return None if any(u.values()) else 0.0
+    w5 = u["cache_creation_input_tokens"] - r["w1"]
+    return (u["input_tokens"] * p["input"] + w5 * p["cache_write_5m"] + r["w1"] * p["cache_write_1h"]
+            + u["cache_read_input_tokens"] * p["cache_read"] + u["output_tokens"] * p["output"]) / 1e6
+
+
+def _cache_stats(reqs) -> dict:
+    """Consecutive requests of one conversation thread (transcript file). A miss: the next request reads more than
+    MISS_TOLERANCE tokens less from the cache than the previous one had cached (read + written) although its context
+    did not shrink (compaction and cleared tool results shrink it); the shortfall is written again. Idle time runs
+    from one request's first transcript entry to the next one's: how long the cached prefix waited for its next read."""
+    threads = defaultdict(list)
+    for r in reqs:
+        threads[(r["file"], r["sidechain"])].append(r)
+    misses = rewrite = 0
+    idle = []
+    for rs in threads.values():
+        rs.sort(key=lambda r: r["ts"])
+        for a, b in zip(rs, rs[1:]):
+            ua, ub = a["usage"], b["usage"]
+            cached = ua["cache_read_input_tokens"] + ua["cache_creation_input_tokens"]
+            if ub["cache_read_input_tokens"] + MISS_TOLERANCE < cached and _ctx(ub) >= _ctx(ua):
+                misses += 1
+                rewrite += cached - ub["cache_read_input_tokens"]
+            if a["ts"] and b["ts"]:
+                idle.append((_ts(b["ts"]) - _ts(a["ts"])).total_seconds())
+    return {"miss_requests": misses, "miss_rewrite_tokens": rewrite, "idle_seconds_max": round(max(idle), 1) if idle else None,
+            f"idle_gaps_over_{TTL_5M_S}s": sum(x > TTL_5M_S for x in idle), "transitions": len(idle),
+            "method": "derived from exact usage of consecutive requests per transcript; miss rule and idle times are heuristics"}
+
+
+def summary(tel: dict) -> dict:
+    """Run-level fields for the manifest; the report derives them the same way for runs recorded before they existed."""
+    tx = tel["tokens_exact"]
+    a, f, c = tx["all"], tx.get("first_request") or {}, tel.get("cache") or {}
+    return {"list_cost_usd": a.get("list_cost_usd"), "price_weighted_tokens": a.get("price_weighted_tokens"),
+            "cache_creation_5m_input_tokens": a.get("cache_creation_5m_input_tokens"),
+            "cache_creation_1h_input_tokens": a.get("cache_creation_1h_input_tokens"),
+            "thinking_tokens": a.get("thinking_tokens"),
+            "first_request_cost_usd": f.get("list_cost_usd"), "first_request_cached_input_tokens": f.get("cached_input_tokens"),
+            "first_request_thinking_tokens": f.get("thinking_tokens"),
+            "cache_miss_rewrite_tokens": c.get("miss_rewrite_tokens"), "cache_idle_seconds_max": c.get("idle_seconds_max"),
+            "hook_duration_ms": (tel.get("hooks") or {}).get("duration_ms_total")}
+
+
+def iter_entries(config_dir: Path, sub="projects"):
+    """Transcripts under CLAUDE_CONFIG_DIR/projects, or under a saved copy (sub="transcripts" of a run directory)."""
+    for f in sorted(Path(config_dir, sub).rglob("*.jsonl")):
+        with f.open(errors="replace") as fh:
+            for line in fh:
+                try:
+                    yield f, json.loads(line)
+                except ValueError:
+                    continue
 
 
 def quick_total(config_dir: Path) -> int:
@@ -97,7 +168,7 @@ def _bash_targets(cmd: str):
     return out
 
 
-def parse(config_dir, workspace, main_session_id=None, relevant_globs=()):
+def parse(config_dir, workspace, main_session_id=None, relevant_globs=(), pricing=None, sub="projects"):
     config_dir = Path(config_dir)
     workspace = str(workspace)
     requests = {}            # key -> {usage, model, session, sidechain, ts}
@@ -106,9 +177,10 @@ def parse(config_dir, workspace, main_session_id=None, relevant_globs=()):
     read_meta = {}           # tool_use_id -> toolUseResult file info
     hooks = []               # hook attachments
     skill_listing_chars = 0
+    stop_hook_ms = 0         # Stop hooks report their duration in a system entry, not in an attachment
     sessions = set()
     order = 0
-    for f, d in iter_entries(config_dir):
+    for f, d in iter_entries(config_dir, sub):
         sid = d.get("sessionId") or d.get("session_id")
         if sid:
             sessions.add(sid)
@@ -117,10 +189,19 @@ def parse(config_dir, workspace, main_session_id=None, relevant_globs=()):
         if t == "assistant":
             m = d.get("message") or {}
             key = d.get("requestId") or m.get("id")
-            if key and m.get("usage") and key not in requests:
-                requests[key] = {"usage": _usage_total(m["usage"]), "model": m.get("model"), "session": sid,
-                                 "sidechain": side, "ts": d.get("timestamp", ""),
-                                 "thinking": int((m["usage"].get("output_tokens_details") or {}).get("thinking_tokens") or 0)}
+            if key and m.get("usage"):
+                u = _usage_total(m["usage"])
+                thinking = int((m["usage"].get("output_tokens_details") or {}).get("thinking_tokens") or 0)
+                if key not in requests:
+                    w5, w1 = _cache_ttl(m["usage"])
+                    requests[key] = {"usage": u, "model": m.get("model"), "session": sid, "sidechain": side,
+                                     "ts": d.get("timestamp", ""), "file": str(f), "w5": w5, "w1": w1, "thinking": thinking}
+                else:
+                    # the entries of one streamed response can log partial output counts (seen in subagent
+                    # transcripts); the input and cache counts are the same on all of them
+                    r = requests[key]
+                    r["usage"]["output_tokens"] = max(r["usage"]["output_tokens"], u["output_tokens"])
+                    r["thinking"] = max(r["thinking"], thinking)
             for c in m.get("content") or []:
                 if isinstance(c, dict) and c.get("type") == "tool_use" and c.get("id") not in tool_uses:
                     order += 1
@@ -150,9 +231,12 @@ def parse(config_dir, workspace, main_session_id=None, relevant_globs=()):
                     pass
                 hooks.append({"type": a.get("type"), "event": a.get("hookEvent"), "name": a.get("hookName"),
                               "content_chars": len(ctx) + len(str(a.get("content") or "")),
-                              "stdout_chars": len(str(a.get("stdout") or "")), "decision": decision})
+                              "stdout_chars": len(str(a.get("stdout") or "")), "decision": decision,
+                              "ms": int(float(a.get("durationMs") or 0))})
             elif a.get("type") == "skill_listing":
                 skill_listing_chars = max(skill_listing_chars, len(str(a.get("content") or "")))
+        elif t == "system" and d.get("subtype") == "stop_hook_summary":
+            stop_hook_ms += sum(int(h.get("durationMs") or 0) for h in d.get("hookInfos") or [])
 
     # ---- tokens (exact) ----
     def agg(reqs):
@@ -160,12 +244,21 @@ def parse(config_dir, workspace, main_session_id=None, relevant_globs=()):
         for r in reqs:
             tot.update(r["usage"])
         i, cw, cr, o = (tot["input_tokens"], tot["cache_creation_input_tokens"], tot["cache_read_input_tokens"], tot["output_tokens"])
+        w5, w1 = sum(r["w5"] for r in reqs), sum(r["w1"] for r in reqs)
+        costs = [_cost(r, pricing) for r in reqs] if pricing else [None]
+        cost = None if None in costs else sum(costs)
+        ref = pricing["usd_per_mtok"][pricing["reference_model"]]["input"] if pricing else None
         return {"requests": len(reqs), "input_tokens_total": i + cw + cr, "uncached_input_tokens": i + cw,
                 "input_tokens_no_cache": i, "cache_creation_input_tokens": cw, "cached_input_tokens": cr,
                 "output_tokens": o, "total_tokens": i + cw + cr + o,
                 "thinking_tokens": sum(r["thinking"] for r in reqs),
-                # price-weighted: cache write 1.25x, cache read 0.1x, output 5x (relative to base input)
-                "input_equivalent_tokens": round(i + 1.25 * cw + 0.1 * cr + 5 * o)}
+                # legacy fixed weights (cache write 1.25x whatever its TTL, cache read 0.1x, output 5x), kept for old reports
+                "input_equivalent_tokens": round(i + 1.25 * cw + 0.1 * cr + 5 * o),
+                "cache_creation_5m_input_tokens": w5, "cache_creation_1h_input_tokens": w1,
+                "cache_creation_ttl_unknown_input_tokens": cw - w5 - w1,
+                "list_cost_usd": round(cost, 6) if cost is not None else None,
+                # list cost in reference-model input tokens: TTL-aware price weights of the model that answered
+                "price_weighted_tokens": round(cost / ref * 1e6) if cost is not None else None}
 
     reqs = list(requests.values())
     main = [r for r in reqs if r["session"] == main_session_id and not r["sidechain"]] if main_session_id else []
@@ -175,8 +268,7 @@ def parse(config_dir, workspace, main_session_id=None, relevant_globs=()):
     for r in reqs:
         by_model[r["model"] or "unknown"].append(r)
     first = sorted(main or reqs, key=lambda r: r["ts"])[:1]
-    first_ctx = (first[0]["usage"]["input_tokens"] + first[0]["usage"]["cache_creation_input_tokens"]
-                 + first[0]["usage"]["cache_read_input_tokens"]) if first else None
+    first_ctx = _ctx(first[0]["usage"]) if first else None
 
     # ---- tools ----
     names = Counter(u["name"] for u in tool_uses.values())
@@ -266,13 +358,21 @@ def parse(config_dir, workspace, main_session_id=None, relevant_globs=()):
     injected = sum(h["content_chars"] for h in hooks if h["event"] in ("SessionStart", "UserPromptSubmit", "SubagentStart"))
     tokens = {"all": agg(reqs), "main": agg(main) if main_session_id else None, "subagents": agg(side),
               "nested_sessions": agg(nested), "by_model": {k: agg(v) for k, v in by_model.items()},
-              "first_request_context_tokens": first_ctx}
+              "first_request_context_tokens": first_ctx,
+              # cold start: what the run paid before its own cache existed (its prefix may be cached by earlier runs)
+              "first_request": agg(first) if first else None}
+    hook_ms = Counter()
+    for h in hooks:
+        hook_ms[h["event"]] += h["ms"]
+    if stop_hook_ms:
+        hook_ms["Stop"] += stop_hook_ms
     estimated = {"tool_result_tokens_est": round(result_bytes / 4),
                  "hook_injected_context_tokens_est": round(injected / 4),
                  "skill_listing_tokens_est": round(skill_listing_chars / 4),
                  "method": "UTF-8 bytes / 4; NOT exact"}
-    return {"tokens_exact": tokens, "tools": tools,
+    return {"tokens_exact": tokens, "tools": tools, "cache": _cache_stats(reqs),
             "hooks": {"count": len(hooks), "by_event": dict(hook_events), "injected_context_chars": injected,
                       "tool_rewrites": sum(h["decision"] == "rewrite" for h in hooks),
-                      "tool_denials": sum(h["decision"] == "deny" for h in hooks)},
+                      "tool_denials": sum(h["decision"] == "deny" for h in hooks),
+                      "duration_ms_total": sum(hook_ms.values()), "duration_ms_by_event": dict(hook_ms)},
             "estimated": estimated, "sessions": sorted(sessions)}
