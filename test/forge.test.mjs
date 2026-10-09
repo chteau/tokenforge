@@ -313,7 +313,7 @@ test('meter counts each API call once and weighs columns by price', () => {
   assert.equal(s.weighted, 2 * (100 + 1250 + 1000 + 250));
 });
 
-test('context budget warns once per band and holds one prompt; handoff-load injects the handoff', () => {
+test('context budget alerts over the budget and at each doubling, never holds a prompt; handoff-load injects the handoff', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tforge-hook-'));
   const tr = path.join(dir, 't.jsonl');
   const call = (id, read) => JSON.stringify({ type: 'assistant', message: { id, usage: { input_tokens: 5, cache_creation_input_tokens: 5000, cache_read_input_tokens: read, output_tokens: 1 } } });
@@ -324,19 +324,22 @@ test('context budget warns once per band and holds one prompt; handoff-load inje
   delete env0.TFORGE_BUDGET;
   delete env0.TFORGE_WATCH;
   const quiet = spawnSync('node', [hook], { input: JSON.stringify({ session_id: sid + 'q', transcript_path: tr, hook_event_name: 'PostToolUse' }), encoding: 'utf8', env: env0 });
-  const q = JSON.parse(quiet.stdout);
-  assert.match(q.systemMessage, /budget 50k/, 'the user sees the warning');
-  assert.equal(q.hookSpecificOutput, undefined, 'nothing enters the model context by default');
+  assert.equal(quiet.stdout, '', 'nothing after a tool call by default');
   env0.TFORGE_WATCH_INJECT = '1';
   const run = (o) => spawnSync('node', [hook], { input: JSON.stringify({ session_id: sid, transcript_path: tr, ...o }), encoding: 'utf8', env: env0 });
   const out = JSON.parse(run({ hook_event_name: 'PostToolUse' }).stdout);
   assert.match(out.hookSpecificOutput.additionalContext, /~95k tokens, over the 50k budget/);
+  assert.equal(out.systemMessage, undefined, 'the user hears with their next message');
   assert.equal(run({ hook_event_name: 'PostToolUse' }).stdout, '', 'same band stays silent');
   const alert = JSON.parse(run({ hook_event_name: 'UserPromptSubmit', prompt: 'next thing' }).stdout);
   assert.equal(alert.decision, undefined, 'prompts are never held');
-  assert.match(alert.systemMessage, /\/clear when it suits you[\s\S]*sent normally/);
-  assert.equal(run({ hook_event_name: 'UserPromptSubmit', prompt: 'another thing' }).stdout, '', 'one alert per step');
+  assert.match(alert.systemMessage, /~95k tokens \(budget 50k\)[\s\S]*\/clear[\s\S]*Your message was sent/);
+  assert.equal(run({ hook_event_name: 'UserPromptSubmit', prompt: 'another thing' }).stdout, '', 'one alert per band');
+  fs.appendFileSync(tr, call('y', 94000) + '\n');
+  assert.equal(run({ hook_event_name: 'UserPromptSubmit', prompt: 'more' }).stdout, '', 'silent until the context doubles');
+  fs.appendFileSync(tr, call('z', 100000) + '\n');
   assert.equal(run({ hook_event_name: 'UserPromptSubmit', prompt: '/tokenforge:handoff' }).stdout, '', 'slash commands stay silent');
+  assert.match(JSON.parse(run({ hook_event_name: 'UserPromptSubmit', prompt: 'more' }).stdout).systemMessage, /~105k tokens/);
 
   // A fixed part above the budget moves the limit to fixed + floor.
   const tr2 = path.join(dir, 't2.jsonl');

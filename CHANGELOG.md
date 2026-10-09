@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.9.1
+
+- Context alert: your next message gets it once the context passes the budget, then again each time the context doubles, instead of every 10k tokens and after tool calls (a 700k-token session got over 60). Shorter. A session started on 0.7.0–0.7.2 keeps that version's blocking alert ("A hook blocked your prompt") until it ends: after updating, start a new session.
+- `tforge gc` on macOS: a session's scratch that a process works in is found with `lsof` (there is no `/proc`); when that can't be told, no scratch is removed.
+
 ## 0.9.0
 
 Disk cleanup, instruction files for every agent, a planning line, leaner shell output, SpecAudit compatibility.

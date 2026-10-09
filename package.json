@@ -1,6 +1,6 @@
 {
   "name": "tokenforge",
-  "version": "0.9.0",
+  "version": "0.9.1",
   "private": true,
   "description": "Claude Code plugin: build big things with far fewer tokens using small, stateless, test-checked workers.",
   "type": "module",

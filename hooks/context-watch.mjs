@@ -1,5 +1,6 @@
 // Context budget. Every API call re-reads the whole context from the cache, so cache reads grow with
-// calls x context size. Past the budget the user sees a non-blocking alert, and .forge/HANDOFF.md is written
+// calls x context size. Past the budget, and each time the context doubles, the user's next message gets a
+// non-blocking alert, and .forge/HANDOFF.md is written
 // automatically from this session's snapshots (no model call), so /clear at any moment loses nothing: the next
 // session reloads it. Prompts are never held. A handoff the user wrote (/tokenforge:handoff) is never overwritten.
 // After each tool call it also adds the nested instruction files of the directories the call reached (Claude Code
@@ -17,7 +18,6 @@ const BUDGET = Number(process.env.TFORGE_BUDGET) || 50000;
 // Always leave this much room above it for actual work.
 const FLOOR = Number(process.env.TFORGE_BUDGET_FLOOR) || 15000;
 const SOFT_MARGIN = 10000;
-const STEP = 10000;
 const TAIL_BYTES = 512 * 1024;
 const HEAD_BYTES = 1024 * 1024;
 
@@ -163,7 +163,8 @@ function afterTool(input) {
   }
 }
 
-// Context budget: { systemMessage, context } when the context crossed a band, else null.
+// Context budget. Bands: near the budget, over it, then each doubling. The user gets one alert per band, with
+// their next message; after a tool call that crossed a band Claude gets a note only with TFORGE_WATCH_INJECT=1.
 function watch(input, event) {
   if (process.env.TFORGE_WATCH === '0' || !input.transcript_path) return null;
   const ctx = lastContext(input.transcript_path);
@@ -186,7 +187,7 @@ function watch(input, event) {
     save();
   }
   const { limit, soft } = limits(state.baseline);
-  const band = ctx < soft ? -1 : ctx < limit ? 0 : 1 + Math.floor((ctx - limit) / STEP);
+  const band = ctx < soft ? -1 : ctx < limit ? 0 : 1 + Math.floor(Math.log2(ctx / limit));
   const k = (n) => `${Math.round(n / 1000)}k`;
 
   if (event === 'UserPromptSubmit') {
@@ -194,17 +195,19 @@ function watch(input, event) {
     const prompt = typeof input.prompt === 'string' ? input.prompt.trim() : '';
     if (prompt.startsWith('/')) return null;
     const saved = autoHandoff(input.cwd, input.session_id, ctx);
-    if (state.alerted === band) return null; // one alert per 10k step
+    if (state.alerted === band) return null;
     state.alerted = band;
     save();
     return {
       systemMessage:
-        `TokenForge: context is ~${k(ctx)} tokens (budget ${k(limit)}); every call re-reads all of it. ` +
-        (saved ? 'Handoff saved automatically (.forge/HANDOFF.md). ' : '') +
-        'Type /clear when it suits you: the next message continues from it. Your message was sent normally.',
+        `TokenForge: context ~${k(ctx)} tokens (budget ${k(limit)}), re-read on every call. ` +
+        (saved ? 'Handoff saved: when it suits you, /clear or a new session continues from it.' : 'When it suits you, /clear or start a new session.') +
+        ' Your message was sent.',
     };
   }
 
+  // Every injected line is re-read on every later call, and "stop and /clear" ends unattended tasks halfway.
+  if (process.env.TFORGE_WATCH_INJECT !== '1') return null;
   const prev = state.band ?? -1;
   if (band === prev) return null;
   state.band = band;
@@ -217,12 +220,7 @@ function watch(input, event) {
       : `tokenforge: context is ~${k(ctx)} tokens, over the ${k(limit)} budget; every further call re-reads all of it. ` +
         'Finish only the edit in progress, write the handoff with the tokenforge handoff skill, then stop and tell the user to run /clear. ' +
         'Prompts, changed files and your last reply are already saved in .forge/snapshots/.';
-  return {
-    systemMessage: `tokenforge: context ~${k(ctx)} / budget ${k(limit)}.`,
-    // The note goes into the model's context only on request: every injected line is re-read on every
-    // later call, and "stop and /clear" ends unattended tasks halfway. Default: shown to the user only.
-    context: process.env.TFORGE_WATCH_INJECT === '1' ? note : '',
-  };
+  return { context: note };
 }
 
 function main() {
