@@ -64,6 +64,7 @@ test('opencode 2: setup registers shell, result and context hooks; dispose remov
   await hooks['tool.execute.after']({ id: 'b', status: 'completed', result: { content: [{ type: 'text', text: 'hi' }] } });
   await dispose();
   assert.deepEqual(Object.keys(hooks), []);
+  assert.equal(process.env.PATH.split(path.delimiter)[0], path.resolve('bin'), 'tkit is reachable from opencode shells');
   assert.equal(typeof (await plugin.setup({})), 'function', 'a ctx without hooks is a no-op, not a crash');
 });
 
