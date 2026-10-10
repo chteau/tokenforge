@@ -167,7 +167,7 @@ Codex runs the same hooks. Add the marketplace, install `tokenforge` from it, th
 codex plugin marketplace add chteau/tokenforge
 ```
 
-What works there: the Bash router (`tkit check`, `tkit test`, `tview`; refusals of interactive ssh and installers), MCP result distillation, the answer cache, prompt routing, the session-start policy, checkpoints and skills. Codex has no Read or Grep tool, so the Read narrowing and code redirect never fire; the 4-minute cap on polling waits is off (Codex takes a rewritten input only with an approval). Context-budget alerts read Claude Code's transcript format and stay silent on Codex. The dashboard, workers and proxy are Claude Code only.
+What works there: the Bash router (`tkit check`, `tkit test`, `tview`; refusals of interactive ssh and installers), MCP result distillation, the answer cache, prompt routing, the session-start policy, checkpoints and skills. Codex has no Read or Grep tool, so the Read narrowing and code redirect never fire; the 4-minute cap on polling waits is off (Codex takes a rewritten input only with an approval). Context-budget alerts read Claude Code's transcript format and stay silent on Codex. The dashboard and workers are Claude Code only; the proxy also serves Codex with an API key (see API proxy).
 
 ### opencode
 
@@ -283,6 +283,20 @@ The prompt cache is why only new results change: if earlier content differs from
 Claude Code keeps `ANTHROPIC_BASE_URL` for the whole session, so `tforge claude` checks every 2 seconds that the proxy is still running and restarts it on the same port if it stopped. An error in one request is logged in `~/.cache/tokenforge/proxy.log` and does not stop the proxy.
 
 To estimate the savings on your own past sessions without calling the API, run `node bench/scripts/proxy-replay.mjs [--days 30]`. It replays the tool results in your transcripts through the same compression and prints only totals.
+
+**Codex (OpenAI Responses API).** The proxy also takes `POST /v1/responses` and compresses large `function_call_output` items the same way (shell outputs like Bash), with the same memo, sent on to `TFORGE_PROXY_OPENAI_UPSTREAM` (default `https://api.openai.com`). Start it with `tforge proxy --detach`, then in `~/.codex/config.toml`:
+
+```toml
+model_provider = "tforge"
+
+[model_providers.tforge]
+name = "OpenAI via tokenforge"
+base_url = "http://127.0.0.1:7879/v1"
+env_key = "OPENAI_API_KEY"
+wire_api = "responses"
+```
+
+Only outputs after the last message (the current turn's tool loop) are compressed, so history already sent stays byte-identical for the prompt cache. Tested with an API key; a ChatGPT-login session goes to a different backend and is untested.
 
 `TFORGE_PROXY_COMPRESS=0` logs only. `TFORGE_PROXY_FOLD=0` turns off Read folding. `TFORGE_PROXY_CAP` sets the Bash output cap in characters (`0`: none). `TFORGE_PROXY_MEMO_MB` caps the memo of compressed results (default 64 MB; the least recently used go first). `TFORGE_PROXY_UPSTREAM` sets where requests go (default: an `ANTHROPIC_BASE_URL` you already had, else `https://api.anthropic.com`).
 
@@ -464,6 +478,7 @@ Workers run with `--permission-mode acceptEdits` and only `Read`, `Write` and `E
 | `TFORGE_RUN_PROXY` | | `1`: `tforge run` workers go through the proxy, the same as `--proxy` or `"proxy": true` in the plan |
 | `TFORGE_PROXY_MEMO_MB` | `64` | Size cap of the proxy's memo of compressed results |
 | `TFORGE_PROXY_UPSTREAM` | | Where the proxy forwards (default: an existing `ANTHROPIC_BASE_URL`, else the Anthropic API) |
+| `TFORGE_PROXY_OPENAI_UPSTREAM` | `https://api.openai.com` | Where the proxy forwards `/v1/responses` (Codex) |
 | `TFORGE_NO_DOWNLOAD` | | `1` never downloads tmap; build with cargo instead |
 | `TFORGE_DISTILL_MODEL` / `_TIMEOUT` / `_MAX_BYTES` | `haiku` / `120` / `480000` | Model, timeout (s) and input cap for `tkit distill` and `web --ask` |
 

@@ -9,7 +9,7 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 process.env.XDG_CACHE_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'cache-'));
-const { cacheBreak, capText, cleanText, compressResult, crushJson, foldRead, formatReport, matchSummary, openMemo, proxyReport, requestShape, startProxy, transformRequest } = await import('../lib/proxy.mjs');
+const { cacheBreak, capText, cleanText, compressResult, crushJson, foldRead, formatReport, matchSummary, openMemo, proxyReport, requestShape, startProxy, transformRequest, transformResponses, usageParser } = await import('../lib/proxy.mjs');
 
 const numbered = (text) => text.split('\n').map((l, i) => `${i + 1}\t${l}`).join('\n');
 const bigSource = () => {
@@ -363,4 +363,77 @@ const t0 = Date.now();
   const env = { ...process.env, XDG_CACHE_HOME: path.join(dir, 'cache'), TFORGE_CLAUDE: fake, TFORGE_PROXY_PORT: String(port), TFORGE_PROXY_WATCH_MS: '200', TFORGE_PROXY_UPSTREAM: 'http://127.0.0.1:1' };
   const r = spawnSync(process.execPath, [tforge, 'claude'], { env, encoding: 'utf8', timeout: 20000 });
   assert.equal(r.status, 0, r.stderr);
+});
+
+const codexInput = () => [
+  { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'build it' }] },
+  { type: 'function_call', name: 'shell', call_id: 'c1', arguments: '{"command":["make"]}' },
+  { type: 'function_call_output', call_id: 'c1', output: bashResult() },
+  { type: 'function_call', name: 'exec_command', call_id: 'c2', arguments: '{"cmd":"make"}' },
+  { type: 'function_call_output', call_id: 'c2', output: JSON.stringify({ output: bashResult(), metadata: { exit_code: 0 } }) },
+  { type: 'function_call', name: 'shell', call_id: 'c3', arguments: '{"command":["ls"]}' },
+  { type: 'function_call_output', call_id: 'c3', output: 'a\nb' },
+];
+
+test('responses: compresses only the current turn outputs, JSON-wrapped output keeps its wrapper, memo replays', () => {
+  const memo = new Map();
+  const old = { type: 'function_call_output', call_id: 'c0', output: bashResult() };
+  const body = { model: 'gpt-5', instructions: 'sys', input: [{ type: 'function_call', name: 'shell', call_id: 'c0', arguments: '{}' }, old, ...codexInput()] };
+  const st = transformResponses(body, memo, { saveFull: () => null });
+  assert.equal(body.input[1].output, bashResult()); // before the last message: left as sent
+  assert.ok(body.input[4].output.length < bashResult().length / 2);
+  const w = JSON.parse(body.input[6].output);
+  assert.ok(w.output.length < bashResult().length / 2);
+  assert.match(w.output, /FAILED: test x/);
+  assert.equal(w.metadata.exit_code, 0);
+  assert.equal(body.input[8].output, 'a\nb');
+  assert.equal(st.results, 4);
+  assert.equal(st.compressed, 2);
+  // next request: same history plus a new turn; the compressed outputs are replayed byte-identical
+  const next = { model: 'gpt-5', instructions: 'sys', input: [...codexInput(), { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'done' }] }] };
+  const st2 = transformResponses(next, memo, { saveFull: () => null });
+  assert.equal(next.input[4].output, body.input[6].output);
+  assert.equal(st2.memoHits, 2);
+  assert.equal(st2.fresh, 0);
+});
+
+test('responses: usage from response.completed (stream) and from the JSON body', () => {
+  const s = usageParser('text/event-stream', 'responses');
+  s.feed(Buffer.from('event: response.created\ndata: {"type":"response.created"}\n\nevent: response.completed\ndata: {"type":"response.completed","response":{"usage":{"input_tokens":1200,"input_tokens_details":{"cached_tokens":1000},"output_tokens":40}}}\n\n'));
+  assert.deepEqual(s.end(), { in: 200, cr: 1000, cw: 0, out: 40 });
+  const j = usageParser('application/json', 'responses');
+  j.feed(Buffer.from('{"usage":{"input_tokens":10,"output_tokens":2}}'));
+  assert.deepEqual(j.end(), { in: 10, cr: 0, cw: 0, out: 2 });
+});
+
+test('proxy: /v1/responses goes to the OpenAI upstream, compressed, usage logged, no content or key in the log', async () => {
+  const seen = [];
+  const oai = http.createServer((req, res) => {
+    const chunks = [];
+    req.on('data', (c) => chunks.push(c));
+    req.on('end', () => {
+      seen.push({ url: req.url, headers: req.headers, body: Buffer.concat(chunks).toString() });
+      res.writeHead(200, { 'content-type': 'text/event-stream' });
+      res.end('event: response.completed\ndata: {"type":"response.completed","response":{"usage":{"input_tokens":900,"input_tokens_details":{"cached_tokens":800},"output_tokens":7}}}\n\n');
+    });
+  });
+  await new Promise((r) => oai.listen(0, '127.0.0.1', r));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'proxy-'));
+  const p = await startProxy({ port: 0, upstream: 'http://127.0.0.1:9', openaiUpstream: `http://127.0.0.1:${oai.address().port}`, dir });
+  try {
+    const r = await send(p.port, { url: '/v1/responses', body: JSON.stringify({ model: 'gpt-5', stream: true, input: codexInput() }), headers: { authorization: 'Bearer sk-secret' } });
+    assert.equal(r.status, 200);
+    assert.equal(seen[0].url, '/v1/responses');
+    assert.equal(seen[0].headers.authorization, 'Bearer sk-secret');
+    assert.ok(JSON.parse(seen[0].body).input[4].output.length < bashResult().length / 2);
+    const log = fs.readFileSync(fs.readdirSync(dir).filter((f) => f.startsWith('requests-')).map((f) => path.join(dir, f))[0], 'utf8');
+    const rec = JSON.parse(log.trim().split('\n')[0]);
+    assert.equal(rec.wire, 'responses');
+    assert.deepEqual(rec.usage, { in: 100, cr: 800, cw: 0, out: 7 });
+    assert.equal(rec.compressed, 2);
+    assert.doesNotMatch(log, /build output|Bearer|sk-secret/);
+  } finally {
+    p.server.close();
+    oai.close();
+  }
 });

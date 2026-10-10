@@ -333,7 +333,7 @@ async function main() {
       await daemonStart('proxy', { port: r.port, foreground: true });
       // sessions depend on it: a bug in one request is logged, not fatal
       process.on('uncaughtException', (e) => console.error(`tforge proxy: ${new Date().toISOString()} ${e.stack || e}`));
-      console.log(`tforge proxy: 127.0.0.1:${r.port} -> ${r.upstream}  (Ctrl+C to stop)\nuse: ${hint(r.port)}`);
+      console.log(`tforge proxy: 127.0.0.1:${r.port} -> ${r.upstream} (Codex /v1/responses -> ${r.openaiUpstream})  (Ctrl+C to stop)\nuse: ${hint(r.port)}`);
       return new Promise(() => {});
     }
     case 'statusline': {
