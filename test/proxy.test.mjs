@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 process.env.XDG_CACHE_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'cache-'));
-const { capText, cleanText, compressResult, crushJson, foldRead, openMemo, proxyReport, startProxy, transformRequest } = await import('../lib/proxy.mjs');
+const { cacheBreak, capText, cleanText, compressResult, crushJson, foldRead, formatReport, matchSummary, openMemo, proxyReport, requestShape, startProxy, transformRequest } = await import('../lib/proxy.mjs');
 
 const numbered = (text) => text.split('\n').map((l, i) => `${i + 1}\t${l}`).join('\n');
 const bigSource = () => {
@@ -36,6 +36,22 @@ test('capText keeps head and tail and points to the full text', () => {
   assert.match(out, /lines \(\d+ chars\) omitted; full output: \/x\/full\.txt/);
   assert.equal(saved, text);
   assert.equal(capText('short', 2000, () => 'f'), 'short');
+});
+
+test('a capped search result starts with its match counts per file, or per folder for a path list', () => {
+  const grep = [];
+  for (let i = 0; i < 300; i++) grep.push(`src/a.js:${i + 1}:  call(x)`);
+  for (let i = 0; i < 40; i++) grep.push(`lib/b.mjs:${i + 1}:call(y)`);
+  grep.push('test/c.test.mjs:7:call(z)');
+  const out = capText(grep.join('\n'), 2000, () => '/f');
+  assert.match(out, /^\[all 341 lines, by file: src\/a\.js 300, lib\/b\.mjs 40, test\/c\.test\.mjs 1\]\nsrc\/a\.js:1:/);
+  const paths = Array.from({ length: 30 }, (_, i) => `${i < 20 ? 'src/x' : 'docs'}/f${i}.md`).join('\n');
+  assert.equal(matchSummary(paths), '[all 30 lines, by folder: src/x/ 20, docs/ 10]');
+  const many = Array.from({ length: 40 }, (_, i) => `d${i}/f.js:1:x`).join('\n');
+  assert.match(matchSummary(many, 3), /d0\/f\.js 1, d1\/f\.js 1, d10\/f\.js 1, \+37 more files\]$/);
+  assert.equal(matchSummary(bashResult()), null); // not a search result
+  assert.equal(matchSummary(grep.slice(0, 5).join('\n')), null); // too short to need it
+  assert.doesNotMatch(capText(grep.slice(0, 30).join('\n'), 20000, () => '/f'), /^\[all/); // not capped: no summary
 });
 
 test('crushJson compacts, keeps first, error and last items of long arrays', () => {
@@ -108,6 +124,61 @@ test('transformRequest: only the newest results are compressed, and later reques
   c.messages.push({ role: 'user', content: 'next' });
   transformRequest(c, memo);
   assert.equal(c.messages[4].content[0].content, '[Old tool result content cleared]');
+});
+
+test('transformRequest counts edits and reads on files whose Read went out folded', () => {
+  const memo = openMemo(null);
+  const file = '/p/a.js';
+  const msgs = [
+    { role: 'user', content: 'go' },
+    { role: 'assistant', content: [{ type: 'tool_use', id: 'r', name: 'Read', input: { file_path: file } }] },
+    { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'r', content: numbered(bigSource()) }] },
+  ];
+  transformRequest({ messages: msgs }, memo, { countFolds: true });
+  assert.equal(memo.get('r').fold, 1);
+  const next = structuredClone(msgs);
+  next.push(
+    {
+      role: 'assistant',
+      content: [
+        { type: 'tool_use', id: 'e1', name: 'Edit', input: { file_path: file } },
+        { type: 'tool_use', id: 'e2', name: 'Edit', input: { file_path: file } },
+        { type: 'tool_use', id: 'r2', name: 'Read', input: { file_path: file, offset: 2, limit: 16 } },
+        { type: 'tool_use', id: 'o', name: 'Edit', input: { file_path: '/p/other.js' } },
+      ],
+    },
+    {
+      role: 'user',
+      content: [
+        { type: 'tool_result', tool_use_id: 'e1', is_error: true, content: '<tool_use_error>String to replace not found in file.</tool_use_error>' },
+        { type: 'tool_result', tool_use_id: 'e2', content: 'ok' },
+        { type: 'tool_result', tool_use_id: 'r2', content: '2\tx' },
+        { type: 'tool_result', tool_use_id: 'o', is_error: true, content: 'String to replace not found' },
+      ],
+    },
+  );
+  const st = transformRequest(structuredClone({ messages: next }), memo, { countFolds: true });
+  assert.deepEqual([st.foldEdits, st.foldMisses, st.foldReads], [2, 1, 1]);
+  assert.equal(transformRequest(structuredClone({ messages: next }), memo).foldEdits, 0); // count_tokens: not counted
+});
+
+test('cacheBreak names the first prefix part that changed, or expiry', () => {
+  const base = { model: 'm', metadata: { user_id: 'u' }, system: [{ type: 'text', text: 'S' }], tools: [{ name: 't' }], messages: [{ role: 'user', content: 'a' }, { role: 'assistant', content: 'b' }] };
+  const shape = (f) => requestShape(f(structuredClone(base)));
+  const prev = { ...shape((j) => j), ctx: 50000, t: 1e6 };
+  const u = (cr) => ({ in: 10, cr, cw: 50000 - cr });
+  const later = (j) => (j.messages.push({ role: 'user', content: 'c' }), j);
+  assert.equal(cacheBreak(prev, shape(later), u(49000), 1e6 + 1000), null); // cache held
+  assert.equal(shape((j) => ((j.system[0].cache_control = { type: 'ephemeral' }), j)).sys, prev.sys); // markers don't count
+  assert.equal(shape(later).chain, prev.chain);
+  assert.deepEqual(cacheBreak(prev, shape((j) => ((j.system[0].text = 'S2'), j)), u(0), 1e6), { cause: 'system', lost: 50000 });
+  assert.equal(cacheBreak(prev, shape((j) => (j.tools.push({ name: 'x' }), j)), u(3000), 1e6).cause, 'tools');
+  assert.deepEqual(cacheBreak(prev, shape((j) => ((j.messages[1].content = 'B'), j)), u(100), 1e6), { cause: 'history', lost: 49900, idx: 1 });
+  assert.equal(cacheBreak(prev, shape(later), u(0), 1e6 + 400e3).cause, 'expired');
+  assert.equal(cacheBreak(prev, shape(later), u(0), 1e6 + 1000).cause, 'unknown');
+  const r = { requests: 2, in: 0, cr: 0, cw: 0, out: 0, compressed: 0, saved: 0, system: 0, tools: 0, resultChars: 0, models: {}, breaks: { tools: { n: 1, lost: 48000 } }, foldEdits: 3, foldMisses: 1, foldReads: 2 };
+  assert.match(formatReport(r, 1), /cache breaks {3}tools 1 \(~48\.0k tokens written again\)/);
+  assert.match(formatReport(r, 1), /3 edits on folded files, 1 failed; 2 reads back/);
 });
 
 test('memo survives a restart and drops stale entries', () => {
@@ -195,6 +266,7 @@ test('proxy: streams the answer unchanged, forwards auth, compresses new results
     assert.ok(recs.some((e) => e.error && /transform/.test(e.error)));
     const rep = proxyReport({ dir });
     assert.equal(rep.cr, 2000); // the broken body was forwarded too, and answered
+    assert.ok(first.chain && !first.brk);
   } finally {
     p.server.close();
     up.server.close();

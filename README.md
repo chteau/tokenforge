@@ -252,8 +252,10 @@ A local dashboard starts in the background with your first session. Open it with
 
 `tforge claude` runs Claude Code through a local proxy (`ANTHROPIC_BASE_URL=http://127.0.0.1:7879`), started in the background if needed; `tforge proxy` runs it in a terminal, `--detach` in the background, `--stop` stops it. Works with a subscription login or an API key: the proxy forwards every header as sent. It does two things:
 
-- **Logs** every request: sizes of the system prompt, tool definitions and tool results, and the usage the API reports (input, cache reads, cache writes, output). `tforge proxy report [--days N]` sums them.
-- **Compresses tool results the first time they are sent.** A whole-file Read above 12k characters (code, not prose or markup) folds long definition bodies, keeping every kept line's number and `Read offset=N limit=M` in place of each fold; partial reads, which Edit works from, stay whole. Bash and other text output loses colors and progress-bar redraws, repeated lines become a count, and output above 16k characters keeps its head and tail with the full text saved to a file the model can grep. Large JSON loses its indentation, and long arrays keep their first, error-looking and last items.
+- **Logs** every request: sizes of the system prompt, tool definitions and tool results, and the usage the API reports (input, cache reads, cache writes, output). `tforge proxy report [--days N]` sums them, and also shows:
+  - **Cache breaks.** A request that reads much less from cache than the previous request of the same conversation had in context. The report gives a probable cause: the system prompt changed, the tool definitions changed, an earlier message changed, or the cache expired (more than 5 minutes, or 1 hour with a 1h TTL). It also says how many tokens were written again.
+  - **Folded Reads.** How many Edits hit a file whose Read went out folded, how many of those failed because the text was not found, and how many Reads went back into folded bodies. These say whether folding saves more than it costs.
+- **Compresses tool results the first time they are sent.** A whole-file Read above 12k characters (code, not prose or markup) folds long definition bodies, keeping every kept line's number and `Read offset=N limit=M` in place of each fold; partial reads, which Edit works from, stay whole. Bash and other text output loses colors and progress-bar redraws, repeated lines become a count, and output above 16k characters keeps its head and tail with the full text saved to a file the model can grep. When the cut output is a search result (`path:line:` lines or a list of paths), it starts with the match count for every file, or every folder, so the cut part still shows where the matches are. Large JSON loses its indentation, and long arrays keep their first, error-looking and last items.
 
 The prompt cache is why only new results change: if earlier content differs from the last request, the API writes it to the cache again at 1.25× instead of reading it at 0.1×. Each compressed result is remembered by its tool_use_id, so every later request sends the same bytes. A result the proxy first passed unchanged (it was started mid-session) is never touched later, and one that Claude Code itself rewrote passes as sent. If a request cannot be parsed, it goes out unchanged.
 
@@ -344,7 +346,7 @@ The plugin puts `tforge` on Claude's PATH. You can also run it yourself with `no
 ```
 tforge init                 example .forge/plan.json
 tforge validate             check the plan, print task order
-tforge run [--only a,b] [--force a,b] [-j N] [--dry-run] [--detach]
+tforge run [--only a,b] [--force a,b] [-j N] [--dry-run] [--detach] [--proxy]
 tforge wait                 wait for a detached run (up to 9 min per call), print its summary
 tforge status               task states and spend
 tforge prompt <id>          the exact prompt a worker receives
@@ -434,6 +436,7 @@ Workers run with `--permission-mode acceptEdits` and only `Read`, `Write` and `E
 | `TFORGE_PROXY_PORT` | `7879` | `tforge proxy` / `tforge claude` port |
 | `TFORGE_PROXY_COMPRESS` / `TFORGE_PROXY_FOLD` | | `0`: the proxy only logs / does not fold whole-file Reads |
 | `TFORGE_PROXY_CAP` | `16000` | Characters of Bash and other text output the proxy keeps (head and tail); `0`: no cap |
+| `TFORGE_RUN_PROXY` | | `1`: `tforge run` workers go through the proxy, the same as `--proxy` or `"proxy": true` in the plan |
 | `TFORGE_PROXY_UPSTREAM` | | Where the proxy forwards (default: an existing `ANTHROPIC_BASE_URL`, else the Anthropic API) |
 | `TFORGE_NO_DOWNLOAD` | | `1` never downloads tmap; build with cargo instead |
 | `TFORGE_DISTILL_MODEL` / `_TIMEOUT` / `_MAX_BYTES` | `haiku` / `120` / `480000` | Model, timeout (s) and input cap for `tkit distill` and `web --ask` |

@@ -32,6 +32,8 @@ Usage: tforge <command> [options]
       --dry-run          show prompt sizes, run nothing
       --no-integrate     skip the final check and integration fixes
       --detach           run in the background (log: .forge/run.log); then use: tforge wait
+      --proxy            send the workers through the local API proxy (started if needed; also
+                         TFORGE_RUN_PROXY=1 or "proxy": true in the plan)
   wait                 block until a detached run ends (max --timeout S, default 540), print its summary
   status               task states and spend so far
   prompt <id>          print the exact system and task prompt a worker gets
@@ -100,6 +102,7 @@ function parseArgs(argv) {
     else if (a === '--auto') o.auto = true;
     else if (a === '-n') o.n = Number(val());
     else if (a === '--days') o.days = Number(val());
+    else if (a === '--proxy') o.proxy = true;
     else if (a === '-h' || a === '--help') o.help = true;
     else if (a === '-v' || a === '--version') o.version = true;
     else if (a.startsWith('-')) throw new Error(`unknown option ${a}`);
@@ -112,6 +115,15 @@ async function ensureProxy(port) {
   const st = daemonState('proxy');
   if (st) return st;
   return daemonStart('proxy', { port, detach: true });
+}
+
+// Workers inherit this process's env: point it at the proxy unless it already goes there.
+async function useProxy() {
+  const st = await ensureProxy(Number(process.env.TFORGE_PROXY_PORT) || undefined);
+  if (!st) return console.error('tforge: the proxy did not start (see ~/.cache/tokenforge/proxy.log); workers call the API directly');
+  const url = `http://127.0.0.1:${st.port}`;
+  if (process.env.ANTHROPIC_BASE_URL !== url) process.env.ANTHROPIC_BASE_URL = url;
+  console.log(`workers go through the tokenforge proxy (${url}); see: tforge proxy report`);
 }
 
 // `tforge claude ...`: everything after the command goes to claude untouched.
@@ -167,12 +179,13 @@ async function main() {
     }
     case 'run': {
       ensureGitignore(root);
-      loadPlan(root);
+      const plan = loadPlan(root);
       const live = runningPid(root);
       if (live && live !== process.pid) throw new Error(`a run is already in progress (pid ${live}); use: tforge wait`);
       if (o.detach) return detach(root);
       const detached = process.env.TFORGE_DETACHED === '1';
       if (detached) fs.writeFileSync(runFile(root, 'run.pid'), String(process.pid));
+      if (!o.dryRun && (o.proxy || process.env.TFORGE_RUN_PROXY === '1' || plan.proxy === true)) await useProxy();
       let ok = false;
       try {
         ok = (await runPlan(root, o)).ok;
