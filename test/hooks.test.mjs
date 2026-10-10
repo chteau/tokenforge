@@ -497,8 +497,8 @@ test('answer cache: a repeated question is answered from memory with no model ca
   fs.mkdirSync(dir, { recursive: true });
   const L = (xs) => xs.map((x) => JSON.stringify(x)).join('\n') + '\n';
   fs.writeFileSync(path.join(dir, 'old.jsonl'), L([
-    { type: 'user', timestamp: '2026-10-01T09:00:00Z', message: { role: 'user', content: 'What is the password of the local dev admin account?' } },
-    { type: 'assistant', message: { content: [{ type: 'text', text: 'It is `devpass-123` (seed/users.ts).' }] } },
+    { type: 'user', timestamp: '2026-10-01T09:00:00Z', message: { role: 'user', content: 'Where is the admin account seeded?' } },
+    { type: 'assistant', message: { content: [{ type: 'text', text: 'In `seed/users.ts` (makeAdmin).' }] } },
     { type: 'user', timestamp: '2026-10-01T09:05:00Z', message: { role: 'user', content: 'Rename the admin account to root' } },
     { type: 'assistant', message: { content: [{ type: 'tool_use', id: 't1', name: 'Edit', input: { file_path: path.join(proj, 'seed/users.ts') } }, { type: 'text', text: 'Renamed.' }] } },
   ]));
@@ -508,17 +508,18 @@ test('answer cache: a repeated question is answered from memory with no model ca
     const r = spawnSync('node', [HOOK('answer-cache.mjs')], { input: JSON.stringify({ prompt, cwd: proj, session_id: session }), encoding: 'utf8', env: BASE_ENV });
     return r.stdout ? JSON.parse(r.stdout) : null;
   };
+  askRaw('Where is the admin account seeded?', 'old'); // the hook records the state each question was asked in
   const s = sid();
-  const first = askRaw('what is the password of the local dev admin account', s);
+  const first = askRaw('where is the admin account seeded', s);
   assert.equal(first.decision, 'block');
-  assert.match(first.reason, /devpass-123/);
+  assert.match(first.reason, /makeAdmin/);
   assert.match(first.reason, /Send the same message again/);
-  assert.equal(askRaw('what is the password of the local dev admin account', s), null, 're-sent: goes to Claude');
+  assert.equal(askRaw('where is the admin account seeded', s), null, 're-sent: goes to Claude');
   assert.equal(askRaw('Rename the admin account to root', sid()), null, 'a turn that edited files is never replayed');
-  const sim = ask('I forgot the password for the local admin dev account, what was it again?');
-  assert.match(sim.additionalContext, /similar question was answered.*devpass-123/);
+  const sim = ask('Where is the local admin account seeded?');
+  assert.match(sim.additionalContext, /similar question was answered.*makeAdmin/);
   assert.equal(ask('How do I deploy this to production?'), null);
-  assert.equal(run('answer-cache.mjs', { prompt: 'what is the password of the local dev admin account', cwd: proj, session_id: sid() }, { TFORGE_ANSWER_CACHE: '0' }), null);
+  assert.equal(run('answer-cache.mjs', { prompt: 'where is the admin account seeded', cwd: proj, session_id: sid() }, { TFORGE_ANSWER_CACHE: '0' }), null);
 });
 
 test('session start: no dashboard auto-start in headless sessions (claude -p, SDK, CI)', () => {
@@ -634,7 +635,7 @@ test('proofreading is never weakened: fresh-look prompts skip the answer cache, 
   for (const p of ['relis dans sa totalité et sans contexte le document et relève les erreurs et incohérences',
     'Proofread the manuscript again from scratch', 'review the whole paper', 'vérifie le chapitre 3'])
     assert.ok(FRESH_LOOK.test(p), p);
-  assert.ok(!FRESH_LOOK.test('what is the password of the local dev admin account'));
+  assert.ok(!FRESH_LOOK.test('where is the admin account seeded'));
   const { viewFile, view } = await import('../lib/view.mjs');
   const dir = tmpdir('tforge-prose-');
   const doc = path.join(dir, 'paper.tex');
