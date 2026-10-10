@@ -5,7 +5,7 @@
 // tool input contains "#raw", when no tmap binary is installed, or when distillation fails or times out.
 // Off: TFORGE_KIT_HOOKS=0 or TFORGE_KIT_DISTILL=0. Model and limits: TFORGE_DISTILL_MODEL, TFORGE_DISTILL_TIMEOUT (s, default 60 here).
 import { existingBinary } from '../lib/tmapbin.mjs';
-import { isMain, kitHookOff, readInput, runTmap } from '../lib/hookutil.mjs';
+import { isMain, kitHookOff, readInput, runTmap, skippedAgent } from '../lib/hookutil.mjs';
 
 export function responseText(r) {
   const texts = (arr) => arr.filter((c) => c && c.type === 'text').map((c) => c.text).join('\n');
@@ -46,7 +46,7 @@ export function distill(input, bin = existingBinary()) {
 function main() {
   if (kitHookOff('TFORGE_KIT_DISTILL')) return;
   const input = readInput();
-  if (!input) return;
+  if (!input || skippedAgent(input)) return;
   let t = null;
   try {
     t = distill(input);

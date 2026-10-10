@@ -9,7 +9,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { AUTO_MARK, SNAP_DIR, analyzeBash, listSnapshots, noteLoad, parseSnapshot } from './checkpoint.mjs';
-import { isMain, stateDir } from '../lib/hookutil.mjs';
+import { isMain, skippedAgent, stateDir } from '../lib/hookutil.mjs';
 import { OMITS_INSTRUCTIONS, nestedFor, readGiven, writeGiven } from '../lib/instructions.mjs';
 import { projectRoot } from '../lib/util.mjs';
 
@@ -105,6 +105,7 @@ export function autoHandoff(cwd, sid, ctx, now = Date.now()) {
   } catch {}
   const reqs = snaps.flatMap((b) => section(b, 'Requests')).slice(-6);
   const files = [...new Set(snaps.flatMap((b) => section(b, 'Files changed')))].slice(0, 40);
+  const agents = snaps.flatMap((b) => section(b, 'Subagents')).slice(-8);
   const last = snaps[snaps.length - 1];
   const reply = (/## Last reply\n([\s\S]*)$/.exec(last)?.[1] || '').trim().slice(0, 1500);
   const when = new Date(now).toISOString().slice(0, 16).replace('T', ' ');
@@ -116,6 +117,7 @@ export function autoHandoff(cwd, sid, ctx, now = Date.now()) {
   ];
   if (reqs.length) out.push('', '## Recent requests (oldest first)', ...reqs);
   if (files.length) out.push('', '## Files changed', ...files);
+  if (agents.length) out.push('', '## Subagents (newest)', ...agents);
   if (reply) out.push('', '## Last reply', reply);
   try {
     fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -149,7 +151,7 @@ function afterTool(input) {
     const cwd = input.cwd || process.cwd();
     const snaps = [...JSON.stringify(ti).matchAll(/\.forge[\\/]+snapshots[\\/]+(\d{8}-\d{4}-[\w-]+-\d{3}\.md)/g)].map((m) => m[1]);
     if (snaps.length) noteLoad(projectRoot(cwd), [...new Set(snaps)]);
-    if (OMITS_INSTRUCTIONS.has(input.agent_type)) return '';
+    if (OMITS_INSTRUCTIONS.has(input.agent_type) || skippedAgent(input)) return '';
     const paths = toolPaths(input.tool_name, ti, cwd);
     if (!paths.length) return '';
     const state = readGiven(input.session_id, input.agent_id);

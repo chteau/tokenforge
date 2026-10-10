@@ -793,3 +793,149 @@ test('checkpoint: shell writes, reads, searches and failures land in the graph',
   assert.match(b.searched[0], /featured in crates/);
   assert.match(b.ran, /git add -A/);
 });
+
+// ---------- 0.9.2: subagents, reload on compact/resume, state files ----------
+test('subagent policy: an agent with its own definition gets no scope/ask/planning rules; subagentSkip leaves it alone', () => {
+  const dir = tmpdir('tforge-sub-');
+  const env = { XDG_CONFIG_HOME: dir, TFORGE_UI: '0' };
+  const sub = (agent_type, e = {}) => run('session-start.mjs', { cwd: dir, hook_event_name: 'SubagentStart', agent_type, agent_id: 'a1', session_id: sid() }, { ...env, ...e });
+  assert.match(sub('general-purpose').additionalContext, /Infer, don't ask/);
+  const own = sub('spec-audit:arbiter', { TFORGE_PLAN: 'look' }).additionalContext;
+  assert.match(own, /^tokenforge: tool results/);
+  assert.match(own, /agent definition you follow overrides these rules/);
+  assert.doesNotMatch(own, /Infer, don't ask|nothing extra|^Planning:/m);
+  assert.equal(sub('spec-audit:arbiter', { TFORGE_SUBAGENT_SKIP: 'spec-audit:*' }), null);
+  assert.ok(sub('general-purpose', { TFORGE_SUBAGENT_SKIP: 'spec-audit:*' }));
+  // the config key works too, and the routers leave a skipped agent's calls alone
+  fs.mkdirSync(path.join(dir, 'tokenforge'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'tokenforge', 'config.json'), JSON.stringify({ subagentSkip: ['spec-audit:*'] }));
+  assert.equal(sub('spec-audit:reviewer'), null);
+  const call = { tool_name: 'Bash', cwd: os.tmpdir(), tool_input: { command: 'cargo test' }, agent_id: 'a1' };
+  assert.equal(run('kit-router.mjs', { ...call, session_id: sid(), agent_type: 'spec-audit:reviewer' }, env), null);
+  assert.ok(run('kit-router.mjs', { ...call, session_id: sid(), agent_type: 'general-purpose' }, env));
+  // a main session started with --agent has no agent_id: never skipped
+  assert.ok(run('kit-router.mjs', { ...call, session_id: sid(), agent_type: 'spec-audit:reviewer', agent_id: undefined }, env));
+});
+
+async function forgeProject(prefix) {
+  const { render, chunkName } = await import('../hooks/checkpoint.mjs');
+  const dir = tmpdir(prefix);
+  const sd = path.join(dir, '.forge', 'snapshots');
+  fs.mkdirSync(sd, { recursive: true });
+  const snap = (session, endAgo, prompt, extra = {}) => {
+    const end = new Date(Date.now() - endAgo).toISOString();
+    const c = { n: 1, start: end, end, ctx: 1, prompts: [prompt], files: [path.join(dir, `src/${prompt.split(' ')[0]}.rs`)], reply: `${prompt}: done`, ...extra };
+    fs.writeFileSync(path.join(sd, chunkName(c, session)), render(c, session, dir));
+  };
+  const env = { XDG_CONFIG_HOME: dir, TFORGE_UI: '0', TFORGE_BANNER: '0' };
+  const ss = (source, session, e = {}) => run('session-start.mjs', { cwd: dir, source, session_id: session }, { ...env, ...e })?.additionalContext || '';
+  return { dir, snap, ss };
+}
+const S1 = '11111111-aaaa-4000-8000-000000000000';
+const S2 = '22222222-bbbb-4000-8000-000000000000';
+
+test('after compaction: this session\'s own checkpoint is reloaded, not another session\'s; reloadOn turns it off', async () => {
+  const { snap, ss } = await forgeProject('tforge-compact-');
+  snap(S1, 3600e3, 'billing alerts at 80%');
+  snap(S2, 60e3, 'unrelated docs fix');
+  const ctx = ss('compact', S1);
+  assert.match(ctx, /^Reply terse/, 'the rules come back after compaction');
+  assert.match(ctx, /tokenforge checkpoint \(before compaction[\s\S]*billing alerts at 80%/);
+  assert.doesNotMatch(ctx, /unrelated docs fix/);
+  assert.doesNotMatch(ss('compact', S1, { TFORGE_RELOAD_ON: 'resume' }), /tokenforge checkpoint/);
+});
+
+test('on resume: only what changed while the session was away is injected, never the rules again', async () => {
+  const { dir, snap, ss } = await forgeProject('tforge-resume-');
+  snap(S1, 3 * 3600e3, 'billing alerts at 80%');
+  assert.equal(ss('resume', S1), '', 'nothing new: nothing injected');
+  assert.equal(ss('resume', '33333333-0000'), '', 'no own snapshot: last activity unknown, nothing injected');
+  snap(S2, 3600e3, 'schema migration');
+  const ctx = ss('resume', S1);
+  assert.doesNotMatch(ctx, /Reply terse|tool results are re-read/);
+  assert.match(ctx, /another session here since this one was last active[\s\S]*schema migration/);
+  assert.equal(ss('resume', S1, { TFORGE_RELOAD_ON: '0' }), '');
+  fs.writeFileSync(path.join(dir, '.forge', 'HANDOFF.md'), '# handoff\nnext: run the q2 benchmark');
+  const h = ss('resume', S1);
+  assert.match(h, /tokenforge handoff \(\.forge\/HANDOFF\.md, written .*just now\)[\s\S]*q2 benchmark/);
+  assert.doesNotMatch(h, /tokenforge checkpoint/, 'the handoff wins over the checkpoint');
+  // its own automatic handoff is already in its context
+  fs.writeFileSync(path.join(dir, '.forge', 'HANDOFF.md'), '<!-- tforge auto-handoff -->\n# Handoff (automatic, session 11111111, x)\n');
+  assert.doesNotMatch(ss('resume', S1), /tokenforge handoff/);
+});
+
+test('stateFiles: a skill\'s own state file is reloaded at startup, after /clear, compaction and changed on resume', async () => {
+  const { dir, snap, ss } = await forgeProject('tforge-state-');
+  const reg = path.join(dir, 'spec-audit', 'run-7', 'register.md');
+  fs.mkdirSync(path.dirname(reg), { recursive: true });
+  fs.writeFileSync(reg, '# Register\n- F1 open: lemma 3 sign error\n' + 'x'.repeat(9000));
+  const old = path.join(dir, 'spec-audit', 'run-1', 'register.md');
+  fs.mkdirSync(path.dirname(old), { recursive: true });
+  fs.writeFileSync(old, '# Register\n- F0 closed');
+  const t = (Date.now() - 80 * 3600e3) / 1000;
+  fs.utimesSync(old, t, t);
+  snap(S1, 3600e3, 'audit chapter 2');
+  const e = { TFORGE_STATE_FILES: 'spec-audit/*/register.md' };
+  for (const source of ['startup', 'clear', 'compact']) {
+    const ctx = ss(source, S1, e);
+    assert.match(ctx, /tokenforge state file spec-audit\/run-7\/register\.md[\s\S]*F1 open: lemma 3/, source);
+    assert.doesNotMatch(ctx, /F0 closed/, 'older than 72 h');
+    assert.doesNotMatch(ctx, /tokenforge checkpoint/, `${source}: the state file replaces the generic checkpoint`);
+    const body = ctx.slice(ctx.indexOf('# Register'));
+    assert.ok(body.length < 8100, `capped: ${body.length}`);
+  }
+  assert.ok(ss('resume', S1, e).includes('run-7/register.md'), 'changed since the session was last active');
+  const before = (Date.now() - 2 * 3600e3) / 1000;
+  fs.utimesSync(reg, before, before);
+  assert.ok(!ss('resume', S1, e).includes('register.md'), 'unchanged since: already in the resumed context');
+  assert.equal(run('session-start.mjs', { cwd: dir, hook_event_name: 'SubagentStart', agent_type: 'general-purpose', agent_id: 'x', session_id: S1 }, { XDG_CONFIG_HOME: dir, ...e }).additionalContext.includes('Register'), false, 'never in subagents');
+});
+
+test('checkpoint: subagent transcripts are folded into the chunk that launched them; sidechain edits count as changed files', async () => {
+  const { render, fold, foldAgents } = await import('../hooks/checkpoint.mjs');
+  const dir = tmpdir('tfg-agents-');
+  const f = path.join(dir, `${S1}.jsonl`);
+  const ev = (o) => JSON.stringify(o);
+  fs.writeFileSync(f, [
+    ev({ type: 'user', timestamp: '2026-10-08T10:00:00Z', message: { content: 'audit the parser' } }),
+    ev({ type: 'assistant', message: { content: [{ type: 'tool_use', id: 'tu1', name: 'Agent', input: { subagent_type: 'spec-audit:arbiter', description: 'arbitrate findings' } }] } }),
+    ev({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'tu1', content: 'All findings upheld.' }] } }),
+    ev({ type: 'assistant', isSidechain: true, message: { content: [{ type: 'tool_use', name: 'Write', input: { file_path: '/p/legacy.md' } }] } }),
+  ].join('\n') + '\n');
+  const sub = path.join(dir, S1, 'subagents');
+  fs.mkdirSync(sub, { recursive: true });
+  fs.writeFileSync(path.join(sub, 'agent-a1.meta.json'), JSON.stringify({ agentType: 'spec-audit:arbiter', description: 'arbitrate findings', toolUseId: 'tu1' }));
+  fs.writeFileSync(path.join(sub, 'agent-a1.jsonl'), [
+    ev({ type: 'assistant', isSidechain: true, message: { content: [{ type: 'tool_use', name: 'Edit', input: { file_path: '/p/register.md' } }, { type: 'tool_use', name: 'Bash', input: { command: 'npm test' } }] } }),
+    ev({ type: 'assistant', isSidechain: true, message: { content: [{ type: 'text', text: 'Upheld 3 of 4 findings.' }] } }),
+  ].join('\n') + '\n');
+  const s = foldAgents(f, S1, fold(f, {}));
+  const out = render(s.chunk, S1.slice(0, 8), '/p');
+  assert.match(out, /delegated: spec-audit:arbiter: arbitrate findings/);
+  assert.match(out, /## Subagents[^\n]*\n- spec-audit:arbiter "arbitrate findings"/);
+  assert.match(out, /register\.md/);
+  assert.match(out, /npm test/);
+  assert.match(out, /reported: All findings upheld\./, 'the Agent result is the report; else its last text');
+  assert.match(out, /legacy\.md/, 'edits on sidechain lines of the main transcript still count');
+  const again = foldAgents(f, S1, s);
+  assert.equal(again.chunk.agents.length, 1, 'read incrementally, no duplicate agent');
+});
+
+test('tforge lean: leanKeep leaves a tool allowed, status stays on, and session start lifts a kept rule it added', () => {
+  const dir = tmpdir('tforge-keep-');
+  const env = { CLAUDE_CONFIG_DIR: path.join(dir, 'cfg'), XDG_CONFIG_HOME: path.join(dir, 'xdg') };
+  fs.mkdirSync(env.CLAUDE_CONFIG_DIR);
+  const file = path.join(env.CLAUDE_CONFIG_DIR, 'settings.json');
+  fs.writeFileSync(file, '{}');
+  const tf = (a, extra = {}) => spawnSync('node', [path.join(HERE, '..', 'bin', 'tforge'), 'lean', ...a], { encoding: 'utf8', env: { ...BASE_ENV, ...env, ...extra } });
+  tf(['on'], { TFORGE_LEAN_KEEP: 'TaskStop' });
+  const deny = () => JSON.parse(fs.readFileSync(file, 'utf8')).permissions.deny;
+  assert.ok(!deny().includes('TaskStop') && deny().includes('Workflow'));
+  assert.match(tf(['status'], { TFORGE_LEAN_KEEP: 'TaskStop' }).stdout, /lean: on/);
+  tf(['on']);
+  assert.ok(deny().includes('TaskStop'), 'without leanKeep it is denied again');
+  const cfg = path.join(env.XDG_CONFIG_HOME, 'tokenforge', 'config.json');
+  fs.writeFileSync(cfg, JSON.stringify({ ...JSON.parse(fs.readFileSync(cfg, 'utf8')), leanKeep: ['TaskStop'] }));
+  run('session-start.mjs', { hook_event_name: 'SessionStart', source: 'startup', session_id: sid(), cwd: dir }, env);
+  assert.ok(!deny().includes('TaskStop') && deny().includes('Workflow'), 'lifted at startup, the rest kept');
+});

@@ -51,7 +51,7 @@ Usage: tforge <command> [options]
   statusline --setup   status line with your savings ("TF -45% today") and real limits; wraps an existing one
   statusline --remove  restore the status line exactly as it was (TFORGE_STATUSLINE=0: no automatic setup)
   gc [--dry-run] [--json]  free disk: scratch of ended Claude Code sessions (/tmp/claude-<uid>), tokenforge
-                       leftovers, snapshots no longer relevant, used-up automatic handoffs. Runs by itself every
+                       leftovers, snapshots no longer relevant, automatic handoffs a later session worked from (archived to .forge/handoffs/). Runs by itself every
                        6h, every 10 min on a nearly full disk (TFORGE_GC=0: never)
 
 Options: -C <dir> project root (default: current directory)

@@ -1,6 +1,9 @@
 // SessionStart: inject the terse reply rule (re-injected after compaction, which drops it),
 // and on startup or /clear reload .forge/HANDOFF.md and the two newest automatic snapshots
 // (.forge/snapshots/, written by checkpoint.mjs) so a fresh session continues where the last one stopped.
+// After compaction and on resume (`reloadOn`) it reloads what the context lacks: the session's own checkpoint after a
+// compaction; on resume only what changed while the session was away. Files a skill declares (`stateFiles`, e.g. a
+// review register) are reloaded in place of the generic checkpoint.
 // Also adds the short tkit policy and the instruction files Claude Code did not load (lib/instructions.mjs), and starts
 // the background gc when it is due. As a SubagentStart hook it injects the policy and the instruction files.
 import fs from 'node:fs';
@@ -8,13 +11,13 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { projectRoot } from '../lib/util.mjs';
-import { TERSE_RULES, readConfig, terseLevel, writeConfig } from '../lib/config.mjs';
+import { TERSE_RULES, globRe, listSetting, readConfig, terseLevel, writeConfig } from '../lib/config.mjs';
 import { uiState } from '../lib/ui-control.mjs';
-import { HANDOFF_MAX_H, SNAP_DIR, listSnapshots, noteLoad, parseSnapshot, staleHandoff } from './checkpoint.mjs';
-import { isMain, kitHookOff, unattended } from '../lib/hookutil.mjs';
+import { AUTO_MARK, HANDOFF_MAX_H, SNAP_DIR, listSnapshots, noteHandoffGiven, noteLoad, parseSnapshot, staleHandoff } from './checkpoint.mjs';
+import { isMain, kitHookOff, skippedAgent, unattended } from '../lib/hookutil.mjs';
 import { maybeGc } from '../lib/gc.mjs';
 import { OMITS_INSTRUCTIONS, digest, writeGiven } from '../lib/instructions.mjs';
-import { applyDefaultOnce, applyWindowOnce, leanStatus } from '../lib/lean.mjs';
+import { applyDefaultOnce, applyKeep, applyWindowOnce, leanStatus } from '../lib/lean.mjs';
 import { autoStatusline } from '../lib/limits.mjs';
 import { memoryHint } from '../lib/memory.mjs';
 import { updateNotice } from '../lib/update-check.mjs';
@@ -33,9 +36,11 @@ const MAP_HINT =
 // every later call, so the rules target result size and call count. Off: TFORGE_KIT_HOOKS=0 or TFORGE_KIT_POLICY=0.
 // quiet=false: the terse reply rule already says what goes between tool calls.
 // Subagents get a planning line only when TFORGE_PLAN names one: the "look" default was measured on main sessions.
-export function kitPolicy(quiet = true, subagent = false) {
+// own=true (an agent with its own definition, e.g. a SpecAudit arbiter): only the tool-efficiency lines and the override
+// line; its definition owns scope, planning and when to ask.
+export function kitPolicy(quiet = true, subagent = false, own = false) {
   if (kitHookOff('TFORGE_KIT_POLICY')) return null;
-  const plan = process.env.TFORGE_PLAN ?? (subagent ? '' : 'look');
+  const plan = own ? '' : process.env.TFORGE_PLAN ?? (subagent ? '' : 'look');
   return [
     'tokenforge: tool results are re-read on every later call: keep them small, calls few. Read code in ONE call, not grep then sed: `tread NAME Type.method path:40-80 "path:/regex/"` prints definitions by name, line ranges, or the definition around each match, across files. Batch reads; edit each file in one call; create new files several per call (`tkit edit` `@@ path new`, not `cat >`). Independent shell commands: ONE `tkit batch "a" "b"`; throwaway code (math, parsing, a try): `tkit eval py|js|sh <<\'EOF\'`, sandboxed, no scratch files.' +
       (quiet ? ' No text between tool calls ("Now X."): just call the tool; text only in the final answer.' : ''),
@@ -43,7 +48,7 @@ export function kitPolicy(quiet = true, subagent = false) {
     // "Lazy, not negligent" (adapted from ponytail without its challenge-the-requirement mode, which skips
     // requirements under hidden tests): full scope, nothing extra, concise but readable code. In bench/ runs Token
     // Forge already wrote 10-35% less code than plain Claude Code; references are ~half again. Off: TFORGE_LAZY=0.
-    ...(process.env.TFORGE_LAZY !== '0'
+    ...(process.env.TFORGE_LAZY !== '0' && !own
       ? ['Scope: do every stated requirement, nothing extra (no unasked features, docs, refactors, deps or abstractions); reuse existing helpers/patterns. Write concise, readable code: no boilerplate, dead code or comments that restate it. Bug: fix the shared function all callers use, once. Infer, don\'t ask. Once relevant checks pass, stop and answer.']
       : []),
     // Opt-in, TFORGE_PLAN=brief (bench variant "plan-brief"): in write-heavy tasks a 20k+ token upfront plan was
@@ -64,6 +69,15 @@ export function kitPolicy(quiet = true, subagent = false) {
   ].join('\n');
 }
 
+// Claude Code's own agent types; any other type comes from an agent definition (plugin, user or project).
+const BUILTIN_AGENTS = new Set(['general-purpose', 'Explore', 'Plan', 'claude', 'statusline-setup', 'claude-code-guide']);
+export const ownDefinition = (agentType) => !!agentType && !BUILTIN_AGENTS.has(agentType);
+
+const ago = (ms, now = Date.now()) => {
+  const m = Math.max(0, Math.round((now - ms) / 60000));
+  return m < 1 ? 'just now' : m < 60 ? `${m} min ago` : m < 2880 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} days ago`;
+};
+
 function readFresh(file, maxH, maxChars) {
   let st;
   try {
@@ -80,15 +94,25 @@ function readFresh(file, maxH, maxChars) {
 // HANDOFF.md is a deliberate "continue from here", so it is loaded. Snapshots are loaded only with
 // TFORGE_RECALL=inject: by default a one-line memory hint points Claude to `tforge recall`, so past work
 // costs tokens only when the task needs it, instead of ~2k re-read on every call of every new session.
-function handoff(cwd, source, sessionId) {
-  const parts = [];
+function readHandoff(cwd, sessionId, since = 0) {
   staleHandoff(cwd, HANDOFF_MAX_H);
   const h = readFresh(path.join(cwd, '.forge', 'HANDOFF.md'), HANDOFF_MAX_H, MAX_CHARS);
-  if (h)
-    parts.push(
-      `tokenforge handoff (.forge/HANDOFF.md, written ${h.when}). Continue from it. ` +
-        `Trust its file map and decisions; read files only when the next step needs them.\n\n${h.body}`,
-    );
+  if (!h || h.mtime <= since) return null;
+  // on resume: not the automatic handoff this same session wrote (its context already holds that work)
+  if (since && h.body.startsWith(AUTO_MARK) && h.body.slice(0, 400).includes(`session ${String(sessionId).slice(0, 8)}`)) return null;
+  noteHandoffGiven(cwd, sessionId, h.mtime);
+  return {
+    ...h,
+    text:
+      `tokenforge handoff (.forge/HANDOFF.md, written ${h.when} UTC, ${ago(h.mtime)}). Continue from it. ` +
+      `Trust its file map and decisions; read files only when the next step needs them.\n\n${h.body}`,
+  };
+}
+
+function handoff(cwd, source, sessionId) {
+  const parts = [];
+  const h = readHandoff(cwd, sessionId);
+  if (h) parts.push(h.text);
   if (process.env.TFORGE_RECALL === 'inject') {
     const maxH = source === 'clear' ? HANDOFF_MAX_H : SESSION_STARTUP_MAX_H;
     const loaded = listSnapshots(cwd)
@@ -111,18 +135,24 @@ function handoff(cwd, source, sessionId) {
   return parts.length ? parts.join('\n\n') : null;
 }
 
-// After /clear with no fresh handoff: the latest checkpoint, cut to its essentials (last requests, files changed, start
-// of the last reply), at most ~1200 characters. The full snapshots used to be re-read on every call (TFORGE_RECALL=inject);
-// this bounded summary costs about 250 tokens per call of the cleared session. Off: TFORGE_CLEAR_RELOAD=0.
+// After /clear with no fresh handoff (or after a compaction, or on resume when another session worked here since): a
+// checkpoint, cut to its essentials (last requests, files changed, subagents, start of the last reply), at most ~1200
+// characters. The full snapshots used to be re-read on every call (TFORGE_RECALL=inject); this bounded summary costs
+// about 250 tokens per call. Off: TFORGE_CLEAR_RELOAD=0.
+// pick: { sid } only this session's snapshots, { notSid, after } another session's snapshots newer than `after` (ms).
 const CLEAR_MAX_H = 12;
 const CLEAR_CHARS = 1200;
-export function compactCheckpoint(cwd) {
+export function compactCheckpoint(cwd, { sid, notSid, after = 0, label = 'before /clear' } = {}) {
   if (process.env.TFORGE_CLEAR_RELOAD === '0') return null;
-  const snaps = listSnapshots(cwd);
+  const own = (f) => f.includes(`-${String(sid).slice(0, 8)}-`);
+  const other = (f) => !f.includes(`-${String(notSid).slice(0, 8)}-`);
+  const snaps = listSnapshots(cwd).filter((f) => (!sid || own(f)) && (!notSid || other(f)));
   if (!snaps.length) return null;
-  const s = readFresh(path.join(cwd, '.forge', SNAP_DIR, snaps[snaps.length - 1]), CLEAR_MAX_H, 1e6);
+  const name = snaps[snaps.length - 1];
+  const s = readFresh(path.join(cwd, '.forge', SNAP_DIR, name), after ? HANDOFF_MAX_H : CLEAR_MAX_H, 1e6);
   if (!s) return null;
-  const body = parseSnapshot(s.body).body;
+  const { meta, body } = parseSnapshot(s.body);
+  if (after && !(Date.parse(meta?.end) > after)) return null;
   const section = (name) => {
     const m = new RegExp(`## ${name}[^\\n]*\\n([\\s\\S]*?)(?=\\n## |$)`).exec(body);
     return m ? m[1].trim() : '';
@@ -131,15 +161,94 @@ export function compactCheckpoint(cwd) {
   const reqs = section('Requests').split('\n').filter((l) => l.startsWith('- ')).slice(-2).map((l) => clip(l, 220));
   const files = section('Files changed').split('\n').filter((l) => l.startsWith('- ')).slice(0, 10);
   const nodes = section('Graph').split('\n').filter((l) => l.startsWith('- R')).slice(-3);
+  const agents = section('Subagents').split('\n').filter((l) => l.startsWith('- ')).slice(-4).map((l) => clip(l, 160));
   const reply = nodes.length ? '' : clip(section('Last reply').replace(/\s+/g, ' '), 300);
-  const out = [`tokenforge checkpoint (before /clear, ${s.when}). Continue from the last request; read files only when the next step needs them.`];
+  const out = [`tokenforge checkpoint (${label}, ${s.when} UTC). Continue from the last request; read files only when the next step needs them.`];
   if (nodes.length) out.push('Last requests (request -> files edited/read, commands, outcome):', ...nodes.map((l, i) => clip(l, i === nodes.length - 1 ? 520 : 300)));
   else if (reqs.length) out.push('Last requests:', ...reqs);
+  if (agents.length) out.push('Subagents (type "task"):', ...agents);
   if (files.length) out.push('Files changed:', ...files);
   if (reply) out.push(`Last reply: ${reply}`);
   if (out.length < 2) return null;
-  noteLoad(cwd, [snaps[snaps.length - 1]]);
+  noteLoad(cwd, [name]);
   return clip(out.join('\n'), CLEAR_CHARS);
+}
+
+// The session's own last activity (end of its newest snapshot), in ms; 0 when unknown.
+function lastActivity(cwd, sessionId) {
+  const sid8 = String(sessionId || '').slice(0, 8);
+  if (!sid8) return 0;
+  const name = listSnapshots(cwd).filter((f) => f.includes(`-${sid8}-`)).at(-1);
+  if (!name) return 0;
+  try {
+    const { meta } = parseSnapshot(fs.readFileSync(path.join(cwd, '.forge', SNAP_DIR, name), 'utf8'));
+    return Date.parse(meta?.end || meta?.start) || fs.statSync(path.join(cwd, '.forge', SNAP_DIR, name)).mtimeMs;
+  } catch {
+    return 0;
+  }
+}
+
+// Files a skill keeps its own state in (`stateFiles` in the config, or TFORGE_STATE_FILES: globs relative to the project
+// root, e.g. `spec-audit/*/register.md`). Reloaded at startup, after /clear and compaction, and on resume when changed
+// since; never in subagents. Only files modified within STATE_MAX_H, newest first, STATE_CHARS each, STATE_TOTAL in all.
+const STATE_MAX_H = 72;
+const STATE_CHARS = 8000;
+const STATE_TOTAL = 16000;
+const WALK_SKIP = new Set(['node_modules', '.git']);
+export function findFiles(root, globs, { maxDepth = 8, maxEntries = 20000 } = {}) {
+  const found = new Map();
+  let seen = 0;
+  for (const g of globs) {
+    const glob = g.replace(/^\.?\//, '');
+    const re = globRe(glob);
+    const segs = glob.split('/');
+    const fixed = segs.slice(0, segs.findIndex((x) => /[*?]/.test(x))).join('/');
+    const literal = !/[*?]/.test(glob);
+    const walk = (rel, depth) => {
+      let ents;
+      try {
+        ents = fs.readdirSync(path.join(root, rel), { withFileTypes: true });
+      } catch {
+        return;
+      }
+      for (const e of ents) {
+        if (++seen > maxEntries) return;
+        const r = rel ? `${rel}/${e.name}` : e.name;
+        if (e.isDirectory()) {
+          if (!WALK_SKIP.has(e.name) && depth < maxDepth) walk(r, depth + 1);
+        } else if (re.test(r)) found.set(r, path.join(root, r));
+      }
+    };
+    if (literal) {
+      if (fs.existsSync(path.join(root, glob))) found.set(glob, path.join(root, glob));
+    } else walk(fixed, fixed ? fixed.split('/').length : 0);
+  }
+  return [...found].map(([rel, abs]) => ({ rel, abs }));
+}
+
+export function stateFiles(cwd, { since = 0, now = Date.now() } = {}) {
+  const globs = listSetting('TFORGE_STATE_FILES', 'stateFiles');
+  if (!globs.length) return null;
+  const files = findFiles(cwd, globs)
+    .map((f) => ({ ...f, mtime: fs.statSync(f.abs, { throwIfNoEntry: false })?.mtimeMs || 0 }))
+    .filter((f) => f.mtime > since && now - f.mtime <= STATE_MAX_H * 3600e3)
+    .sort((a, b) => b.mtime - a.mtime);
+  const out = [];
+  let total = 0;
+  for (const f of files) {
+    if (total >= STATE_TOTAL) break;
+    let body;
+    try {
+      body = fs.readFileSync(f.abs, 'utf8');
+    } catch {
+      continue;
+    }
+    const room = Math.min(STATE_CHARS, STATE_TOTAL - total);
+    if (body.length > room) body = body.slice(0, room) + '\n[truncated]';
+    total += body.length;
+    out.push(`tokenforge state file ${f.rel} (modified ${ago(f.mtime, now)}; declared in stateFiles). It is the current state of that work: continue from it.\n\n${body}`);
+  }
+  return out.length ? out.join('\n\n') : null;
 }
 
 // Start the local dashboard once per machine boot (or after it was stopped); never headless (claude -p, the SDK, CI),
@@ -158,8 +267,9 @@ function ensureDashboard() {
 
 // Shown to the user only (systemMessage), never added to Claude's context.
 function leanDefault() {
-  let applied, win;
+  let applied, win, lifted;
   try {
+    lifted = applyKeep();
     applied = applyDefaultOnce();
     win = applied ? null : applyWindowOnce();
   } catch {
@@ -170,6 +280,7 @@ function leanDefault() {
     const w = readConfig().leanWindowAdded;
     return `tokenforge: turned on lean tools ("${applied}") in your Claude Code settings: tools and built-in skills Claude rarely needs are hidden from it, for about 40% fewer tokens per request (measured)${w ? `, and ${at(w)}` : ''}. Takes effect in your next session. Change or undo: /tokenforge:lean on|off, or the dashboard's Settings page.`;
   }
+  if (lifted?.length) return `tokenforge: lean no longer hides ${lifted.join(', ')} (leanKeep). Takes effect in your next session.`;
   return win
     ? `tokenforge: with lean tools ("${win.level}"), ${at(win.window)} from now on: every request re-reads the whole context, and this cut input tokens by 40% or more in measured sessions. Set your own with /autocompact.`
     : null;
@@ -215,10 +326,6 @@ function banner() {
 // After /clear: say plainly what survived, so "did I just lose my work?" never needs asking.
 function clearNotice(cwd, reloaded = false) {
   if (process.env.TFORGE_BANNER === '0') return null;
-  const ago = (ms) => {
-    const m = Math.max(0, Math.round((Date.now() - ms) / 60000));
-    return m < 1 ? 'just now' : m < 60 ? `${m} min ago` : `${Math.round(m / 60)} h ago`;
-  };
   const hf = path.join(cwd, '.forge', 'HANDOFF.md');
   const snaps = listSnapshots(cwd);
   let snapMs = 0;
@@ -238,19 +345,61 @@ function clearNotice(cwd, reloaded = false) {
   return parts.length ? parts.join(' ') : 'TokenForge: no checkpoint in this folder yet. Fresh start.';
 }
 
+// What to put back into a context that lacks it. startup/clear: handoff (or memory hint), state files, and after /clear
+// with neither, the checkpoint. compact: state files, else this session's checkpoint. resume: only what changed since
+// the session's last activity (a newer handoff, changed state files, another session's newer checkpoint).
+export function reloadParts(cwd, source, sessionId) {
+  const parts = [];
+  if (source === 'startup' || source === 'clear') {
+    const h = handoff(cwd, source, sessionId);
+    if (h) parts.push(h);
+    const st = stateFiles(cwd);
+    if (st) parts.push(st);
+    if (source === 'clear' && !st && !(h && h.includes('tokenforge handoff')) && process.env.TFORGE_RECALL !== 'inject') {
+      const c = compactCheckpoint(cwd);
+      if (c) parts.push(c);
+    }
+    return parts;
+  }
+  const on = listSetting('TFORGE_RELOAD_ON', 'reloadOn', ['compact', 'resume']);
+  if (!on.includes(source)) return parts;
+  if (source === 'compact') {
+    const st = stateFiles(cwd);
+    const c = st ? null : compactCheckpoint(cwd, { sid: sessionId, label: 'before compaction' });
+    return [st, c].filter(Boolean);
+  }
+  if (source === 'resume') {
+    const since = lastActivity(cwd, sessionId);
+    if (!since) return parts;
+    const h = readHandoff(cwd, sessionId, since);
+    if (h) parts.push(h.text);
+    const st = stateFiles(cwd, { since });
+    if (st) parts.push(st);
+    if (!h) {
+      const c = compactCheckpoint(cwd, { notSid: sessionId, after: since, label: `another session here since this one was last active, ${ago(since)}` });
+      if (c) parts.push(c);
+    }
+  }
+  return parts;
+}
+
 function main() {
   let input = {};
   try {
     input = JSON.parse(fs.readFileSync(0, 'utf8'));
   } catch {}
+  // `subagentSkip`: agents the user asked to leave alone get nothing at all.
+  if (input.hook_event_name === 'SubagentStart' && skippedAgent(input)) return;
   // Subagents get neither SessionStart nor UserPromptSubmit: the tkit policy and the instruction files are all they
   // receive (Explore and Plan skip CLAUDE.md by design, so they skip these files too).
   // A new or compacted context holds no nested instruction files yet: context-watch.mjs adds them as tools reach them.
   const reads = !OMITS_INSTRUCTIONS.has(input.agent_type);
-  if (reads) writeGiven(input.session_id, input.agent_id, { root: input.cwd });
-  const instructions = reads && digest(input.cwd || process.cwd());
+  const resume = input.source === 'resume';
+  if (reads && !resume) writeGiven(input.session_id, input.agent_id, { root: input.cwd });
+  const instructions = reads && !resume && digest(input.cwd || process.cwd());
+  const own = ownDefinition(input.agent_type);
   if (input.hook_event_name === 'SubagentStart') {
-    const k = [kitPolicy(true, true), instructions].filter(Boolean).join('\n\n');
+    const k = [kitPolicy(true, true, own), instructions].filter(Boolean).join('\n\n');
     if (k) process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: 'SubagentStart', additionalContext: k } }));
     return;
   }
@@ -274,25 +423,22 @@ function main() {
     if (sl) notices.push(sl);
   }
 
+  // A resumed session's transcript still holds the rules and instruction files given at its start (and after each
+  // compaction): only the reload part is new.
   const parts = [];
   const level = terseLevel();
-  if (level !== 'off') parts.push(TERSE_RULES[level]);
-  // Opt-in: in A/B runs the hint alone never got tmap used and slightly raised token use.
-  if (process.env.TFORGE_MAP === '1') parts.push(MAP_HINT);
-  const kit = kitPolicy(level !== 'full');
-  if (kit) parts.push(kit);
-  if (instructions) parts.push(instructions);
-  let reloaded = false;
-  if (input.source !== 'compact' && input.source !== 'resume') {
-    const h = handoff(cwd, input.source, input.session_id);
-    if (h) parts.push(h);
-    if (input.source === 'clear' && !(h && h.includes('tokenforge handoff')) && process.env.TFORGE_RECALL !== 'inject') {
-      const c = compactCheckpoint(cwd);
-      if (c) (parts.push(c), (reloaded = true));
-    }
+  if (!resume) {
+    if (level !== 'off') parts.push(TERSE_RULES[level]);
+    // Opt-in: in A/B runs the hint alone never got tmap used and slightly raised token use.
+    if (process.env.TFORGE_MAP === '1') parts.push(MAP_HINT);
+    const kit = kitPolicy(level !== 'full', false, own);
+    if (kit) parts.push(kit);
+    if (instructions) parts.push(instructions);
   }
+  const reload = reloadParts(cwd, input.source, input.session_id);
+  parts.push(...reload);
   if (input.source === 'clear' && !unattended()) {
-    const c = clearNotice(cwd, reloaded);
+    const c = clearNotice(cwd, reload.some((p) => p.startsWith('tokenforge checkpoint') || p.startsWith('tokenforge state file')));
     if (c) notices.push(c);
   }
   const notice = notices.join('\n') || null;

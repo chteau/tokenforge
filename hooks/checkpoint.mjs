@@ -2,9 +2,10 @@
 // state even when no handoff was written. Deterministic (read from the transcript, not summarized by Claude)
 // and incremental: only the transcript bytes added since the last run are parsed. The open chunk is
 // rewritten on every reply; it closes after TFORGE_SNAPSHOT_PROMPTS requests or at a compaction, and a new
-// session (after /clear) starts its own chunks. session-start.mjs reloads the newest two. pruneSnapshots
-// forgets chunks by activation (age, loads, files still present, superseded); staleHandoff drops spent
-// automatic handoffs.
+// session (after /clear) starts its own chunks. session-start.mjs reloads the newest two. Subagents' transcripts
+// (<transcript dir>/<session>/subagents/) are folded in too: each chunk lists the agents it ran, the files they
+// changed, their commands and the start of their report. pruneSnapshots forgets chunks by activation (age, loads,
+// files still present, superseded); staleHandoff archives spent automatic handoffs to .forge/handoffs/.
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -14,13 +15,20 @@ import { projectRoot, readJson, writeJsonAtomic } from '../lib/util.mjs';
 
 const CHUNK_PROMPTS = Number(process.env.TFORGE_SNAPSHOT_PROMPTS) || 6;
 const KEEP = Number(process.env.TFORGE_SNAPSHOT_KEEP) || 50;
-export const HANDOFF_MAX_H = Number(process.env.TFORGE_HANDOFF_MAX_AGE_H) || 72;
+// Wall-clock cap on loading a handoff (14 days). Before it, an automatic handoff stays until a later session
+// that was given it did some work (see staleHandoff): a resume after a weekend still finds it.
+export const HANDOFF_MAX_H = Number(process.env.TFORGE_HANDOFF_MAX_AGE_H) || 336;
+export const HANDOFF_ARCHIVE = 'handoffs';
+const ARCHIVE_KEEP = 10;
 const PROTECT = 6; // newest chunks never pruned
 const FORGET = -3; // activation below which a chunk is pruned
 const PROMPT_CHARS = 500;
 const MAX_FILES = 40;
 const REPLY_CHARS = 1500;
 const EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit']);
+const AGENT_TOOLS = new Set(['Agent', 'Task']);
+const AGENT_SAY = 400;
+const AGENTS_PER_CHUNK = 20;
 export const SNAP_DIR = 'snapshots';
 export const AUTO_MARK = '<!-- tforge auto-handoff -->';
 const LOADS = 'loads.json';
@@ -47,7 +55,8 @@ function userText(msg) {
   return c.filter((b) => b.type === 'text').map((b) => b.text).join('\n');
 }
 
-const newChunk = (n, ts) => ({ n, start: ts || null, end: ts || null, prompts: [], files: [], reply: '', ctx: 0, turns: [], ids: {} });
+const newChunk = (n, ts) => ({ n, start: ts || null, end: ts || null, prompts: [], files: [], reply: '', ctx: 0, turns: [], ids: {}, agents: [], uses: {} });
+const hasContent = (c) => !!(c && (c.prompts.length || c.files.length || c.reply || c.agents?.length));
 const TURN_LIST = 25;
 const TURN_SAY = 700;
 const add = (list, x) => (x && !list.includes(x) && list.length < TURN_LIST ? list.push(x) : null);
@@ -80,6 +89,100 @@ export function analyzeBash(cmd) {
   return r;
 }
 
+// One tool call of an assistant message: files edited (also the chunk's file list), files read, searches, commands.
+// `turn` is null for subagent lines (only the chunk's file list is kept then).
+function noteTool(b, turn, chunk, ids = true) {
+  if (b.type !== 'tool_use') return;
+  const touch = (x) => (chunk.files = [...chunk.files.filter((y) => y !== x), x].slice(-MAX_FILES));
+  const f = b.input?.file_path || b.input?.notebook_path;
+  if (EDIT_TOOLS.has(b.name) && f) {
+    touch(f);
+    if (turn) add(turn.edits, f);
+  } else if (turn && b.name === 'Read') add(SCRATCH.test(f || '') ? (turn.images = turn.images || []) : turn.reads, f);
+  else if (b.name === 'Bash') {
+    const a = analyzeBash(String(b.input?.command || ''));
+    for (const x of a.edits) {
+      touch(x);
+      if (turn) add(turn.edits, x);
+    }
+    if (!turn) return a.ran;
+    for (const x of a.reads) add(turn.reads, x);
+    for (const x of a.searched) add(turn.searched, x);
+    if (a.ran && turn.ran.length < TURN_LIST && !turn.ran.includes(a.ran)) {
+      turn.ran.push(a.ran);
+      if (ids) (chunk.ids ||= {})[b.id] = [chunk.turns.length - 1, turn.ran.length - 1];
+    }
+  }
+}
+
+// Subagent transcripts of this session (Claude Code 2.1.x: <dir of transcript>/<session>/subagents/agent-<id>.jsonl,
+// with agent-<id>.meta.json holding its type, description and the Agent call's id). Read incrementally like the main
+// transcript; each agent is listed on the chunk whose request launched it (else the open chunk).
+export function foldAgents(transcript, sessionId, s) {
+  const dir = path.join(path.dirname(transcript), sessionId, 'subagents');
+  let names;
+  try {
+    names = fs.readdirSync(dir).filter((f) => /^agent-[\w-]+\.jsonl$/.test(f));
+  } catch {
+    return s;
+  }
+  s.agentOffsets ||= {};
+  for (const name of names) {
+    const id = name.slice(6, -6);
+    const file = path.join(dir, name);
+    let size;
+    try {
+      size = fs.statSync(file).size;
+    } catch {
+      continue;
+    }
+    const from = s.agentOffsets[id] || 0;
+    if (size <= from) continue;
+    let text;
+    try {
+      const fd = fs.openSync(file, 'r');
+      const buf = Buffer.alloc(size - from);
+      fs.readSync(fd, buf, 0, buf.length, from);
+      fs.closeSync(fd);
+      const end = buf.lastIndexOf(10);
+      if (end < 0) continue;
+      s.agentOffsets[id] = from + end + 1;
+      text = buf.subarray(0, end).toString('utf8');
+    } catch {
+      continue;
+    }
+    const meta = readJson(path.join(dir, `agent-${id}.meta.json`), {});
+    s.chunk ||= newChunk(1, null);
+    const chunk = [...s.closed, s.chunk].find((c) => c.uses?.[meta.toolUseId]) || s.chunk;
+    chunk.agents ||= [];
+    let a = chunk.agents.find((x) => x.id === id);
+    if (!a) {
+      if (chunk.agents.length >= AGENTS_PER_CHUNK) continue;
+      a = { id, type: meta.agentType || '?', desc: clip(String(meta.description || ''), 80), use: meta.toolUseId, edits: [], ran: [], said: '' };
+      chunk.agents.push(a);
+    }
+    for (const line of text.split('\n')) {
+      let e;
+      try {
+        e = JSON.parse(line);
+      } catch {
+        continue;
+      }
+      if (e.type !== 'assistant' || !Array.isArray(e.message?.content)) continue;
+      for (const b of e.message.content) {
+        if (b.type === 'text' && b.text.trim()) a.said = clip(b.text.replace(/\s+/g, ' '), AGENT_SAY);
+        if (b.type !== 'tool_use') continue;
+        const f = EDIT_TOOLS.has(b.name) && (b.input?.file_path || b.input?.notebook_path);
+        if (f) add(a.edits, f);
+        if (b.name === 'Bash') for (const x of analyzeBash(String(b.input?.command || '')).edits) add(a.edits, x);
+        const ran = noteTool(b, null, chunk);
+        if (ran && a.ran.length < TURN_LIST && !a.ran.includes(ran)) a.ran.push(ran);
+      }
+    }
+  }
+  return s;
+}
+
 // Fold the transcript lines added since `state.offset` into state. Closed chunks go to state.closed
 // (the caller writes them once, then clears the list). Returns the new state.
 export function fold(file, state) {
@@ -95,7 +198,7 @@ export function fold(file, state) {
     if (end < 0) return s;
     s.offset += end + 1;
     const close = (ts) => {
-      if (s.chunk && (s.chunk.prompts.length || s.chunk.files.length || s.chunk.reply)) {
+      if (hasContent(s.chunk)) {
         s.closed.push(s.chunk);
         s.chunk = newChunk(s.chunk.n + 1, ts);
       }
@@ -107,7 +210,12 @@ export function fold(file, state) {
       } catch {
         continue;
       }
-      if (e.isSidechain) continue;
+      // Old Claude Code versions wrote subagent lines into the main transcript: keep the files they changed.
+      if (e.isSidechain) {
+        s.chunk ||= newChunk(1, e.timestamp);
+        if (e.type === 'assistant' && Array.isArray(e.message?.content)) for (const b of e.message.content) noteTool(b, null, s.chunk);
+        continue;
+      }
       const ts = e.timestamp || null;
       s.chunk ||= newChunk(1, ts);
       if (e.type === 'system' && e.subtype === 'compact_boundary') {
@@ -119,6 +227,11 @@ export function fold(file, state) {
         for (const b of Array.isArray(e.message?.content) ? e.message.content : []) {
           const at = b.type === 'tool_result' && b.is_error && s.chunk.ids?.[b.tool_use_id];
           if (at && s.chunk.turns[at[0]]) s.chunk.turns[at[0]].ran[at[1]] += ' (failed)';
+          // a foreground agent's report comes back as its tool result (background ones: "Async agent launched")
+          if (b.type === 'tool_result' && s.chunk.uses?.[b.tool_use_id] && e.toolUseResult?.status !== 'async_launched') {
+            const text = (typeof b.content === 'string' ? b.content : (b.content || []).filter((x) => x.type === 'text').map((x) => x.text).join('\n')).trim();
+            if (text) (s.chunk.reports ||= {})[b.tool_use_id] = clip(text.replace(/\s+/g, ' '), AGENT_SAY);
+          }
         }
         const t = userText(e.message);
         if (!t.trim() || t.trimStart().startsWith('<')) continue;
@@ -135,26 +248,11 @@ export function fold(file, state) {
           if (turn) turn.said = clip(text.replace(/\s+/g, ' '), TURN_SAY);
         }
         for (const b of e.message.content) {
-          if (turn && b.type === 'tool_use') {
-            const f = b.input?.file_path || b.input?.notebook_path;
-            if (EDIT_TOOLS.has(b.name)) add(turn.edits, f);
-            else if (b.name === 'Read') add(SCRATCH.test(f || '') ? (turn.images = turn.images || []) : turn.reads, f);
-            else if (b.name === 'Bash') {
-              const a = analyzeBash(String(b.input?.command || ''));
-              for (const x of a.edits) {
-                add(turn.edits, x);
-                s.chunk.files = [...s.chunk.files.filter((y) => y !== x), x].slice(-MAX_FILES);
-              }
-              for (const x of a.reads) add(turn.reads, x);
-              for (const x of a.searched) add(turn.searched, x);
-              if (a.ran && turn.ran.length < TURN_LIST && !turn.ran.includes(a.ran)) {
-                turn.ran.push(a.ran);
-                (s.chunk.ids ||= {})[b.id] = [s.chunk.turns.length - 1, turn.ran.length - 1];
-              }
-            }
+          noteTool(b, turn, s.chunk);
+          if (turn && b.type === 'tool_use' && AGENT_TOOLS.has(b.name)) {
+            add((turn.delegated ||= []), clip(`${b.input?.subagent_type || 'agent'}: ${b.input?.description || ''}`, 80));
+            (s.chunk.uses ||= {})[b.id] = 1;
           }
-          const f = b.type === 'tool_use' && EDIT_TOOLS.has(b.name) && (b.input?.file_path || b.input?.notebook_path);
-          if (f) s.chunk.files = [...s.chunk.files.filter((x) => x !== f), f].slice(-MAX_FILES);
         }
         const u = e.message.usage;
         if (u) s.chunk.ctx = (u.input_tokens || 0) + (u.cache_creation_input_tokens || 0) + (u.cache_read_input_tokens || 0);
@@ -176,7 +274,7 @@ export function chunkName(c, sid) {
 
 export function render(c, sid, cwd) {
   const rel = (f) => (path.isAbsolute(f) && f.startsWith(cwd + path.sep) ? path.relative(cwd, f) : f);
-  const meta = { sid, n: c.n, start: c.start, end: c.end, prompts: c.prompts.length, files: c.files.length, ctx: c.ctx };
+  const meta = { sid, n: c.n, start: c.start, end: c.end, prompts: c.prompts.length, files: c.files.length, ctx: c.ctx, ...(c.agents?.length ? { agents: c.agents.length } : {}) };
   const when = (iso) => (iso ? iso.slice(0, 16).replace('T', ' ') : '?');
   const out = [
     `<!-- tforge ${JSON.stringify(meta)} -->`,
@@ -197,7 +295,21 @@ export function render(c, sid, cwd) {
         ...(t.images?.length ? [`  - viewed: ${t.images.length} image(s)`] : []),
         ...line('searched', t.searched),
         ...line('ran', t.ran),
+        ...line('delegated', t.delegated),
         ...(t.said ? [`  - said: ${t.said}`] : []),
+      ]),
+    );
+  }
+  if (c.agents?.length) {
+    const line = (k, a) => (a?.length ? [`  - ${k}: ${a.map(rel).join(', ')}`] : []);
+    out.push(
+      '',
+      '## Subagents (type "task" -> what it changed, ran and reported)',
+      ...c.agents.flatMap((a) => [
+        `- ${a.type} "${a.desc}"`,
+        ...line('edited', a.edits),
+        ...line('ran', a.ran),
+        ...((a.said || c.reports?.[a.use]) ? [`  - reported: ${c.reports?.[a.use] || a.said}`] : []),
       ]),
     );
   }
@@ -300,9 +412,24 @@ export function pruneSnapshots(cwd, { now = Date.now(), dryRun = false } = {}) {
   return names;
 }
 
-// An automatic handoff (AUTO_MARK) has done its job once a session other than its writer started after it was
-// written (that session got it at startup), or once it is older than maxH hours; kept, it would only be
-// injected again. A handoff the user wrote is never touched. Returns true when removed (with dryRun: would be).
+// Sessions that were given the current HANDOFF.md (session-start.mjs records them, keyed by the file's mtime).
+const GIVEN = 'handoff-given.json';
+export function noteHandoffGiven(cwd, sessionId, mtime) {
+  const file = path.join(cwd, '.forge', SNAP_DIR, GIVEN);
+  try {
+    const g = readJson(file, {});
+    const sids = g.mtime === mtime ? g.sids || [] : [];
+    const sid8 = String(sessionId || '').slice(0, 8);
+    if (!sid8 || sids.includes(sid8)) return;
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    writeJsonAtomic(file, { mtime, sids: [...sids, sid8].slice(-20) });
+  } catch {}
+}
+
+// An automatic handoff (AUTO_MARK) has done its job once a session other than its writer was given it and then did
+// some work (it has a snapshot), or once it is older than maxH hours. Elapsed time alone (a weekend) does not spend
+// it, and it is moved to .forge/handoffs/ (newest ARCHIVE_KEEP kept), not deleted. A handoff the user wrote is never
+// touched. Returns true when archived (with dryRun: would be).
 export function staleHandoff(cwd, maxH, { now = Date.now(), dryRun = false } = {}) {
   const file = path.join(cwd, '.forge', 'HANDOFF.md');
   let head, mtime;
@@ -313,16 +440,27 @@ export function staleHandoff(cwd, maxH, { now = Date.now(), dryRun = false } = {
     return false;
   }
   if (!head.startsWith(AUTO_MARK)) return false;
-  const writer = /session ([\w-]+)/.exec(head)?.[1];
-  const dir = path.join(cwd, '.forge', SNAP_DIR);
-  const startedAfter = () =>
-    listSnapshots(cwd).some((f) => {
-      const [, sid8, n] = NAME_RE.exec(f);
-      return n === '001' && sid8 !== writer && Date.parse(parseSnapshot(readSnapshot(dir, f)).meta?.start) > mtime;
-    });
-  if (now - mtime <= maxH * 3600e3 && !startedAfter()) return false;
-  if (!dryRun) fs.rmSync(file, { force: true });
+  const writer = /session ([\w-]+)/.exec(head)?.[1]?.slice(0, 8);
+  const given = readJson(path.join(cwd, '.forge', SNAP_DIR, GIVEN), {});
+  const worked = new Set(listSnapshots(cwd).map((f) => NAME_RE.exec(f)[1]));
+  const spent = given.mtime === mtime && (given.sids || []).some((x) => x !== writer && worked.has(x));
+  if (now - mtime <= maxH * 3600e3 && !spent) return false;
+  if (!dryRun) archiveHandoff(cwd, file, mtime, writer);
   return true;
+}
+
+function archiveHandoff(cwd, file, mtime, writer) {
+  const forge = path.join(cwd, '.forge');
+  const dir = path.join(forge, HANDOFF_ARCHIVE);
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    ensureIgnored(forge, `${HANDOFF_ARCHIVE}/`);
+    fs.renameSync(file, path.join(dir, `${stamp(new Date(mtime).toISOString())}-${writer || 'auto'}.md`));
+    const all = fs.readdirSync(dir).filter((f) => f.endsWith('.md')).sort();
+    for (const f of all.slice(0, -ARCHIVE_KEEP)) fs.rmSync(path.join(dir, f), { force: true });
+  } catch {
+    fs.rmSync(file, { force: true });
+  }
 }
 
 function main() {
@@ -338,9 +476,9 @@ function main() {
   try {
     prev = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
   } catch {}
-  const s = fold(input.transcript_path, prev);
+  const s = foldAgents(input.transcript_path, sid, fold(input.transcript_path, prev));
   const open = s.chunk;
-  if (!s.closed.length && !(open && (open.prompts.length || open.files.length || open.reply))) return;
+  if (!s.closed.length && !hasContent(open)) return;
   try {
     const forge = path.join(input.cwd, '.forge');
     const snaps = path.join(forge, SNAP_DIR);
@@ -351,7 +489,7 @@ function main() {
     for (const c of [...s.closed, open]) {
       // The start time names the file, so it must not change between runs.
       if (c) c.start ||= new Date().toISOString();
-      if (c && (c.prompts.length || c.files.length || c.reply)) fs.writeFileSync(path.join(snaps, chunkName(c, sid)), render(c, sid, input.cwd));
+      if (hasContent(c)) fs.writeFileSync(path.join(snaps, chunkName(c, sid)), render(c, sid, input.cwd));
     }
     const closed = s.closed.length;
     s.closed = [];

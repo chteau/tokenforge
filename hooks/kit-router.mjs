@@ -21,7 +21,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { docReplacement } from '../lib/docread.mjs';
-import { deny, exeName, isMain, kitHookOff, readInput, seenBefore, shq, splitPipes, splitSegments, tokenize } from '../lib/hookutil.mjs';
+import { deny, exeName, isMain, kitHookOff, readInput, seenBefore, shq, skippedAgent, splitPipes, splitSegments, tokenize } from '../lib/hookutil.mjs';
 
 // ---------- build/test rewrites ----------
 const DROP = new Set(['-q', '--quiet', '-v', '--verbose', '-B', '--batch-mode', '--console=plain', '--color=never', '--no-color']);
@@ -677,7 +677,7 @@ async function onPowerShell(input) {
 async function main() {
   if (kitHookOff('TFORGE_KIT_ROUTE')) return;
   const input = readInput();
-  if (!input) return;
+  if (!input || skippedAgent(input)) return;
   try {
     if (input.tool_name === 'Bash') await onBash(input);
     else if (input.tool_name === 'PowerShell') await onPowerShell(input);
