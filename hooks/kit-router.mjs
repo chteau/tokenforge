@@ -671,9 +671,11 @@ async function onBash(input) {
   if (out) process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', ...out } }));
 }
 
-// Claude Code saves oversized Bash output under .../tool-results/ and shows a preview; reading the
-// whole file back puts the full output into context anyway. Ask for the part that matters instead.
-export function spillReason(file, sliced) {
+// Claude Code saves oversized Bash output under .../tool-results/ and shows a preview of its start; reading the
+// whole file back puts the full output into context anyway. A whole Read of one is narrowed to its last ~8k
+// chars (where errors and summaries usually are) with a note on how to see the rest. This is an allow with a
+// rewritten input, not a deny: Claude Code shows any deny as "hook error", which looked like a crash.
+export function spillWindow(file, sliced) {
   if (sliced || !/[\\/]tool-results[\\/][^\\/]+\.txt$/.test(String(file || ''))) return null;
   let text;
   try {
@@ -682,11 +684,17 @@ export function spillReason(file, sliced) {
     return null;
   }
   if (text.length < 8000) return null;
-  const lines = text.split('\n').length;
-  return (
-    `tokenforge: ${file} is saved command output (${lines} lines, ${text.length} chars); reading it whole puts all of it into context. ` +
-    `Print only what you need: \`grep -n PATTERN FILE | head -40\`, \`sed -n a,bp FILE\`, or \`tail -50 FILE\`; or Read with offset/limit. Repeat this Read to load it whole.`
-  );
+  const lines = text.split('\n');
+  if (lines.at(-1) === '') lines.pop();
+  let from = lines.length;
+  for (let chars = 0; from > 0 && (chars < 8000 || lines.length - from < 20); ) chars += lines[--from].length + 1;
+  if (from === 0) return null;
+  const offset = from + 1;
+  const note =
+    `tokenforge: ${file} is saved command output (${lines.length} lines, ${text.length} chars). ` +
+    `This Read was narrowed to lines ${offset}-${lines.length} (the end); the preview already showed the start. ` +
+    `For other parts, Read with offset/limit or search the file for a pattern; repeat the same whole Read to load all of it.`;
+  return { offset, limit: lines.length - from, note };
 }
 
 function onRead(input) {
@@ -698,8 +706,16 @@ function onRead(input) {
       return;
     }
   } catch {}
-  const why = readReason(ti.file_path, Boolean(ti.offset || ti.limit)) || spillReason(ti.file_path, Boolean(ti.offset || ti.limit));
-  if (why && !seenBefore(input.session_id, `kitread\0${ti.file_path}`, 'kit')) deny('PreToolUse', why);
+  const sliced = Boolean(ti.offset || ti.limit);
+  const why = readReason(ti.file_path, sliced);
+  const win = why ? null : spillWindow(ti.file_path, sliced);
+  if ((!why && !win) || seenBefore(input.session_id, `kitread\0${ti.file_path}`, 'kit')) return;
+  if (why) return deny('PreToolUse', why);
+  process.stdout.write(
+    JSON.stringify({
+      hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'allow', updatedInput: { ...ti, offset: win.offset, limit: win.limit }, additionalContext: win.note },
+    }),
+  );
 }
 
 // PowerShell (Windows): only plain one-line commands with nothing PowerShell-specific in them are routed

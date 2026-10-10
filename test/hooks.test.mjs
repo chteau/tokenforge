@@ -118,13 +118,20 @@ test('kit router: ssh/scp become tkit ssh in bypass sessions, interactive ssh an
   assert.match(read.permissionDecisionReason, /tkit deps api @types\/node/);
   assert.equal(run('kit-router.mjs', { tool_name: 'Read', session_id: sid(), tool_input: { file_path: '/p/node_modules/x/a.js', offset: 10, limit: 20 } }), null);
 
-  // whole-file Read of a big saved tool output: asked to grep/sed it instead, once
+  // whole-file Read of a big saved tool output: narrowed to its end with a note (an allow, never a deny), once
   const spill = path.join(tmpdir('tforge-spill-'), 'tool-results');
   fs.mkdirSync(spill);
   const big = path.join(spill, 'b1.txt');
   fs.writeFileSync(big, 'x'.repeat(100) + '\n'.repeat(1) + 'line\n'.repeat(3000));
   const rs = sid();
-  assert.match(run('kit-router.mjs', { tool_name: 'Read', session_id: rs, tool_input: { file_path: big } }).permissionDecisionReason, /grep -n PATTERN/);
+  const narrowed = run('kit-router.mjs', { tool_name: 'Read', session_id: rs, tool_input: { file_path: big } });
+  assert.equal(narrowed.permissionDecision, 'allow');
+  assert.equal(narrowed.permissionDecisionReason, undefined);
+  assert.deepEqual([narrowed.updatedInput.file_path, narrowed.updatedInput.offset, narrowed.updatedInput.limit], [big, 3001 - 1600 + 1, 1600]);
+  assert.match(narrowed.additionalContext, /3001 lines.*lines 1402-3001 \(the end\)/);
+  const one = path.join(spill, 'b2.txt');
+  fs.writeFileSync(one, 'y'.repeat(9000));
+  assert.equal(run('kit-router.mjs', { tool_name: 'Read', session_id: sid(), tool_input: { file_path: one } }), null, 'a single huge line is not narrowed');
   assert.equal(run('kit-router.mjs', { tool_name: 'Read', session_id: rs, tool_input: { file_path: big } }), null);
   assert.equal(run('kit-router.mjs', { tool_name: 'Read', session_id: sid(), tool_input: { file_path: big, offset: 1, limit: 50 } }), null);
 });
