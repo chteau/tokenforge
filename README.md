@@ -169,6 +169,17 @@ codex plugin marketplace add chteau/tokenforge
 
 What works there: the Bash router (`tkit check`, `tkit test`, `tview`; refusals of interactive ssh and installers), MCP result distillation, the answer cache, prompt routing, the session-start policy, checkpoints and skills. Codex has no Read or Grep tool, so the Read narrowing and code redirect never fire; the 4-minute cap on polling waits is off (Codex takes a rewritten input only with an approval). Context-budget alerts read Claude Code's transcript format and stay silent on Codex. The dashboard, workers and proxy are Claude Code only.
 
+### opencode
+
+From a clone of this repository (Node.js on PATH):
+
+```
+bin/tforge opencode install            # ~/.config/opencode/plugins/tokenforge.js
+bin/tforge opencode install --project  # .opencode/plugins/tokenforge.js, this project only
+```
+
+It writes a one-line plugin that loads tokenforge from the clone, so `git pull` updates it; `tforge opencode remove` deletes it. It uses opencode's plugin API v1 (`.opencode/plugins/`) and runs the same hook scripts: bash commands go through the Bash router (a refusal shows up as the tool's error, a note comes before the output), and the session-start policy and instruction digest are added to the system prompt, the same text on every request so the prompt cache keeps it. Not there yet: MCP distillation, the answer cache, context-budget alerts and checkpoints, which need opencode's message and session events. opencode already reads `CLAUDE.md` and `.claude/skills`.
+
 ### Updates
 
 tokenforge is a normal plugin. It never patches Claude Code, wraps the `claude` binary or edits your settings files, so Claude Code's own auto-update keeps working as usual. To update tokenforge itself automatically, open `/plugin`, go to **Marketplaces**, select `tokenforge` and enable auto-update. Otherwise run `/plugin marketplace update tokenforge` whenever you like.

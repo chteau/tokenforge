@@ -16,6 +16,7 @@ import { daemonStart, daemonState, daemonStop, uiStart, uiState, uiStop } from '
 import { formatGc, gc } from '../lib/gc.mjs';
 import { HANDOFF_MAX_H, pruneSnapshots, staleHandoff } from '../hooks/checkpoint.mjs';
 import { pluginBuildHash } from '../lib/version.mjs';
+import { installOpencode, opencodePluginFile, removeOpencode } from '../lib/opencode.mjs';
 
 const VERSION = JSON.parse(fs.readFileSync(new URL('../.claude-plugin/plugin.json', import.meta.url), 'utf8')).version;
 
@@ -66,6 +67,8 @@ Usage: tforge <command> [options]
                        leftovers, snapshots no longer relevant, automatic handoffs a later session worked
                        from (moved to .forge/handoffs/). Runs by itself every 6h, every 10 min on a nearly
                        full disk (TFORGE_GC=0: never)
+  opencode install|remove [--project]  plugin file for opencode (~/.config/opencode/plugins, or .opencode/plugins
+                       with --project): the Bash router and the session-start policy, same hooks as Claude Code
   version              tokenforge version and plugin build hash (the hash benchmark runs record); -v: version only
 
 Options: -C <dir> project root (default: current directory)
@@ -97,6 +100,7 @@ function parseArgs(argv) {
     else if (a === '--status') o.status = true;
     else if (a === '--setup') o.setup = true;
     else if (a === '--remove') o.remove = true;
+    else if (a === '--project') o.project = true;
     else if (a === '--session') o.session = val();
     else if (a === '--refresh') o.refresh = true;
     else if (a === '--auto') o.auto = true;
@@ -251,6 +255,16 @@ async function main() {
       console.log(formatSessions(rows));
       if (ledger) console.log(formatLedger(ledger));
       return;
+    }
+    case 'opencode': {
+      const want = o._[0];
+      const opts = { project: o.project, root };
+      if (want === 'install') return console.log(`tforge opencode: wrote ${installOpencode(opts)}; restart opencode`);
+      if (want === 'remove') {
+        const f = removeOpencode(opts);
+        return console.log(f ? `tforge opencode: removed ${f}` : `tforge opencode: nothing to remove at ${opencodePluginFile(opts)}`);
+      }
+      throw new Error('opencode: install or remove [--project]');
     }
     case 'terse': {
       const want = o._[0] || 'status';

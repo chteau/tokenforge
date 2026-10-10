@@ -14,7 +14,7 @@ import { projectRoot } from '../lib/util.mjs';
 import { TERSE_RULES, globRe, listSetting, readConfig, terseLevel, writeConfig } from '../lib/config.mjs';
 import { uiState } from '../lib/ui-control.mjs';
 import { AUTO_MARK, HANDOFF_MAX_H, SNAP_DIR, listSnapshots, noteHandoffGiven, noteLoad, parseSnapshot, staleHandoff } from './checkpoint.mjs';
-import { isMain, kitHookOff, skippedAgent, unattended } from '../lib/hookutil.mjs';
+import { hostName, isMain, kitHookOff, skippedAgent, unattended } from '../lib/hookutil.mjs';
 import { maybeGc } from '../lib/gc.mjs';
 import { OMITS_INSTRUCTIONS, digest, writeGiven } from '../lib/instructions.mjs';
 import { applyDefaultOnce, applyKeep, applyWindowOnce, leanStatus } from '../lib/lean.mjs';
@@ -406,7 +406,8 @@ function main() {
   const cwd = projectRoot(input.cwd || process.cwd());
   if (input.source === 'startup' || input.source === 'clear') maybeGc(cwd, input.session_id);
   const notices = [];
-  if (input.source === 'startup') {
+  // Banner, dashboard, lean level and status line are about Claude Code (its settings, its transcripts).
+  if (input.source === 'startup' && hostName(input) === 'claude') {
     const b = unattended() ? null : banner();
     if (b) notices.push(b);
     if (!unattended()) {
