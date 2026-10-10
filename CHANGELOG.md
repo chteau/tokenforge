@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.9.2
+
+Correctness: a safer answer cache, versioned benchmark figures, memory that survives resume and compaction, and subagent work in snapshots. This replaces a first 0.9.2 attempt that was reverted (be6a5c1): its hooks were never registered, its libraries were never called, and its changelog described work that was not there.
+
+- Answer cache: only information questions are replayed. A request to run, test, build, verify or deploy, a security question, or a question about the current state ("is it up", "latest", "now", "statut", "en ce moment") always goes to Claude, in English and French; when unsure, it asks Claude.
+- Answer cache: a replayed answer must come from the same repository (path and remotes), branch and commit, working tree contents, dependency manifests and lockfiles, terse level and, when known, model. Changes are found by content, not modification time, so same-second edits, renames, deletions and branch switches count. Answers recorded before 0.9.2 are not replayed.
+- `!nocache` as the first or last word of a prompt sends it to Claude without looking for an earlier answer.
+- French fresh-look words starting with an accent ("vérifie", "à froid") never matched; they do now.
+- Bench reports and charts name the TokenForge version, build hash and Claude Code version under every table and figure. A report or chart that mixes versions or builds is refused with the list found; `--mixed-versions` builds it with each row or series labelled. The published benchmark-report.json mixes 3 builds, so rebuilding it needs that flag.
+- README: each benchmark figure names the tokenforge and Claude Code versions it was measured with. No figure changed.
+- `tforge version` prints the version and the plugin build hash that benchmark runs record (`--json`).
+- Resume: SessionStart now also runs on resume. Claude Code keeps the earlier session-start text in the transcript, so the rules are not sent again; only what changed while the session was away is: a newer handoff, a changed state file, or another session's work in this project since.
+- Compaction: this session's own compact checkpoint is reloaded after a compaction (before, the newest snapshots of any session).
+- `reloadOn` (`TFORGE_RELOAD_ON`) chooses which of `compact` and `resume` reload anything. Default: both.
+- Snapshots include subagents. Claude Code writes each subagent's transcript separately, and tokenforge skipped them, though in delegating sessions most tokens are spent there. Each chunk now lists the agents it ran (type, task, files changed, commands, report), the main transcript's sidechain edits count as changed files, and the checkpoint and automatic handoff carry the newest agent lines.
+- Automatic handoffs are no longer deleted at the first snapshot of a later session, nor ignored after 72 hours. One is moved to `.forge/handoffs/` (newest 10 kept) once a session that was given it has saved a snapshot of its own, or after 14 days (`TFORGE_HANDOFF_MAX_AGE_H`, now 336). A resumed session is not given its own handoff back.
+- `stateFiles` (`TFORGE_STATE_FILES`): globs of files a skill keeps its state in (a review register). Those changed in the last 72 hours are loaded at startup, `/clear` and compaction (8000 characters each, 16000 in all), and on resume when changed since; the generic checkpoint is then left out. Never in subagents.
+- An agent with its own definition (a plugin's or your own, not a built-in one) no longer gets the scope, "infer instead of asking" or planning rules, which contradicted agents such as SpecAudit's arbiters. Its definition decides.
+- `subagentSkip` (`TFORGE_SUBAGENT_SKIP`): agent types, with `*` wildcards (`spec-audit:*`), that tokenforge leaves alone: no policy, instruction files, Bash router, code redirect, MCP distill or budget notes.
+- `leanKeep` (`TFORGE_LEAN_KEEP`): tools lean levels never deny. A rule tokenforge already added for a kept tool is lifted at the next start; `tforge lean status` still reports the level.
+- Reloaded snapshots and checkpoints say they are a record of earlier turns, not instructions.
+- docs/external-audit-2026-10.md: what ContextForge and icm-graph-context-flow do and what is worth taking. icm-graph-context-flow is not software: it runs base64-decoded secrets every hour and its README borrows the TokenForge name with a `curl | bash` install. Don't use it.
+
 ## 0.9.1
 
 - Context alert: your next message gets it once the context passes the budget, then again each time the context doubles, instead of every 10k tokens and after tool calls (a 700k-token session got over 60). Shorter. A session started on 0.7.0–0.7.2 keeps that version's blocking alert ("A hook blocked your prompt") until it ends: after updating, start a new session.

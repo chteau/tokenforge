@@ -2,7 +2,7 @@
 
 Updated 2026-10-09.
 
-0.9.2 adds no features. It makes the savings safe and checkable: a cache reuses an answer only while it still holds, a rewritten command behaves like the original, and every published number names the version that produced it.
+0.9.2 makes the savings safe and checkable: a cache reuses an answer only while it still holds, a rewritten command behaves like the original, and every published number names the version that produced it.
 
 This plan follows an external review of the public repo. The review read the docs and the benchmark method, not the code or the test suite.
 
@@ -25,8 +25,8 @@ This plan follows an external review of the public repo. The review read the doc
 
 Today every benchmark run records the TokenForge and Claude Code versions, and the environment a hash of the plugin files. But the site's headline figures come from 0.8.0 runs while its pages show the current version, 0.9.1. The benchmarked version is named only further down the benchmark page.
 
-- [ ] Show the TokenForge version, build hash and Claude Code version next to every published figure: site, README, reports.
-- [ ] Refuse to build a report from runs of different versions, unless it labels each one.
+- [ ] Show the TokenForge version, build hash and Claude Code version next to every published figure: site, README, reports. README and reports done; the site is not.
+- [x] Refuse to build a report from runs of different versions, unless it labels each one.
 
 ## P0: A safer answer cache
 
@@ -34,11 +34,11 @@ An unchanged project does not prove an answer still holds. "Do the tests pass?" 
 
 Today an earlier answer is replayed only for the same question, from a turn that edited nothing, when no project file (tracked, or untracked and not ignored) has changed since. Prompts that ask to review, verify, check or audit (English and French) skip it. Sending the message again asks Claude; `TFORGE_ANSWER_CACHE=0` turns it off.
 
-- [ ] Never replay an answer to a request to run, test, build or verify something, to a security question, or to a question about the current state ("is it up", "latest", "now").
-- [ ] Tell questions that ask for information from requests that need an action or a fresh observation. When unsure, ask Claude.
-- [ ] Include the repo's identity, the model, the configuration and the relevant dependencies in the cache's validity, where they affect the answer.
-- [ ] An explicit, visible bypass that works before sending, not only by sending again.
-- [ ] Adversarial tests for false positives: the same words with another intent, other languages, a changed environment with unchanged files.
+- [x] Never replay an answer to a request to run, test, build or verify something, to a security question, or to a question about the current state ("is it up", "latest", "now").
+- [x] Tell questions that ask for information from requests that need an action or a fresh observation. When unsure, ask Claude.
+- [x] Include the repo's identity, the model, the configuration and the relevant dependencies in the cache's validity, where they affect the answer.
+- [x] An explicit, visible bypass that works before sending, not only by sending again.
+- [x] Adversarial tests for false positives: the same words with another intent, other languages, a changed environment with unchanged files.
 
 ## P0: Formal cache invalidation
 
