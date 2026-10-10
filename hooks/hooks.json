@@ -21,6 +21,15 @@
             "timeout": 8
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/enhanced-interceptor.mjs\"",
+            "timeout": 10
+          }
+        ]
       }
     ],
     "PostToolUse": [
@@ -30,6 +39,24 @@
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/context-watch.mjs\"",
             "timeout": 5
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/compression.mjs\"",
+            "timeout": 15
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/semantic-dedup.mjs\"",
+            "timeout": 10
           }
         ]
       },
