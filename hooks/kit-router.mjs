@@ -324,6 +324,39 @@ export function readReason(file, sliced) {
 }
 
 const ENV = /^[A-Za-z_][A-Za-z0-9_]*=/;
+// An assignment re-quoted as one word (`'FOO=a b'`) is a command name, not an assignment: quote the value only.
+const envq = (x) => x.replace(/=([\s\S]*)$/, (_, v) => `=${shq(v)}`);
+
+// True when the shell would expand something in `s`: $VAR, $(..) or `..` (unquoted or in double quotes), and unquoted
+// globs, braces and a leading ~. Rewrites rebuild a command from its tokens and quote every one, which would turn these
+// into literals: `find "$D"` searching a directory named $D, `ls -R ~/x` one named ~.
+export function expands(s) {
+  let q = null;
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (q === "'") {
+      if (c === "'") q = null;
+    } else if (c === '\\') i++;
+    else if (c === '$' || c === '`') return true;
+    else if (q === '"') {
+      if (c === '"') q = null;
+    } else if (c === "'" || c === '"') q = c;
+    else if ('*?[{'.includes(c) || (c === '~' && (i === 0 || /[\s=:]/.test(s[i - 1])))) return true;
+  }
+  return false;
+}
+
+// Later pipeline stages a rewritten build/test command may drop: they only trim what is displayed. Anything that
+// writes (tee, a redirection), counts or transforms the output keeps the command as typed.
+function displayOnly(stage) {
+  const t = tokenize(stage);
+  if (!t || !t.length || t.some((x) => !NULLREDIR.has(x) && /[<>]|^[&(){}]$/.test(x))) return false;
+  const exe = exeName(t[0]);
+  if (exe === 'head' || exe === 'cat' || exe === 'less' || exe === 'more') return true;
+  if (exe === 'tail') return !t.some((x) => /^-[a-zA-Z]*[fF]|^--follow/.test(x));
+  if (['grep', 'egrep', 'fgrep'].includes(exe)) return !t.some((x) => /^-[a-zA-Z]*[clLqoZz]/.test(x) || GREP_SKIP.has(x));
+  return false;
+}
 const NULLREDIR = new Set(['2>&1', '&>/dev/null', '>/dev/null', '2>/dev/null', '>NUL', '2>NUL']);
 
 // Rewrite raw build/test/ssh/scp segments. Returns { command, notes, allow } or null when nothing changed.
@@ -334,10 +367,12 @@ export function catFiles(core, cwd, root) {
   if (exeName(core[0]) !== 'cat' || core.length < 2 || !cwd) return null;
   const args = core.slice(1);
   if (args.some((f) => f.startsWith('-') || /[$`~{\[]/.test(f))) return null;
-  // globs are expanded here only to check them; the shell still expands them in the rewritten command
+  // globs are expanded here only to check them; the rewritten command keeps them as typed so the shell expands them
+  // in its own (locale) order, which fs.globSync does not follow. A quoted or unusual glob is left alone.
   const files = [];
   for (const a of args) {
     if (!/[*?]/.test(a)) files.push(a);
+    else if (!/^[\w./*?@+,=-]+$/.test(a)) return null;
     else if (typeof fs.globSync !== 'function') return null; // Node < 22: leave globbed cats alone
     else {
       let m = [];
@@ -490,20 +525,24 @@ export function routeCommand(cmd, { cwd, permissionMode } = {}) {
         // `cat FILES` alone, or piped only into filters (`| head -700`, `| grep x`): the first stage becomes tview
         const filters = pipes.slice(1).every((p) => { const t = tokenize(p); return t && ['head', 'tail', 'grep', 'sed'].includes(exeName(t[0])) && readOnly(t); });
         const files = filters && !env.length ? catFiles(core, here, root) : null;
-        if (files) {
+        const words = pipes[0].trim().split(/\s+/);
+        if (files && core.slice(1).every((a) => !/[*?]/.test(a) || words.includes(a))) {
           const lead = /^\s*/.exec(text)[0];
           const rest = pipes.slice(1).map((p) => ` | ${p.trim()}`).join('');
-          out.push(`${lead}node ${shq(TVIEW)} ${files.map(shq).join(' ')}${rest}${sep && !sep.startsWith('\n') ? ' ' : ''}${sep}`);
+          out.push(`${lead}node ${shq(TVIEW)} ${core.slice(1).map((a) => (/[*?]/.test(a) ? a : shq(a))).join(' ')}${rest}${sep && !sep.startsWith('\n') ? ' ' : ''}${sep}`);
           viewed = true;
           continue;
         }
-        kitcmd = rewrite(core) || (pipes.length === 1 && !env.length ? grepWrap(core, toks, pipes[0], here) : null);
-        // filters after a rewritten generic/git command would be dropped: leave piped commands alone
-        if (kitcmd && pipes.length > 1 && /^(tkit run|git )/.test(kitcmd)) kitcmd = null;
+        // grepWrap keeps the typed text, so expansions survive there; other rewrites re-quote every token
+        const literal = !expands(pipes[0]);
+        kitcmd = (literal && rewrite(core)) || (pipes.length === 1 && !env.length ? grepWrap(core, toks, pipes[0], here) : null);
+        // filters after a rewritten generic/git command would be dropped: leave piped commands alone; a build/test
+        // command drops only display filters (`| tail -30`), never a tee, a count or a redirection
+        if (kitcmd && pipes.length > 1 && (/^(tkit run|git )/.test(kitcmd) || !pipes.slice(1).every(displayOnly))) kitcmd = null;
         // `tkit run` wraps any command: only read-only ones may skip the permission prompt
         if (kitcmd && /^tkit run/.test(kitcmd) && !readOnly(core)) onlyKit = false;
         // opt-in: cap the output of any other plain command (TFORGE_CAP_ALL=1)
-        if (!kitcmd && process.env.TFORGE_CAP_ALL === '1' && pipes.length === 1 && !env.length && !redirFile &&
+        if (!kitcmd && process.env.TFORGE_CAP_ALL === '1' && pipes.length === 1 && !env.length && !redirFile && literal &&
             !['cd', 'export', 'source', 'tkit', 'tread', 'tview', 'tforge', 'tmap', 'vim', 'nano', 'less', 'top', 'htop', 'ssh', 'scp', 'sleep', 'echo', 'printf'].includes(exeName(core[0] || '')) &&
             !core.some((x) => ['-f', '--follow', '-i', '-w', '--watch'].includes(x))) {
           kitcmd = kit('run', '-n', '200', ...core);
@@ -520,7 +559,7 @@ export function routeCommand(cmd, { cwd, permissionMode } = {}) {
     }
     if (env.length || ['ssh', 'scp'].includes(exeName(core[0]))) onlyKit = false;
     const lead = /^\s*/.exec(text)[0];
-    out.push(`${lead}${[...env.map(shq), kitcmd].join(' ')}${sep && !sep.startsWith('\n') ? ' ' : ''}${sep}`);
+    out.push(`${lead}${[...env.map(envq), kitcmd].join(' ')}${sep && !sep.startsWith('\n') ? ' ' : ''}${sep}`);
     notes.push(`\`${core.map(shq).join(' ')}\` -> \`${kitcmd}\``);
   }
   if (!notes.length && !viewed) return null;
