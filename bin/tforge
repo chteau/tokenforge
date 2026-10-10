@@ -15,6 +15,7 @@ import { buildIndex, formatRecall, recall, sessionDetail } from '../lib/memory.m
 import { uiStart, uiState, uiStop } from '../lib/ui-control.mjs';
 import { formatGc, gc } from '../lib/gc.mjs';
 import { HANDOFF_MAX_H, pruneSnapshots, staleHandoff } from '../hooks/checkpoint.mjs';
+import { pluginBuildHash } from '../lib/version.mjs';
 
 const VERSION = JSON.parse(fs.readFileSync(new URL('../.claude-plugin/plugin.json', import.meta.url), 'utf8')).version;
 
@@ -54,6 +55,7 @@ Usage: tforge <command> [options]
                        leftovers, snapshots no longer relevant, automatic handoffs a later session worked
                        from (moved to .forge/handoffs/). Runs by itself every 6h, every 10 min on a nearly
                        full disk (TFORGE_GC=0: never)
+  version              tokenforge version and plugin build hash (the hash benchmark runs record); -v: version only
 
 Options: -C <dir> project root (default: current directory)
 Env: TFORGE_CLAUDE  claude binary to use (default: claude)`;
@@ -104,6 +106,9 @@ async function main() {
   const root = path.resolve(o.root || process.cwd());
 
   switch (cmd) {
+    case 'version':
+      if (o.json) return console.log(JSON.stringify({ version: VERSION, plugin_sha256: pluginBuildHash() }));
+      return console.log(`tokenforge ${VERSION}\nbuild ${pluginBuildHash()} (sha256 of the plugin files)`);
     case 'init': {
       const file = planPath(root);
       if (fs.existsSync(file)) throw new Error(`${file} already exists`);

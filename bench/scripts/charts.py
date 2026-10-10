@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
 """Render the README charts (docs/img/*.svg) from raw benchmark runs.
 
-    python3 bench/scripts/charts.py
+    python3 bench/scripts/charts.py [--mixed-versions]
+
+Every chart names the TokenForge version, plugin build hash and Claude Code version of the runs it draws. Runs of
+more than one TokenForge build or Claude Code version in one chart are refused unless --mixed-versions is given;
+then each task is labelled with its TokenForge build.
 
 Selection, so anyone can check it: native = median of every completed native run per task; tokenforge = the
 most recent completed run per task for each lean level, read from that run's environment_manifest.json.
@@ -12,11 +16,15 @@ SVGs carry their own light/dark styles (prefers-color-scheme), so they follow th
 """
 from __future__ import annotations
 
+import argparse
 import json
 import statistics as st
+import sys
 from pathlib import Path
 
 BENCH = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(BENCH / "runner"))
+import report  # noqa: E402
 OUT = BENCH.parent / "docs" / "img"
 LABEL = {"cross-module-debug": "Cross-module debug (TS)", "rust-cli": "Rust CLI feature", "pr-review": "PR review (Go)",
          "architecture": "Architecture tracing (TS)", "rust-debug": "Rust debugging", "banking-transfers": "Scheduled transfers (TS)",
@@ -40,6 +48,7 @@ BUILD = json.loads((BENCH / "environments" / "token-forge" / "manifest.json").re
 BUILDS = {BUILD, *json.loads((BENCH / "benchmark.config.json").read_text())["token_forge"].get("equivalent_builds", {})}
 # Measured fixed context per request: first-request context of a one-word prompt in a git repo, settings written
 # by `tforge lean <level>` (Claude Code 2.1.293, Opus 5.5).
+FLOOR_SOURCE = "Measured with Claude Code 2.1.293 and tokenforge 0.7.0's lean levels (settings only; no benchmark runs)."
 FLOOR = [("off (Claude Code)", 16929), ("lean on", 11933), ("balanced (default)", 9738), ("lean max", 5755), ("lean ultra", 4401)]
 
 STYLE = """<style>
@@ -125,7 +134,7 @@ def savings_chart(rs, levels):
 def floor_chart():
     W, left, right, top = 760, 170, 80, 74
     bh, row = 18, 34
-    H = top + row * len(FLOOR) + 40
+    H = top + row * len(FLOOR) + 60
     span = W - left - right
     mx = 18000
     x = lambda v: left + span * v / mx
@@ -134,15 +143,16 @@ def floor_chart():
          '<text class="t1" x="24" y="34" font-size="17" font-weight="600">Fixed context re-sent with every request</text>',
          '<text class="t2" x="24" y="56" font-size="12.5">Tool and skill definitions Claude Code sends on every call, by tokenforge lean level (measured, tokens).</text>']
     for v in range(0, mx + 1, 4000):
-        g.append(f'<line class="grid" x1="{x(v):.1f}" y1="{top - 8}" x2="{x(v):.1f}" y2="{H - 30}" stroke-width="1"/>'
-                 f'<text class="mu" x="{x(v):.1f}" y="{H - 14}" font-size="11.5" text-anchor="middle">{v // 1000}k</text>')
+        g.append(f'<line class="grid" x1="{x(v):.1f}" y1="{top - 8}" x2="{x(v):.1f}" y2="{H - 50}" stroke-width="1"/>'
+                 f'<text class="mu" x="{x(v):.1f}" y="{H - 34}" font-size="11.5" text-anchor="middle">{v // 1000}k</text>')
     for i, (name, v) in enumerate(FLOOR):
         y = top + i * row
         cls = "s1" if i == 0 else ("s3" if "ultra" in name else "s2")
         g.append(f'<text class="t1" x="{left - 12}" y="{y + bh - 4}" font-size="13" text-anchor="end">{name}</text>'
                  f'<path class="{cls}" d="{bar_path(left, y, x(v) - left, bh)}"><title>{name}: {v:,} tokens per request</title></path>'
                  f'<text class="t2" x="{x(v) + 6:.1f}" y="{y + bh - 4}" font-size="12">{v / 1000:.1f}k{"" if i == 0 else f"  (−{100 * (1 - v / FLOOR[0][1]):.0f}%)"}</text>')
-    g.append(f'<line class="base" x1="{left}" y1="{top - 8}" x2="{left}" y2="{H - 30}" stroke-width="1"/>')
+    g.append(f'<line class="base" x1="{left}" y1="{top - 8}" x2="{left}" y2="{H - 50}" stroke-width="1"/>')
+    g.append(f'<text class="mu" x="24" y="{H - 10}" font-size="11.5">{FLOOR_SOURCE}</text>')
     g.append("</svg>")
     return "\n".join(g)
 
@@ -167,13 +177,14 @@ def context_points(run):
     return pts
 
 
-def curve_chart(rs, task, level):
+def curve_chart(rs, task, level, mixed=False):
     nat = sorted((r for r in rs if r["agent"] == "native" and r["task"] == task), key=lambda r: r["total_tokens"])
     nat = nat[len(nat) // 2]  # the median native run
     tf = sorted((r for r in rs if r["agent"] == "token-forge" and r["task"] == task and r["lean"] == level), key=lambda r: r.get("start_time") or "")[-1]
+    prov = report.provenance(report.check_versions([nat, tf], mixed, "docs/img/bench-context.svg"))
     series = [("clean Claude Code", context_points(nat), nat["total_tokens"]), (f"tokenforge, lean {level}", context_points(tf), tf["total_tokens"])]
-    W, left, right, top, bottom = 760, 64, 150, 76, 48
-    H = 360
+    W, left, right, top, bottom = 760, 64, 150, 76, 68
+    H = 380
     pw, ph = W - left - right, H - top - bottom
     n = max(len(s[1]) for s in series)
     ymax = 100000 * (int(max(max(s[1]) for s in series) / 100000) + 1)
@@ -188,7 +199,8 @@ def curve_chart(rs, task, level):
                  f'<text class="mu" x="{left - 8}" y="{Y(v) + 4:.1f}" font-size="11.5" text-anchor="end">{v // 1000}k</text>')
     for i in range(0, n, 5 if n > 12 else 2):
         g.append(f'<text class="mu" x="{X(i):.1f}" y="{top + ph + 18}" font-size="11.5" text-anchor="middle">{i + 1}</text>')
-    g.append(f'<text class="mu" x="{left + pw / 2}" y="{H - 10}" font-size="11.5" text-anchor="middle">API request #</text>')
+    g.append(f'<text class="mu" x="{left + pw / 2}" y="{H - 30}" font-size="11.5" text-anchor="middle">API request #</text>'
+             f'<text class="mu" x="24" y="{H - 8}" font-size="11">{prov}</text>')
     for k, (name, pts, total) in enumerate(series, start=1):
         line = " ".join(f"{X(i):.1f},{Y(v):.1f}" for i, v in enumerate(pts))
         area = f"{X(0):.1f},{Y(0):.1f} {line} {X(len(pts) - 1):.1f},{Y(0):.1f}"
@@ -260,22 +272,28 @@ def hero_chart(rs):
     return "\n".join(g)
 
 
-def final_chart(rs, tasks, title, subtitle):
+def final_chart(rs, tasks, title, subtitle, mixed=False, name="chart"):
     """Clean Claude Code (median) vs tokenforge default of the build under test (median), log scale, direct labels."""
     import math
-    nat, tf = {}, {}
+    nat, tf, src = {}, {}, []
     for r in rs:
         if r["agent"] == "native":
             nat.setdefault(r["task"], []).append(r["total_tokens"])
+            src.append(r)
         elif (r["agent"] == "token-forge" and not r.get("variant") and r["lean"] == "balanced"
               and r.get("token_forge_plugin_sha256") in BUILDS):
             tf.setdefault(r["task"], []).append(r["total_tokens"])
+            src.append(r)
     tasks = sorted((t for t in tasks if t in nat and t in tf), key=lambda t: st.median(nat[t]))
     if not tasks:
         return None, {}
+    used = [r for r in src if r["task"] in tasks]
+    prov = report.provenance(report.check_versions(used, mixed, f"docs/img/{name}"))
+    tfv = {t: ("tokenforge " + ", ".join(sorted({f"{v} ({h[:8]})" for v, h in (report.tf_build(r) for r in used
+                                                  if r["task"] == t and r["agent"] == "token-forge")})) if mixed else "") for t in tasks}
     if len(tasks) > 12:
-        return final_rows(tasks, nat, tf, title, subtitle)
-    W, H, left, right, top, bottom = 1240, 760, 96, 110, 150, 170
+        return final_rows(tasks, nat, tf, title, subtitle, prov, tfv)
+    W, H, left, right, top, bottom = 1240, 782, 96, 110, 150, 192
     pw, ph = W - left - right, H - top - bottom
     vals = [v for t in tasks for v in (st.median(nat[t]), st.median(tf[t]))]
     lo = math.log10(min(vals) * 0.6); hi = math.log10(max(vals) * 1.6)
@@ -305,21 +323,23 @@ def final_chart(rs, tasks, title, subtitle):
                  f'<circle class="s1" cx="{x:.1f}" cy="{yn:.1f}" r="7"><title>{LABEL[t]}: clean Claude Code {fmt_k(n)}</title></circle>'
                  f'<text class="t1" x="{x:.1f}" y="{top + ph + 26 + row:.1f}" font-size="14" font-weight="600" text-anchor="middle">{LABEL[t]}</text>'
                  f'<text class="mu" x="{x:.1f}" y="{top + ph + 43 + row:.1f}" font-size="12.5" text-anchor="middle">{fmt_k(n)} → {fmt_k(d)}</text>'
+                 f'<text class="mu" x="{x:.1f}" y="{top + ph + 59 + row:.1f}" font-size="11.5" text-anchor="middle">{tfv[t]}</text>'
                  f'<circle class="s2" cx="{x:.1f}" cy="{yd:.1f}" r="7"><title>{LABEL[t]}: tokenforge {fmt_k(d)} ({sav[t]:.0f}% fewer)</title></circle>'
                  f'<circle class="ring l2" cx="{x:.1f}" cy="{yd:.1f}" r="11"/>'
                  f'<text class="big o" x="{x + 16:.1f}" y="{yd + (-14 if up else 26):.1f}">{"+" if up else "−"}{abs(sav[t]):.0f}%</text>')
-    g.append(f'<text class="mu" x="40" y="{H - 26}" font-size="13">Medians of 1–3 runs per side, Opus 5.5, quality from hidden tests; single runs vary about ±20%. Raw data: bench/reports/. Regenerate: python3 bench/scripts/charts.py</text>')
+    g.append(f'<text class="mu" x="40" y="{H - 48}" font-size="13">Medians of 1–3 runs per side, Opus 5.5, quality from hidden tests; single runs vary about ±20%. Raw data: bench/reports/. Regenerate: python3 bench/scripts/charts.py</text>'
+             f'<text class="mu" x="40" y="{H - 24}" font-size="13">{prov}</text>')
     g.append("</svg>")
     return "\n".join(g), sav
 
 
 
-def final_rows(tasks, nat, tf, title, subtitle):
+def final_rows(tasks, nat, tf, title, subtitle, prov, tfv):
     """Same comparison as final_chart, one row per task (for many tasks): log-scale x, labels left, savings right."""
     import math
     tasks = sorted(tasks, key=lambda t: st.median(tf[t]) / st.median(nat[t]))
     sav = {t: 100 * (1 - st.median(tf[t]) / st.median(nat[t])) for t in tasks}
-    rowh, top, bottom, left, right, W = 38, 150, 84, 330, 110, 1240
+    rowh, top, bottom, left, right, W = 38, 150, 106, 330, 110, 1240
     H = top + rowh * len(tasks) + bottom
     pw = W - left - right
     vals = [v for t in tasks for v in (st.median(nat[t]), st.median(tf[t]))]
@@ -344,26 +364,34 @@ def final_rows(tasks, nat, tf, title, subtitle):
         n, d = st.median(nat[t]), st.median(tf[t])
         up = d > n
         g.append(f'<text class="t1" x="{left - 18}" y="{y - 1:.1f}" font-size="14.5" font-weight="600" text-anchor="end">{LABEL[t]}</text>'
-                 f'<text class="mu" x="{left - 18}" y="{y + 14:.1f}" font-size="12" text-anchor="end">{fmt_k(n)} → {fmt_k(d)}</text>'
+                 f'<text class="mu" x="{left - 18}" y="{y + 14:.1f}" font-size="12" text-anchor="end">{(tfv[t] + " · ") if tfv[t] else ""}{fmt_k(n)} → {fmt_k(d)}</text>'
                  f'<line class="l2" x1="{X(n):.1f}" y1="{y:.1f}" x2="{X(d):.1f}" y2="{y:.1f}" stroke-width="2"/>'
                  f'<circle class="s1" cx="{X(n):.1f}" cy="{y:.1f}" r="6.5"><title>{LABEL[t]}: clean Claude Code {fmt_k(n)}</title></circle>'
                  f'<circle class="s2" cx="{X(d):.1f}" cy="{y:.1f}" r="6.5"><title>{LABEL[t]}: tokenforge {fmt_k(d)}</title></circle>'
                  f'<text class="big o" x="{W - 40}" y="{y + 6:.1f}" text-anchor="end">{"+" if up else "−"}{abs(sav[t]):.0f}%</text>')
-    g.append(f'<text class="mu" x="40" y="{H - 22}" font-size="13">Medians of 1–3 runs per side, Opus 5.5, quality from hidden tests; single runs vary about ±20%. Raw data: bench/reports/. Regenerate: python3 bench/scripts/charts.py</text>')
+    g.append(f'<text class="mu" x="40" y="{H - 44}" font-size="13">Medians of 1–3 runs per side, Opus 5.5, quality from hidden tests; single runs vary about ±20%. Raw data: bench/reports/. Regenerate: python3 bench/scripts/charts.py</text>'
+             f'<text class="mu" x="40" y="{H - 20}" font-size="13">{prov}</text>')
     g.append("</svg>")
     return "\n".join(g), sav
 
 def main():
-    OUT.mkdir(parents=True, exist_ok=True)
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--mixed-versions", action="store_true",
+                    help="draw charts from runs of different TokenForge builds or Claude Code versions, each task labelled")
+    mixed = ap.parse_args().mixed_versions
     rs = runs()
+    out = {}  # every chart is drawn (and its versions checked) before any file is written
     for name, tasks, title, sub in [("bench-existing.svg", EXISTING, "Existing codebases: features, bugs, reviews", "total tokens per task, clean Claude Code → tokenforge"),
                                     ("bench-greenfield.svg", GREENFIELD, f"From scratch: {len(GREENFIELD)} projects, 23 languages", "total tokens to build each project, clean Claude Code → tokenforge")]:
-        svg, sav = final_chart(rs, tasks, title, sub)
+        svg, sav = final_chart(rs, tasks, title, sub, mixed, name)
         if svg:
-            (OUT / name).write_text(svg)
+            out[name] = svg
             print(name, {k: round(v) for k, v in sav.items()})
-    (OUT / "bench-floor.svg").write_text(floor_chart())
-    (OUT / "bench-context.svg").write_text(curve_chart(rs, "rust-cli", "balanced"))
+    out["bench-floor.svg"] = floor_chart()
+    out["bench-context.svg"] = curve_chart(rs, "rust-cli", "balanced", mixed)
+    OUT.mkdir(parents=True, exist_ok=True)
+    for name, svg in out.items():
+        (OUT / name).write_text(svg)
     for old in ("bench-savings.svg", "bench-hero.svg"):
         (OUT / old).unlink(missing_ok=True)  # earlier charts mixed builds; only final-build charts are drawn now
     print("wrote", ", ".join(p.name for p in sorted(OUT.glob("bench-*.svg"))))
