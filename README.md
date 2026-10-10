@@ -248,6 +248,19 @@ A local dashboard starts in the background with your first session. Open it with
 
 **Privacy.** The server listens on 127.0.0.1 only and rejects other Host headers, which blocks DNS rebinding. It answers GET requests, plus one POST for the Settings page (lean level, skills, terse), accepted only from its own page (same-origin `Origin` and a JSON body). It loads nothing from the internet. It reads your transcripts incrementally: only new bytes, with a cache in `~/.cache/tokenforge/`. From transcripts it keeps and serves numbers only, never prompt, reply or file text. Three exceptions: the session page's "Where the tokens went" table, which shows the command or file path behind each costly tool result (read on demand, never cached); the Memory page, which shows prompt and reply snippets and file names from that project's sessions (the index behind it, in `~/.cache/tokenforge/memory/`, holds those snippets); and a project's own `.forge/snapshots/`, shown on its project page so you can see what `/clear` will reload; only files listed in that folder can be requested. `TFORGE_UI=0` disables the auto-start, and `tforge ui --stop` stops it.
 
+### API proxy (optional, off unless you start it)
+
+`tforge claude` runs Claude Code through a local proxy (`ANTHROPIC_BASE_URL=http://127.0.0.1:7879`), started in the background if needed; `tforge proxy` runs it in a terminal, `--detach` in the background, `--stop` stops it. Works with a subscription login or an API key: the proxy forwards every header as sent. It does two things:
+
+- **Logs** every request: sizes of the system prompt, tool definitions and tool results, and the usage the API reports (input, cache reads, cache writes, output). `tforge proxy report [--days N]` sums them.
+- **Compresses tool results the first time they are sent.** A whole-file Read above 12k characters (code, not prose or markup) folds long definition bodies, keeping every kept line's number and `Read offset=N limit=M` in place of each fold; partial reads, which Edit works from, stay whole. Bash and other text output loses colors and progress-bar redraws, repeated lines become a count, and output above 16k characters keeps its head and tail with the full text saved to a file the model can grep. Large JSON loses its indentation, and long arrays keep their first, error-looking and last items.
+
+The prompt cache is why only new results change: if earlier content differs from the last request, the API writes it to the cache again at 1.25× instead of reading it at 0.1×. Each compressed result is remembered by its tool_use_id, so every later request sends the same bytes. A result the proxy first passed unchanged (it was started mid-session) is never touched later, and one that Claude Code itself rewrote passes as sent. If a request cannot be parsed, it goes out unchanged.
+
+`TFORGE_PROXY_COMPRESS=0` logs only. `TFORGE_PROXY_FOLD=0` turns off Read folding. `TFORGE_PROXY_CAP` sets the Bash output cap in characters (`0`: none). `TFORGE_PROXY_UPSTREAM` sets where requests go (default: an `ANTHROPIC_BASE_URL` you already had, else `https://api.anthropic.com`).
+
+**Privacy.** The proxy listens on 127.0.0.1 only and rejects other Host headers. Its request log (`~/.cache/tokenforge/proxy/requests-*.jsonl`) holds sizes and token counts only. Two files hold content, both readable by you only and dropped after 14 days: `memo.jsonl` (the compressed results, so later requests can resend them) and `out/` (full outputs that were capped).
+
 ### tmap: code map (built in, replaces CodeGraph-style indexers)
 
 `tmap` is a small Rust indexer bundled with the plugin. It parses Rust, TypeScript/TSX, JavaScript, Python and Go with tree-sitter and keeps an index in `~/.cache/tokenforge/tmap`. Every command refreshes the index first, re-parsing only changed files. It respects `.gitignore` and skips dependency and build folders even without one.
@@ -418,6 +431,10 @@ Workers run with `--permission-mode acceptEdits` and only `Read`, `Write` and `E
 | `TFORGE_BANNER` | | `0` hides the "TokenForge: active" line at startup and the checkpoint line after `/clear` |
 | `TFORGE_UI` | | `0` stops the dashboard from starting with your first session (it never auto-starts in headless `claude -p`, SDK or CI sessions) |
 | `TFORGE_UI_PORT` | `7878` | Dashboard port (the next free one is used if taken) |
+| `TFORGE_PROXY_PORT` | `7879` | `tforge proxy` / `tforge claude` port |
+| `TFORGE_PROXY_COMPRESS` / `TFORGE_PROXY_FOLD` | | `0`: the proxy only logs / does not fold whole-file Reads |
+| `TFORGE_PROXY_CAP` | `16000` | Characters of Bash and other text output the proxy keeps (head and tail); `0`: no cap |
+| `TFORGE_PROXY_UPSTREAM` | | Where the proxy forwards (default: an existing `ANTHROPIC_BASE_URL`, else the Anthropic API) |
 | `TFORGE_NO_DOWNLOAD` | | `1` never downloads tmap; build with cargo instead |
 | `TFORGE_DISTILL_MODEL` / `_TIMEOUT` / `_MAX_BYTES` | `haiku` / `120` / `480000` | Model, timeout (s) and input cap for `tkit distill` and `web --ask` |
 

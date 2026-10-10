@@ -12,7 +12,7 @@ import { TERSE_LEVELS, configFile, terseLevel, writeConfig } from '../lib/config
 import { installStatusline, removeStatusline } from '../lib/limits.mjs';
 import { LEAN_DENY, leanOff, leanOn, leanStatus } from '../lib/lean.mjs';
 import { buildIndex, formatRecall, recall, sessionDetail } from '../lib/memory.mjs';
-import { uiStart, uiState, uiStop } from '../lib/ui-control.mjs';
+import { daemonStart, daemonState, daemonStop, uiStart, uiState, uiStop } from '../lib/ui-control.mjs';
 import { formatGc, gc } from '../lib/gc.mjs';
 import { HANDOFF_MAX_H, pruneSnapshots, staleHandoff } from '../hooks/checkpoint.mjs';
 import { pluginBuildHash } from '../lib/version.mjs';
@@ -49,6 +49,15 @@ Usage: tforge <command> [options]
                                 Edits only tokenforge's own entries in your Claude Code settings
   ui [--port N] [--detach | --stop | --status]
                        local dashboard: token usage, limits and resets, sessions, code map (127.0.0.1 only)
+  proxy [--port N] [--detach | --stop | --status]
+                       local API proxy (127.0.0.1, default port 7879): logs each request's size and real usage,
+                       and compresses tool results the first time they are sent (whole-file Reads fold long bodies,
+                       Bash output is cleaned and capped with the full text kept in a file, big JSON is crushed).
+                       Compressed results are remembered, so later requests resend the same bytes and the prompt
+                       cache holds. TFORGE_PROXY_COMPRESS=0: log only; TFORGE_PROXY_FOLD=0: no Read folding;
+                       TFORGE_PROXY_CAP=N chars (0: no cap); TFORGE_PROXY_UPSTREAM: where to forward
+  proxy report [--days N] [--json]  what went through the proxy: tokens, cache reads/writes, chars not sent
+  claude [args...]     run claude through the proxy (started in the background if needed)
   statusline --setup   status line with your savings ("TF -45% today") and real limits; wraps an existing one
   statusline --remove  restore the status line exactly as it was (TFORGE_STATUSLINE=0: no automatic setup)
   gc [--dry-run] [--json]  free disk: scratch of ended Claude Code sessions (/tmp/claude-<uid>), tokenforge
@@ -90,6 +99,7 @@ function parseArgs(argv) {
     else if (a === '--refresh') o.refresh = true;
     else if (a === '--auto') o.auto = true;
     else if (a === '-n') o.n = Number(val());
+    else if (a === '--days') o.days = Number(val());
     else if (a === '-h' || a === '--help') o.help = true;
     else if (a === '-v' || a === '--version') o.version = true;
     else if (a.startsWith('-')) throw new Error(`unknown option ${a}`);
@@ -98,7 +108,30 @@ function parseArgs(argv) {
   return o;
 }
 
+async function ensureProxy(port) {
+  const st = daemonState('proxy');
+  if (st) return st;
+  return daemonStart('proxy', { port, detach: true });
+}
+
+// `tforge claude ...`: everything after the command goes to claude untouched.
+async function runClaude(args) {
+  const st = await ensureProxy(Number(process.env.TFORGE_PROXY_PORT) || undefined);
+  const env = { ...process.env };
+  if (st) env.ANTHROPIC_BASE_URL = `http://127.0.0.1:${st.port}`;
+  else console.error('tforge: the proxy did not start (see ~/.cache/tokenforge/proxy.log); running claude directly');
+  const child = spawn(process.env.TFORGE_CLAUDE || 'claude', args, { stdio: 'inherit', env });
+  for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => {});
+  child.on('error', (e) => {
+    console.error(`tforge: ${e.message}`);
+    process.exit(127);
+  });
+  child.on('exit', (code, sig) => process.exit(code ?? (sig ? 1 : 0)));
+  return new Promise(() => {});
+}
+
 async function main() {
+  if (process.argv[2] === 'claude') return runClaude(process.argv.slice(3));
   const o = parseArgs(process.argv.slice(2));
   if (o.version) return console.log(VERSION);
   const cmd = o._.shift();
@@ -233,6 +266,28 @@ async function main() {
       const { port } = await listen(o.port || Number(process.env.TFORGE_UI_PORT) || 7878);
       await uiStart({ port, foreground: true });
       console.log(`tforge ui: http://127.0.0.1:${port}/  (Ctrl+C to stop)`);
+      return new Promise(() => {});
+    }
+    case 'proxy': {
+      const proxy = await import('../lib/proxy.mjs');
+      if (o._[0] === 'report') {
+        const days = o.days || 1;
+        const r = proxy.proxyReport({ days });
+        return console.log(o.json ? JSON.stringify(r, null, 2) : proxy.formatReport(r, days));
+      }
+      if (o._.length) throw new Error('usage: tforge proxy [--port N] [--detach | --stop | --status] | tforge proxy report');
+      if (o.stop) return console.log(daemonStop('proxy') ? 'tforge proxy: stopped' : 'tforge proxy: not running');
+      const st = daemonState('proxy');
+      const hint = (p) => `ANTHROPIC_BASE_URL=http://127.0.0.1:${p} claude   (or: tforge claude)`;
+      if (o.status) return console.log(st ? `tforge proxy: running on 127.0.0.1:${st.port} (pid ${st.pid}); use: ${hint(st.port)}` : 'tforge proxy: not running');
+      if (st) return console.log(`tforge proxy: already running on 127.0.0.1:${st.port}; use: ${hint(st.port)}`);
+      if (o.detach) {
+        const r = await daemonStart('proxy', { port: o.port, detach: true });
+        return console.log(r ? `tforge proxy: running on 127.0.0.1:${r.port}; use: ${hint(r.port)}` : 'tforge proxy: failed to start (see ~/.cache/tokenforge/proxy.log)');
+      }
+      const r = await proxy.startProxy({ port: o.port || Number(process.env.TFORGE_PROXY_PORT) || proxy.DEFAULT_PORT });
+      await daemonStart('proxy', { port: r.port, foreground: true });
+      console.log(`tforge proxy: 127.0.0.1:${r.port} -> ${r.upstream}  (Ctrl+C to stop)\nuse: ${hint(r.port)}`);
       return new Promise(() => {});
     }
     case 'statusline': {
