@@ -123,6 +123,7 @@ async function main() {
       if (!plan.verify) console.log('  warning: no final "verify" command; integration errors will not be caught');
       const noCheck = order.filter((t) => !t.verify).length;
       if (noCheck) console.log(`  warning: ${noCheck} task(s) without verify pass as soon as their files exist`);
+      for (const w of plan.warnings) console.log(`  warning: ${w}`);
       return;
     }
     case 'run': {

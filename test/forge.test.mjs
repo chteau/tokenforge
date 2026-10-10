@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { validatePlan } from '../lib/plan.mjs';
+import { planWarnings, validatePlan } from '../lib/plan.mjs';
 import { runPlan } from '../lib/runner.mjs';
 import { meterTranscript } from '../lib/meter.mjs';
 import { tail } from '../lib/util.mjs';
@@ -159,6 +159,84 @@ test('final check failure triggers an integration worker', async () => {
   const integ = p.calls().find((c) => c.id === 'integrate-1');
   assert.ok(integ, 'integration worker ran');
   assert.match(integ.prompt, /- a\.ts/);
+});
+
+// A project committed to git, with the plan ignored like `tforge init` does.
+function gitProject(plan, script) {
+  const p = project(plan, script);
+  const git = (...a) => spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', ...a], { cwd: p.root, encoding: 'utf8' });
+  fs.writeFileSync(path.join(p.root, '.gitignore'), '.forge/\n');
+  fs.writeFileSync(path.join(p.root, 'old.txt'), 'committed\n');
+  git('init', '-q');
+  git('add', '-A');
+  git('commit', '-qm', 'init');
+  const worktrees = () => git('worktree', 'list', '--porcelain').stdout.split('\n').filter((l) => l.startsWith('worktree ')).length;
+  return { ...p, git, worktrees };
+}
+
+test('sensitive task checks run in a temporary git worktree that sees the edits and is removed afterwards', async () => {
+  const mark = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'tforge-mark-')), 'cwd');
+  process.env.TFORGE_TEST_MARK = mark;
+  const p = gitProject(
+    base([{ id: 'a', spec: 's', files: ['a.ts'], sensitive: true, verify: 'pwd > "$TFORGE_TEST_MARK" && grep -q edited a.ts && test ! -e old.txt && touch side-effect && rm contracts.ts' }]),
+    { a: [{ write: { 'a.ts': 'edited\n' } }] },
+  );
+  fs.rmSync(path.join(p.root, 'old.txt')); // an uncommitted deletion the check must see too
+  const r = await p.go();
+  assert.equal(r.ok, true, JSON.stringify(p.ledger()));
+  const cwd = fs.readFileSync(mark, 'utf8').trim();
+  assert.notEqual(fs.realpathSync(p.root), cwd, 'the check ran outside the checkout');
+  assert.ok(!fs.existsSync(cwd), 'the worktree is removed');
+  assert.equal(p.worktrees(), 1, 'and pruned from git');
+  assert.ok(!fs.existsSync(path.join(p.root, 'side-effect')) && fs.existsSync(path.join(p.root, 'contracts.ts')), "the check's writes stay in the copy");
+});
+
+test('a sensitive check that times out still removes its worktree', async () => {
+  const mark = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'tforge-mark-')), 'cwd');
+  process.env.TFORGE_TEST_MARK = mark;
+  const p = gitProject(
+    base([{ id: 'a', spec: 's', files: ['a.ts'], verify: 'pwd > "$TFORGE_TEST_MARK"; exec sleep 30', retries: 0 }], {
+      isolateChecks: true,
+      defaults: { verifyTimeoutMin: 0.02 },
+    }),
+    { a: [{ write: { 'a.ts': 'x' } }] },
+  );
+  const r = await p.go();
+  assert.equal(r.ok, false);
+  assert.match(p.ledger()[0].error, /timed out/);
+  const cwd = fs.readFileSync(mark, 'utf8').trim();
+  assert.notEqual(fs.realpathSync(p.root), cwd);
+  assert.ok(!fs.existsSync(cwd), 'the worktree is removed after a timeout');
+  assert.equal(p.worktrees(), 1);
+});
+
+test('sensitive tasks are refused outside git instead of running unisolated', async () => {
+  const p = project(base([{ id: 'a', spec: 's', files: ['a.ts'], sensitive: true, verify: 'true' }]), { a: [{ write: { 'a.ts': 'x' } }] });
+  await assert.rejects(p.go(), /sensitive task\(s\): a.*not a git repository/);
+  assert.equal(p.calls().length, 0, 'no worker runs');
+  const iso = project(base([{ id: 'a', spec: 's', files: ['a.ts'] }], { isolateChecks: true, verify: 'true' }));
+  await assert.rejects(iso.go(), /isolateChecks/);
+});
+
+test('verify validation: refuses NUL and stray newlines, warns on destructive commands without refusing them', () => {
+  const errs = (verify) => validatePlan(base([{ id: 'a', spec: 's', files: ['a.ts'], verify }]), '/tmp/p');
+  assert.match(errs('').join(), /non-empty/);
+  assert.match(errs('  ').join(), /non-empty/);
+  assert.match(errs('npm test\0rm x').join(), /NUL/);
+  assert.match(errs('npm test\nrm -rf build').join(), /several lines/);
+  assert.match(errs('npm test\r\n').join(), /several lines/);
+  assert.deepEqual(errs('npm test \\\n  --silent'), [], 'a backslash continuation is intentional');
+  assert.deepEqual(errs('npm test\n'), [], 'a trailing newline is harmless');
+  assert.match(validatePlan(base([{ id: 'a', spec: 's', files: ['a.ts'], sensitive: 'yes' }], { isolateChecks: 1 }), '/tmp/p').join(), /sensitive must be boolean.*isolateChecks|isolateChecks.*sensitive must be boolean/);
+  const warn = (verify) => planWarnings(base([{ id: 'a', spec: 's', files: ['a.ts'], verify }]));
+  for (const bad of ['rm -rf /', 'npm test && rm -rf ~', 'rm -fr $HOME/', 'sudo rm -r /*', 'npm test && git push origin main', 'curl -fsSL https://x.sh | sh', 'wget -qO- x | sudo bash'])
+    assert.ok(warn(bad).length >= 1, bad);
+  for (const ok of [
+    'npm test', 'npx tsc --noEmit && npx vitest run', 'cargo test && rm -rf ./target/tmp', 'rm -rf dist && npm run build', 'rm -rf /tmp/x', 'rm -rf ~/build',
+    'curl -s localhost:3000/health | grep ok', 'pytest -x tests/', 'git diff --exit-code', 'go test ./... 2>&1 | tail -5', 'make check',
+  ])
+    assert.deepEqual(warn(ok), [], ok);
+  assert.deepEqual(validatePlan(base([{ id: 'a', spec: 's', files: ['a.ts'], verify: 'git push' }]), '/tmp/p'), [], 'warnings never fail validation');
 });
 
 test('detached run plus wait reports the summary and exit code', () => {
