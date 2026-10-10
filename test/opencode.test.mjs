@@ -6,11 +6,19 @@ import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { pathToFileURL } from 'node:url';
-import plugin, { TokenForge, bashDecision, installOpencode, removeOpencode } from '../lib/opencode.mjs';
+import plugin, { TokenForge, bashDecision, withKitPath, installOpencode, removeOpencode } from '../lib/opencode.mjs';
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tforge-oc-'));
 for (const k of Object.keys(process.env)) if (/^(TFORGE_|TMAP_BIN)/.test(k)) delete process.env[k];
 Object.assign(process.env, { TFORGE_GC: '0', TFORGE_UI: '0', TFORGE_BANNER: '0', CLAUDE_CONFIG_DIR: path.join(dir, 'cc'), XDG_CONFIG_HOME: path.join(dir, 'xdg') });
+
+test('opencode: kit tools get bin/ on PATH, other commands are left alone', () => {
+  assert.equal(withKitPath('echo tkit'), 'echo tkit');
+  assert.equal(withKitPath('ls -la'), 'ls -la');
+  assert.match(withKitPath('cd x && tmap .'), /^export PATH='.*\/bin':"\$PATH"; cd x && tmap \.$/);
+  const once = withKitPath('tkit run ls');
+  assert.equal(withKitPath(once), once);
+});
 
 test('opencode: kit-router answers map to deny, rewrite and note', () => {
   assert.deepEqual(bashDecision(null), {});
@@ -62,9 +70,11 @@ test('opencode 2: setup registers shell, result and context hooks; dispose remov
   assert.equal(ctxEv.system[0].type, 'text');
   assert.match(ctxEv.system[0].text, /tokenforge/);
   await hooks['tool.execute.after']({ id: 'b', status: 'completed', result: { content: [{ type: 'text', text: 'hi' }] } });
+  const k = ev('tkit --help', 'c');
+  await hooks['tool.execute.before'](k);
+  assert.equal(k.input.command, `export PATH='${path.resolve('bin')}':"$PATH"; tkit --help`, 'tkit resolves in opencode shells');
   await dispose();
   assert.deepEqual(Object.keys(hooks), []);
-  assert.equal(process.env.PATH.split(path.delimiter)[0], path.resolve('bin'), 'tkit is reachable from opencode shells');
   assert.equal(typeof (await plugin.setup({})), 'function', 'a ctx without hooks is a no-op, not a crash');
 });
 
