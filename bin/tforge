@@ -15,9 +15,6 @@ import { buildIndex, formatRecall, recall, sessionDetail } from '../lib/memory.m
 import { uiStart, uiState, uiStop } from '../lib/ui-control.mjs';
 import { formatGc, gc } from '../lib/gc.mjs';
 import { HANDOFF_MAX_H, pruneSnapshots, staleHandoff } from '../hooks/checkpoint.mjs';
-import { generatePack, listPackTypes, listCachedPacks, deletePack, clearAllPacks, getPack } from '../lib/context-packs.mjs';
-import { startReceipt, finalizeReceipt, listReceipts, getReceipt, getReceiptStats } from '../lib/receipts.mjs';
-import { compressToolResults, pruneStaleRetrieves } from '../lib/compression.mjs';
 
 const VERSION = JSON.parse(fs.readFileSync(new URL('../.claude-plugin/plugin.json', import.meta.url), 'utf8')).version;
 
@@ -89,14 +86,6 @@ function parseArgs(argv) {
     else if (a === '--session') o.session = val();
     else if (a === '--refresh') o.refresh = true;
     else if (a === '--auto') o.auto = true;
-    else if (a === '--list') o.list = true;
-    else if (a === '--list-cached') o.listCached = true;
-    else if (a === '--delete') o.delete = val();
-    else if (a === '--clear') o.clear = true;
-    else if (a === '--include') o.include = val();
-    else if (a === '--exclude') o.exclude = val();
-    else if (a === '--stats') o.stats = true;
-    else if (a === '--mode') o.mode = val();
     else if (a === '-n') o.n = Number(val());
     else if (a === '-h' || a === '--help') o.help = true;
     else if (a === '-v' || a === '--version') o.version = true;
@@ -259,69 +248,6 @@ async function main() {
       const handoff = staleHandoff(project, HANDOFF_MAX_H, { dryRun: o.dryRun });
       if (o.auto) return;
       return console.log(o.json ? JSON.stringify({ ...r, snapshots, handoff }, null, 2) : formatGc(r, snapshots, handoff));
-    }
-    case 'pack': {
-      if (o.list) {
-        const types = listPackTypes();
-        return console.log(o.json ? JSON.stringify(types, null, 2) : types.map(t => `${t.id.padEnd(25)} ${t.name.padEnd(20)} ${t.description}`).join('\n'));
-      }
-      if (o.listCached) {
-        const packs = await listCachedPacks(root);
-        return console.log(o.json ? JSON.stringify(packs, null, 2) : packs.map(p => `${p.key.padEnd(35)} ${p.taskType.padEnd(25)} ${p.focus} (${p.ageHours.toFixed(1)}h ago)`).join('\n'));
-      }
-      if (o.clear) {
-        const count = await clearAllPacks(root);
-        return console.log(`cleared ${count} cached pack(s)`);
-      }
-      if (o.delete) {
-        const deleted = await deletePack(root, o.delete);
-        return console.log(deleted ? `deleted pack ${o.delete}` : `pack ${o.delete} not found`);
-      }
-      if (!o._.length) throw new Error('pack: specify a type (use --list to see available types)');
-      const type = o._.shift();
-      const focus = o._.join(' ') || undefined;
-      if (o.refresh) {
-        // Force refresh by deleting first
-        await deletePack(root, `${type}_${focus ? require('crypto').createHash('sha256').update(focus).digest('hex').slice(0, 8) : 'general'}`);
-      }
-      const pack = await generatePack(root, type, { focus, includeFiles: o.include?.split(','), excludeFiles: o.exclude?.split(',') });
-      if (o.json) return console.log(JSON.stringify(pack, null, 2));
-      console.log(`Context Pack: ${pack.taskType} (${pack.focus})`);
-      console.log(`Files: ${pack.stats.fileCount}, Est. tokens: ${pack.stats.estimatedTokens}`);
-      for (const f of pack.files) {
-        console.log(`  ${f.path.padEnd(50)} [${f.reason}] ${f.lines} lines`);
-      }
-      return;
-    }
-    case 'receipt': {
-      if (o.stats) {
-        const stats = await getReceiptStats(root);
-        if (!stats) return console.log('no receipts found');
-        return console.log(o.json ? JSON.stringify(stats, null, 2) : 
-          `Receipts: ${stats.totalReceipts}\nAvg Savings: ${stats.avgSavingsTokens.toLocaleString()} tokens (${stats.avgSavingsPercent}%)\nAvg Quality: ${stats.avgQualityScore}`);
-      }
-      if (o.last) {
-        const receipts = await listReceipts(root);
-        const toShow = receipts.slice(0, o.last);
-        return console.log(o.json ? JSON.stringify(toShow, null, 2) :
-          toShow.map(r => `${r.file.padEnd(40)} ${r.taskId.padEnd(20)} ${r.savings ? `${r.savings.percent}% saved` : 'no savings'}`).join('\n'));
-      }
-      const receipt = await getReceipt(root, o._.join(' '));
-      if (!receipt) return console.log('no receipt found (use --last to list)');
-      return console.log(o.json ? JSON.stringify(receipt, null, 2) : JSON.stringify(receipt, null, 2));
-    }
-    case 'compress': {
-      if (!o._.length) throw new Error('compress: specify a file');
-      const file = path.resolve(root, o._.shift());
-      const content = fs.readFileSync(file, 'utf8');
-      const policy = { mode: o.mode || 'balanced' };
-      const result = await compressCode(content, '', policy, file);
-      if (o.json) return console.log(JSON.stringify(result, null, 2));
-      console.log(`Original: ${result.originalLines} lines, ${result.originalText.length} chars`);
-      console.log(`Compressed: ${result.compressedLines} lines, ${result.kept.length} chars`);
-      console.log(`Reduction: ${(result.reductionRatio * 100).toFixed(1)}%`);
-      if (result.vaulted) console.log(`Vault: ${result.vaultId}`);
-      return;
     }
     default:
       throw new Error(`unknown command ${cmd} (see tforge --help)`);

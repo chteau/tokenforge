@@ -1,46 +1,5 @@
 # Changelog
 
-## 0.9.2
-
-Token savings, reliability and developer experience improvements inspired by ContextForge and icm-graph-context-flow audits.
-
-- **Formal Cache Invalidation Framework** (`lib/cache-invalidation.mjs`): Content-hash based invalidation with explicit dependency tracking, LRU eviction, TTL support, and concurrency-safe operations. Every cache declares its dependencies explicitly — instruction files, memory index, answer cache, snapshots, handoffs, and tmap index now share a unified invalidation system.
-- **Semantic Deduplication** (`lib/semantic-dedup.mjs`, `hooks/semantic-dedup.mjs`): Dual-lane FNV-1a (exact match) + SimHash (near-duplicate detection) with LRU session registry (200 entries) and "keep newest, stub oldest" invariant. Exact-match threshold 100 chars, near-dup 500 chars. Strips timestamps, UUIDs, call IDs, vault IDs before fingerprinting.
-- **AST-Aware Compression** (`lib/compression.mjs`, `hooks/compression.mjs`): Regex fallback compression preserving imports, exports, function signatures, class declarations, decorators, and error handlers. Function bodies compressed to signature + first N lines with vault retrieval stub. Age-gated (never compresses last 2 turns), session-cached (FNV-1a keyed), vault-backed retrieval.
-- **Enhanced Hook Pipeline** (`hooks/enhanced-interceptor.mjs`): Session tool cache (LRU, 200 entries), stall detection (3 identical calls → hint), concept cache for `find` queries, exploration loop breaker (3 read-only rounds → timeout hint).
-- **Context Packs System** (`lib/context-packs.mjs`): 8 task-specific profiles (bug-investigation, feature-implementation, refactoring, pr-review, architecture-exploration, test-generation, security-audit, cross-module-debugging) with dynamic generation, caching, and content-hash invalidation. Includes explicit include/exclude file lists.
-- **Vector Memory** (`lib/vector-memory.mjs`): TF-IDF + RP-tree ANN (pure JS, no ONNX/HNSW deps) for semantic session search. Incremental updates, per-project isolation, content-hash invalidation.
-- **Usage Receipts** (`lib/receipts.mjs`): Per-task receipts with provider tokens, local overhead, optimizations applied, quality metrics, and baseline comparison. Distinguishes measured vs estimated data.
-- **Formal Cache Integration**: Instruction files, memory index, answer cache, snapshots, handoffs, and tmap index now register with formal invalidation framework with explicit dependency tracking.
-- **Regex Fallback Compression Fixes**: 
-  - Function body compression now works (keeps signatures, compresses bodies, adds `...` stub)
-  - Error handlers (`try`/`catch`/`finally`) preserved when enabled
-  - Skip trivial content (≤1 line) unless `skipTrivialCheck: true` for tool results
-  - Error handler preservation: `try`/`catch`/`finally` blocks preserved
-  - Fixed line count threshold order (token threshold before line count)
-  - Skip trivial content for `compressCode`, but allow for `compressToolResults` via `skipTrivialCheck: true`
-- **Enhanced Hook Pipeline**: `skipTrivialCheck` option in `compressCode` passed from `compressToolResults` to allow compression of single-line tool outputs
-- **tmap Client** (`lib/tmap-client.mjs`): Programmatic interface for `callers`, `exports`, `contracts` queries with proper cwd propagation
-- **Context Packs Fixes**: Git repo initialization for tests, proper includeFiles for cache tests, source hash computation fixed
-- **Compression Fixes**: 
-  - Fixed check order (token threshold before line count)
-  - Skip trivial content (≤1 line) check before line count threshold
-  - Skip small content check after line count check
-  - Skip trivial check skipped for `compressToolResults` via `skipTrivialCheck: true`
-- **tmap Client**: Added `cwd` parameter propagation for `callers`, `exports`, `contracts` queries
-- **Source Hash Fix**: `computeSourceHashes` now correctly uses `fileObj.path` instead of `file`
-
-### Test Results
-- **196 passing, 6 failing** (196 original + 115 new tests)
-- All original Token Forge tests (81) pass
-- All tmap tests (157) pass
-- New features: 15/26 new tests pass (6 compression edge cases, 2 receipt heisenbugs)
-
-### Remaining Known Issues (6)
-- Compression regex fallback edge cases (3): `compresses large code files`, `compresses old results`, `compressToolResults`
-- Prune stale retrieves (2): `prunes retrieves before last user message`, `never prunes most recent retrieve`
-- Receipt test heisenbugs (2): Module-level `_currentReceipt` state isolation between parallel tests
-
 ## 0.9.1
 
 - Context alert: your next message gets it once the context passes the budget, then again each time the context doubles, instead of every 10k tokens and after tool calls (a 700k-token session got over 60). Shorter. A session started on 0.7.0–0.7.2 keeps that version's blocking alert ("A hook blocked your prompt") until it ends: after updating, start a new session.
