@@ -89,7 +89,7 @@ test('kit router: cat of long project files goes through tview; reads elsewhere,
   assert.equal(bash('cat a.rs; sed -i s/a/b/ b.rs', {}, sid(), dir), null, 'a write in the line keeps the normal permission flow');
 });
 
-test('kit router: ssh/scp become tkit ssh in bypass sessions, interactive ssh and registry reads are refused once', () => {
+test('kit router: ssh/scp become tkit ssh in bypass sessions, interactive ssh is refused once, registry reads are narrowed', () => {
   const ssh = (command) => run('kit-router.mjs', { tool_name: 'Bash', session_id: sid(), cwd: os.tmpdir(), permission_mode: 'bypassPermissions', tool_input: { command } });
   const s = ssh('ssh web1 "uptime; df -h"');
   assert.equal(s.permissionDecision, 'allow');
@@ -108,14 +108,28 @@ test('kit router: ssh/scp become tkit ssh in bypass sessions, interactive ssh an
   // one inline edit script is cheaper than a chain of Edit calls: allowed
   assert.equal(bash(`python3 -c "p='a.py';s=open(p).read().replace('x','y');open(p,'w').write(s)"`), null);
   assert.equal(bash("python3 - <<'EOF'\nimport json\nd = json.load(open('a.json'))\njson.dump(d, open('a.json', 'w'))\nEOF"), null);
-  assert.match(bash('cat node_modules/react/index.js').permissionDecisionReason, /tkit deps api react/);
+  const dv = bash('cat node_modules/react/index.js');
+  assert.equal(dv.permissionDecision, 'allow', 'a lone cat of dependency source becomes a pure tview call');
+  assert.match(dv.updatedInput.command, /^node \S*tview'? '?node_modules\/react\/index\.js'?$/);
+  assert.match(dv.additionalContext, /tkit deps api react/);
+  assert.match(bash('cat node_modules/react/index.js | head -5').permissionDecisionReason, /tkit deps api react/, 'a pipeline is still refused');
   assert.match(bash('grep -n Serialize ~/.cargo/registry/src/index.crates.io-6f17d22bba15001f/serde-1.0.200/src/lib.rs').updatedInput.command, /^tkit run --group -n 200 grep --null -n Serialize /, 'focused registry reads go through');
   assert.equal(bash("sed -n '1,40p' src/a.rs; echo ---; grep -n 'pub enum Value' -A 60 ~/.cargo/registry/src/x/duckdb-1.4.5/src/types/value.rs | head -60"), null, 'a batch with a focused registry slice is not refused');
-  assert.match(bash('cat ~/.cargo/registry/src/index.crates.io-6f17d22bba15001f/serde-1.0.200/src/lib.rs').permissionDecisionReason, /tkit deps api serde/);
+  assert.match(bash('cat ~/.cargo/registry/src/index.crates.io-6f17d22bba15001f/serde-1.0.200/src/lib.rs').additionalContext, /tkit deps api serde/);
   assert.equal(bash("rg foo --glob '!node_modules/**' src"), null, 'exclusion globs are not registry reads');
 
-  const read = run('kit-router.mjs', { tool_name: 'Read', session_id: sid(), tool_input: { file_path: '/p/node_modules/@types/node/fs.d.ts' } });
-  assert.match(read.permissionDecisionReason, /tkit deps api @types\/node/);
+  // whole-file Read of dependency source or a lockfile: narrowed to its first 200 lines with a note, once
+  const dep = path.join(tmpdir('tforge-dep-'), 'node_modules', '@types', 'node');
+  fs.mkdirSync(dep, { recursive: true });
+  fs.writeFileSync(path.join(dep, 'fs.d.ts'), 'export {};\n'.repeat(1000));
+  const rd = sid();
+  const read = run('kit-router.mjs', { tool_name: 'Read', session_id: rd, tool_input: { file_path: path.join(dep, 'fs.d.ts') } });
+  assert.equal(read.permissionDecision, undefined, 'no decision: the usual permission check runs');
+  assert.deepEqual([read.updatedInput.offset, read.updatedInput.limit], [1, 200]);
+  assert.match(read.additionalContext, /tkit deps api @types\/node[\s\S]*lines 1-200 of 1001/);
+  assert.equal(run('kit-router.mjs', { tool_name: 'Read', session_id: rd, tool_input: { file_path: path.join(dep, 'fs.d.ts') } }), null, 'repeat loads it whole');
+  fs.writeFileSync(path.join(dep, 'small.d.ts'), 'export {};\n'.repeat(100));
+  assert.equal(run('kit-router.mjs', { tool_name: 'Read', session_id: sid(), tool_input: { file_path: path.join(dep, 'small.d.ts') } }), null, 'a short file is read whole');
   assert.equal(run('kit-router.mjs', { tool_name: 'Read', session_id: sid(), tool_input: { file_path: '/p/node_modules/x/a.js', offset: 10, limit: 20 } }), null);
 
   // whole-file Read of a big saved tool output: narrowed to its end with a note (an allow, never a deny), once
@@ -125,7 +139,7 @@ test('kit router: ssh/scp become tkit ssh in bypass sessions, interactive ssh an
   fs.writeFileSync(big, 'x'.repeat(100) + '\n'.repeat(1) + 'line\n'.repeat(3000));
   const rs = sid();
   const narrowed = run('kit-router.mjs', { tool_name: 'Read', session_id: rs, tool_input: { file_path: big } });
-  assert.equal(narrowed.permissionDecision, 'allow');
+  assert.equal(narrowed.permissionDecision, undefined);
   assert.equal(narrowed.permissionDecisionReason, undefined);
   assert.deepEqual([narrowed.updatedInput.file_path, narrowed.updatedInput.offset, narrowed.updatedInput.limit], [big, 3001 - 1600 + 1, 1600]);
   assert.match(narrowed.additionalContext, /3001 lines.*lines 1402-3001 \(the end\)/);

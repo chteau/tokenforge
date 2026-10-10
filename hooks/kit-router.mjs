@@ -4,8 +4,10 @@
 //   `cat FILES` inside the project -> `tview FILES` (long definition bodies folded, see lib/view.mjs).
 //   grep/rg printing lines -> `tkit run --group` (each path once above its lines, long lines cut, capped);
 //     noisy installs, CI logs and recursive listings -> `tkit run` (squeezed, capped, full log saved).
-//   Refused (deny + the tkit command to use): interactive `ssh HOST`, reads inside dependency
-//     registries (Bash and whole-file Read).
+//   Refused (deny + the command to use): interactive `ssh HOST` and installers that would stop for an answer.
+//   Narrowed with a note instead of refused (a deny shows as "hook error"): a lone `cat` of dependency source
+//     -> tview; a whole-file Read of dependency source, a lockfile or generated file -> its first 200 lines; of a
+//     big saved tool output (tool-results/*.txt) -> its last ~8k chars.
 //   Never refused: focused reads (grep, sed -n, head, cat) and inline edit scripts. A refusal costs a round trip
 //     that re-reads the whole context, more than the output it saves, and one script that edits a file in one
 //     call is cheaper than a chain of small Edit calls.
@@ -308,7 +310,19 @@ export function denyReason(cmd) {
   return null;
 }
 
-// Lockfiles, minified bundles, source maps and build output: huge, no signal. Whole-file Reads are refused once.
+// A lone `cat` of dependency source is shown through tview (long bodies folded) with a note, rather than refused:
+// Claude Code shows any deny as "hook error". Read-only either way; the usual permission check still applies.
+export function depsView(cmd) {
+  const reg = registryPkg(cmd);
+  const t = reg && tokenize(cmd.trim());
+  if (!t || t.length < 2 || t[0] !== 'cat' || !t.slice(1).every((a) => !/^-|[<>|;&*?$`(){}]/.test(a))) return null;
+  return {
+    command: `node ${shq(TVIEW)} ${t.slice(1).map(shq).join(' ')}`,
+    note: `tokenforge: dependency source, shown with long bodies folded (each fold gives the sed -n command that prints it). Next time: \`tkit deps api ${reg[0]} [SYMBOL]\` from the project dir.`,
+  };
+}
+
+// Lockfiles, minified bundles, source maps and build output: huge, no signal. Whole-file Reads are narrowed once.
 const BULK = /(^|[\\/])(package-lock\.json|yarn\.lock|pnpm-lock\.yaml|bun\.lockb?|Cargo\.lock|poetry\.lock|Pipfile\.lock|composer\.lock|Gemfile\.lock|go\.sum)$|\.(min\.(js|css)|map)$|[\\/](dist|build|target|\.next|__pycache__)[\\/]/;
 
 // Whole-file Read inside a dependency registry, or of a bulk generated file.
@@ -653,6 +667,12 @@ async function onBash(input) {
   const ti = input.tool_input || {};
   const cmd = String(ti.command || '');
   if (!cmd || RAW.test(cmd)) return;
+  const dv = depsView(cmd);
+  if (dv) {
+    if (!seenBefore(input.session_id, `kitdeny\0${cmd}`, 'kit'))
+      rewriteOut({ ...ti, command: dv.command }, `${dv.note}\nRepeating the identical command runs it as is.`, 'allow');
+    return;
+  }
   const why = denyReason(cmd);
   if (why) {
     if (!seenBefore(input.session_id, `kitdeny\0${cmd}`, 'kit')) deny('PreToolUse', why + '\nRepeating the identical command runs it as is.');
@@ -673,8 +693,8 @@ async function onBash(input) {
 
 // Claude Code saves oversized Bash output under .../tool-results/ and shows a preview of its start; reading the
 // whole file back puts the full output into context anyway. A whole Read of one is narrowed to its last ~8k
-// chars (where errors and summaries usually are) with a note on how to see the rest. This is an allow with a
-// rewritten input, not a deny: Claude Code shows any deny as "hook error", which looked like a crash.
+// chars (where errors and summaries usually are) with a note on how to see the rest. A rewrite, not a deny:
+// Claude Code shows any deny as "hook error", which looked like a crash.
 export function spillWindow(file, sliced) {
   if (sliced || !/[\\/]tool-results[\\/][^\\/]+\.txt$/.test(String(file || ''))) return null;
   let text;
@@ -707,15 +727,30 @@ function onRead(input) {
     }
   } catch {}
   const sliced = Boolean(ti.offset || ti.limit);
-  const why = readReason(ti.file_path, sliced);
-  const win = why ? null : spillWindow(ti.file_path, sliced);
-  if ((!why && !win) || seenBefore(input.session_id, `kitread\0${ti.file_path}`, 'kit')) return;
-  if (why) return deny('PreToolUse', why);
-  process.stdout.write(
-    JSON.stringify({
-      hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'allow', updatedInput: { ...ti, offset: win.offset, limit: win.limit }, additionalContext: win.note },
-    }),
-  );
+  const win = headWindow(ti.file_path, readReason(ti.file_path, sliced)) || spillWindow(ti.file_path, sliced);
+  if (win && !seenBefore(input.session_id, `kitread\0${ti.file_path}`, 'kit')) rewriteOut({ ...ti, offset: win.offset, limit: win.limit }, win.note);
+}
+
+// A rewritten tool input plus a note for the model, used instead of a deny (Claude Code shows any deny as "hook
+// error"). With no decision the usual permission check runs on the new input; 'allow' only for a pure tview call.
+function rewriteOut(updatedInput, note, decision) {
+  process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', ...(decision && { permissionDecision: decision }), updatedInput, additionalContext: note } }));
+}
+
+// A whole Read that readReason flags (lockfile, generated file, dependency source) is narrowed to its first
+// HEAD_LINES lines; a file not much longer than that, or unreadable, is left alone.
+const HEAD_LINES = 200;
+export function headWindow(file, why) {
+  if (!why) return null;
+  let lines;
+  try {
+    if (fs.statSync(file).size > 64e6) return null;
+    lines = fs.readFileSync(file, 'utf8').split('\n').length;
+  } catch {
+    return null;
+  }
+  if (lines <= HEAD_LINES * 1.5) return null;
+  return { offset: 1, limit: HEAD_LINES, note: `${why.replace(/ Repeat this Read.*$|If you really need.*$/, '')}\nThis Read was narrowed to lines 1-${HEAD_LINES} of ${lines}; Read with offset/limit for other parts, or repeat the same whole Read to load all of it.` };
 }
 
 // PowerShell (Windows): only plain one-line commands with nothing PowerShell-specific in them are routed
