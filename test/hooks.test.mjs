@@ -376,6 +376,13 @@ test('codex: same hooks.json; rewrites always carry allow, MCP distill uses deci
   assert.equal(raw('kit-router.mjs', { tool_name: 'Bash', session_id: sid(), turn_id: 't1', agent_id: 'a1', cwd: dir, tool_input: { command: wait, timeout: 600000 } }, codex), null, 'no waitCap under Codex');
   const r = raw('kit-router.mjs', { tool_name: 'Bash', session_id: sid(), turn_id: 't1', cwd: dir, tool_input: { command: 'cat node_modules/react/index.js' } }, codex);
   if (r) assert.equal(r.hookSpecificOutput.permissionDecision, 'allow');
+  const bin = path.join(HERE, '..', 'bin');
+  const g = raw('kit-router.mjs', { tool_name: 'Bash', session_id: sid(), turn_id: 't1', cwd: dir, tool_input: { command: 'grep -rn export lib' } }, codex);
+  assert.ok(g.hookSpecificOutput.updatedInput.command.startsWith(`export PATH='${bin}':"$PATH"; tkit run --group`), 'bin/ is not on PATH under Codex');
+  const s = raw('session-start.mjs', { hook_event_name: 'SessionStart', source: 'startup', session_id: sid(), turn_id: 't1', cwd: dir }, codex);
+  assert.ok(s.hookSpecificOutput.additionalContext.includes(`not on PATH in this shell: start a command that uses them with export PATH='${bin}'`));
+  const c = raw('kit-router.mjs', { tool_name: 'Bash', session_id: sid(), cwd: dir, tool_input: { command: 'grep -rn export lib' } }, {});
+  assert.match(c.hookSpecificOutput.updatedInput.command, /^tkit run --group/, 'Claude Code has bin/ on PATH');
   const cc = JSON.parse(fs.readFileSync(path.join(HERE, '..', '.claude-plugin', 'plugin.json'), 'utf8'));
   const cx = JSON.parse(fs.readFileSync(path.join(HERE, '..', '.codex-plugin', 'plugin.json'), 'utf8'));
   assert.equal(cx.version, cc.version, '.codex-plugin version follows .claude-plugin');

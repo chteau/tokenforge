@@ -14,7 +14,7 @@ import { projectRoot } from '../lib/util.mjs';
 import { TERSE_RULES, globRe, listSetting, readConfig, terseLevel, writeConfig } from '../lib/config.mjs';
 import { uiState } from '../lib/ui-control.mjs';
 import { AUTO_MARK, HANDOFF_MAX_H, SNAP_DIR, listSnapshots, noteHandoffGiven, noteLoad, parseSnapshot, staleHandoff } from './checkpoint.mjs';
-import { hostName, isMain, kitHookOff, skippedAgent, unattended } from '../lib/hookutil.mjs';
+import { hostName, isMain, kitPathPrefix, kitHookOff, skippedAgent, unattended } from '../lib/hookutil.mjs';
 import { maybeGc } from '../lib/gc.mjs';
 import { OMITS_INSTRUCTIONS, digest, writeGiven } from '../lib/instructions.mjs';
 import { applyDefaultOnce, applyKeep, applyWindowOnce, leanStatus } from '../lib/lean.mjs';
@@ -434,6 +434,9 @@ function main() {
     if (process.env.TFORGE_MAP === '1') parts.push(MAP_HINT);
     const kit = kitPolicy(level !== 'full', false, own);
     if (kit) parts.push(kit);
+    // Codex and opencode do not put the plugin's bin/ on PATH.
+    if (kit && hostName(input) !== 'claude' && process.platform !== 'win32')
+      parts.push(`The kit tools (tkit, tmap, tread, tview) are not on PATH in this shell: start a command that uses them with ${kitPathPrefix().trim()}`);
     if (instructions) parts.push(instructions);
   }
   const reload = reloadParts(cwd, input.source, input.session_id);

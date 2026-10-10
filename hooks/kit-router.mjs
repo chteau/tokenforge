@@ -23,7 +23,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { docReplacement } from '../lib/docread.mjs';
-import { codexHost, deny, exeName, isMain, kitHookOff, readInput, seenBefore, shq, skippedAgent, splitPipes, splitSegments, tokenize } from '../lib/hookutil.mjs';
+import { codexHost, deny, exeName, hostName, withKitPath, isMain, kitHookOff, readInput, seenBefore, shq, skippedAgent, splitPipes, splitSegments, tokenize } from '../lib/hookutil.mjs';
 
 // ---------- build/test rewrites ----------
 const DROP = new Set(['-q', '--quiet', '-v', '--verbose', '-B', '--batch-mode', '--console=plain', '--color=never', '--no-color']);
@@ -687,7 +687,9 @@ async function onBash(input) {
   const r = routeCommand(cmd, { cwd: input.cwd, permissionMode: input.permission_mode });
   let out = cap;
   if (r) {
-    if (!seenBefore(input.session_id, `kitrw\0${cmd}`, 'kit')) out = { ...cap, permissionDecision: 'allow', updatedInput: { ...ti, ...cap?.updatedInput, command: r.command } };
+    // Outside Claude Code bin/ is not on PATH, so the rewrite carries it.
+    const command = hostName(input) === 'claude' ? r.command : withKitPath(r.command);
+    if (!seenBefore(input.session_id, `kitrw\0${cmd}`, 'kit')) out = { ...cap, permissionDecision: 'allow', updatedInput: { ...ti, ...cap?.updatedInput, command } };
   } else if (ownToolsOnly(cmd, input.permission_mode)) out = { ...cap, permissionDecision: 'allow' };
   if (out) process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', ...out } }));
 }
