@@ -5,6 +5,8 @@
 
 SOURCE is a session directory (runs/<session>: all its runs) or a report JSON (the runs it lists); @AGENT keeps one
 agent's runs. Runs that did not execute (environment or runner errors) and excluded tasks are left out and listed.
+Each arm names the TokenForge version, plugin build hash and Claude Code version of its runs; an arm whose runs come
+from more than one of them is refused unless --mixed-versions is given.
 Per arm: per-run distributions, the cold first request versus the warm rest, cache behaviour, quality, pipeline
 checks and a cost attribution. Per pair NEW:BASE: per-task medians over repetitions, the per-task change (geometric
 mean with a 95% t-interval, pooled total, exact sign test) and every task whose cost or quality got worse.
@@ -185,7 +187,7 @@ def attribute(run_dir: Path, pricing: dict) -> dict | None:
             "total_usd": sum(cost.values()), "threads": len(threads), **odd}
 
 
-def load_arm(spec: str, pricing: dict):
+def load_arm(spec: str, pricing: dict, mixed: bool = False):
     name, _, rest = spec.partition("=")
     sources, _, agent = rest.partition("@")
     runs = []
@@ -205,6 +207,8 @@ def load_arm(spec: str, pricing: dict):
     if len(agents) != 1:
         sys.exit(f"arm {name}: runs of agents {agents}; keep one with @AGENT")
     done = [r for r in runs if r.get("status") in report.EXECUTED]
+    # an arm is one build: runs of several TokenForge builds or Claude Code versions are refused unless --mixed-versions
+    versions = report.check_versions(done, mixed, f"arm {name}")
     for r in done:
         r["input_no_cache_tokens"] = sub(r.get("uncached_input_tokens"), r.get("cache_creation_input_tokens"))
         r["visible_output_tokens"] = sub(r.get("output_tokens"), r.get("thinking_tokens"))
@@ -213,7 +217,8 @@ def load_arm(spec: str, pricing: dict):
         r["_att"] = attribute(Path(r["_dir"]), pricing)
         for part in PARTS:
             r[f"cost_{part}_usd"] = r["_att"]["cost_usd"][part] if r["_att"] else None
-    meta = {"sources": sources.split(","), "agent": agents[0],
+    meta = {"sources": sources.split(","), "agent": agents[0], "versions": versions,
+            "provenance": report.provenance(versions),
             "not_executed": [[r.get("run_id"), r.get("status"), r.get("_session")] for r in runs if r not in done]}
     return name, meta, done
 
@@ -238,7 +243,7 @@ def summarize_arm(meta: dict, runs: list) -> dict:
     return meta | {
         "runs": len(runs), "tasks": len({r["task"] for r in runs}),
         "build": {k: sorted({shown(r.get(k)) for r in runs}) for k in
-                  ("claude_code_version", "token_forge_plugin_sha256", "_lean", "variant", "tf_env")},
+                  ("claude_code_version", "token_forge_version", "token_forge_plugin_sha256", "_lean", "variant", "tf_env")},
         "metrics": {k: dist([r.get(k) for r in runs]) for k in METRICS},
         "cold_vs_warm": {
             "first_request_share_of_cost": frac(total("first_request_cost_usd"), total("list_cost_usd")),
@@ -331,29 +336,32 @@ def main():
     ap.add_argument("-a", "--arm", action="append", required=True, metavar="NAME=SOURCE[,SOURCE...][@AGENT]")
     ap.add_argument("-p", "--pair", action="append", default=[], metavar="NEW:BASE")
     ap.add_argument("-o", "--out", required=True, type=Path)
+    ap.add_argument("--mixed-versions", action="store_true",
+                    help="allow an arm to hold runs of different TokenForge builds or Claude Code versions")
     args = ap.parse_args()
     pricing = CONFIG["pricing"]
     arms, runs = {}, {}
     for spec in args.arm:
-        name, meta, runs[name] = load_arm(spec, pricing)
+        name, meta, runs[name] = load_arm(spec, pricing, args.mixed_versions)
         arms[name] = summarize_arm(meta, runs[name])
     comparisons = {}
     for spec in args.pair:
         new, _, base = spec.partition(":")
-        comparisons[f"{new} vs {base}"] = {"new": new, "base": base} | compare(runs[new], runs[base])
+        comparisons[f"{new} vs {base}"] = {"new": new, "base": base, "new_versions": arms[new]["provenance"],
+                                            "base_versions": arms[base]["provenance"]} | compare(runs[new], runs[base])
     args.out.write_text(json.dumps({"generated_by": "bench/scripts/optimization.py", "args": sys.argv[1:],
                                     "pricing": pricing, "objective": CONFIG.get("objective"), "definitions": DEFINITIONS,
                                     "arms": arms,
                                     "comparisons": comparisons}, indent=2) + "\n")
     for name, a in arms.items():
         m = a["metrics"]["list_cost_usd"]
-        print(f"{name}: {a['runs']} runs, {a['tasks']} tasks, list cost mean ${m.get('mean')} median ${m.get('median')}, "
+        print(f"{name} [{a['provenance']}]: {a['runs']} runs, {a['tasks']} tasks, list cost mean ${m.get('mean')} median ${m.get('median')}, "
               f"J mean ${a['metrics']['objective_j_usd'].get('mean')}, "
               f"reconciled {a['validation']['list_cost_reconciled_with_claude_code']}, not executed {len(a['not_executed'])}")
     for name, c in comparisons.items():
         m = c["metrics"]["list_cost_usd"]
         g = m.get("geo_mean_change_percent") or {}
-        print(f"{name}: {c['tasks_paired']} tasks, list cost {g.get('estimate')}% (95% CI {g.get('ci95')}), pooled "
+        print(f"{name} [{c['new_versions']} vs {c['base_versions']}]: {c['tasks_paired']} tasks, list cost {g.get('estimate')}% (95% CI {g.get('ci95')}), pooled "
               f"{m.get('pooled_change_percent')}%, lower/higher {m.get('lower')}/{m.get('higher')} p={m.get('sign_test_p')}, "
               f"quality drops {len(c['quality_drops'])}")
     print(f"wrote {args.out}")

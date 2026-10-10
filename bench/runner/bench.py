@@ -7,8 +7,9 @@
     bench.py run --smoke
     bench.py run --task ID[,ID...] [--agent native|token-forge | --both] [--reps N]
     bench.py run --all [--reps N] [--subset-reps ID,ID --subset-n N]
-    bench.py compare [--session DIR ...]
-    bench.py report  [--session DIR ...]
+    bench.py compare [--session DIR ...] [--mixed-versions]   refuses runs of different TokenForge builds
+                                                             or Claude Code versions unless --mixed-versions
+    bench.py report  [--session DIR ...] [--mixed-versions]
     bench.py retelemetry [--session DIR ...] [--force]   re-derive telemetry.json from saved transcripts
 
 Common run options: --max-tokens N  --warn-tokens N  --max-budget-usd X  --jobs N  --seed N
@@ -581,7 +582,7 @@ def cmd_compare(args):
     import report
     sessions = [Path(s) for s in args.session] if args.session else \
         [p for p in sorted(RUNS.iterdir()) if p.is_dir() and not p.name.endswith("-smoke")]
-    report.build(sessions, ROOT)
+    report.build(sessions, ROOT, mixed_versions=getattr(args, "mixed_versions", False))
     return 0
 
 
@@ -655,6 +656,9 @@ def main():
                    help="authenticate with the local Claude Code login's current access token (read-only, never refreshed)")
     for name in ("compare", "report", "retelemetry"):
         c = sub.add_parser(name); c.add_argument("--session", nargs="*")
+        if name != "retelemetry":
+            c.add_argument("--mixed-versions", action="store_true",
+                           help="build the report from runs of different TokenForge builds or Claude Code versions, each row labelled")
     c.add_argument("--force", action="store_true", help="also rewrite runs whose re-derived values differ")
     a = ap.parse_args()
     if a.cmd == "run":
