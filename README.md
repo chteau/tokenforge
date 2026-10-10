@@ -178,7 +178,7 @@ bin/tforge opencode install            # ~/.config/opencode/plugins/tokenforge.j
 bin/tforge opencode install --project  # .opencode/plugins/tokenforge.js, this project only
 ```
 
-It writes a one-line plugin that loads tokenforge from the clone, so `git pull` updates it; `tforge opencode remove` deletes it. It uses opencode's plugin API v1 (`.opencode/plugins/`) and runs the same hook scripts: bash commands go through the Bash router (a refusal shows up as the tool's error, a note comes before the output), and the session-start policy and instruction digest are added to the system prompt, the same text on every request so the prompt cache keeps it. Not there yet: MCP distillation, the answer cache, context-budget alerts and checkpoints, which need opencode's message and session events. opencode already reads `CLAUDE.md` and `.claude/skills`.
+It writes a one-line plugin that loads tokenforge from the clone, so `git pull` updates it; `tforge opencode remove` deletes it. It works with opencode 2 (the `{ id, setup }` plugin, hooks on `ctx.tool` and `ctx.session`) and opencode 1 (the v1 factory), from `.opencode/plugins/`, and runs the same hook scripts: shell commands go through the Bash router (a refusal shows up as the tool's error, a note comes before the output), and the session-start policy and instruction digest are added to the system prompt, the same text on every request so the prompt cache keeps it. Not there yet: MCP distillation, the answer cache, context-budget alerts and checkpoints, which need opencode's message and session events. opencode already reads `CLAUDE.md` and `.claude/skills`.
 
 ### Updates
 

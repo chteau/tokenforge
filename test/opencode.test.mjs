@@ -1,4 +1,4 @@
-// Tests for the opencode plugin: the same hook scripts, answers mapped onto opencode's v1 plugin hooks.
+// Tests for the opencode plugin: the same hook scripts, answers mapped onto opencode's plugin hooks (API v1 and v2).
 import './tmp.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { pathToFileURL } from 'node:url';
-import { TokenForge, bashDecision, installOpencode, removeOpencode } from '../lib/opencode.mjs';
+import plugin, { TokenForge, bashDecision, installOpencode, removeOpencode } from '../lib/opencode.mjs';
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tforge-oc-'));
 for (const k of Object.keys(process.env)) if (/^(TFORGE_|TMAP_BIN)/.test(k)) delete process.env[k];
@@ -39,12 +39,42 @@ test('opencode: interactive ssh is refused once, other commands run as typed; th
   assert.ok(!fs.existsSync(path.join(dir, 'cc', 'settings.json')), "Claude Code's settings are not touched");
 });
 
+// A fake opencode 2 ctx: hooks registered with ctx.tool.hook / ctx.session.hook, events mutated in place.
+function fakeCtx(directory) {
+  const hooks = {};
+  const reg = (group) => ({ hook: async (name, fn) => ((hooks[`${group}.${name}`] = fn), { dispose: () => delete hooks[`${group}.${name}`] }) });
+  return { hooks, ctx: { location: { directory }, tool: reg('tool'), session: reg('session') } };
+}
+
+test('opencode 2: setup registers shell, result and context hooks; dispose removes them', async () => {
+  const { hooks, ctx } = fakeCtx(dir);
+  const dispose = await plugin.setup(ctx);
+  assert.deepEqual(Object.keys(hooks).sort(), ['session.context', 'tool.execute.after', 'tool.execute.before']);
+  const sid = `oc2${process.pid}x${Date.now()}`;
+  const ev = (command, id) => ({ tool: 'shell', sessionID: sid, id, input: { command } });
+  await assert.rejects(hooks['tool.execute.before'](ev('ssh myhost', 'a')), /interactive shell/);
+  const e = ev('echo hi', 'b');
+  await hooks['tool.execute.before'](e);
+  assert.equal(e.input.command, 'echo hi');
+  const ctxEv = { sessionID: sid, system: [] };
+  await hooks['session.context'](ctxEv);
+  assert.equal(ctxEv.system.length, 1);
+  assert.equal(ctxEv.system[0].type, 'text');
+  assert.match(ctxEv.system[0].text, /tokenforge/);
+  await hooks['tool.execute.after']({ id: 'b', status: 'completed', result: { content: [{ type: 'text', text: 'hi' }] } });
+  await dispose();
+  assert.deepEqual(Object.keys(hooks), []);
+  assert.equal(typeof (await plugin.setup({})), 'function', 'a ctx without hooks is a no-op, not a crash');
+});
+
 test('opencode: install writes a re-export that loads, remove deletes only its own file', async () => {
   const file = installOpencode({});
   assert.equal(file, path.join(dir, 'xdg', 'opencode', 'plugins', 'tokenforge.js'));
   fs.copyFileSync(file, file.replace(/\.js$/, '.mjs'));
   const m = await import(pathToFileURL(file.replace(/\.js$/, '.mjs')).href);
-  assert.deepEqual(Object.keys(m), ['TokenForge'], 'opencode calls every export as a plugin');
+  assert.deepEqual(Object.keys(m).sort(), ['TokenForge', 'default']);
+  assert.equal(m.default.id, 'tokenforge');
+  assert.equal(typeof m.default.setup, 'function', 'opencode 2 needs a default { id, setup }');
   assert.equal(removeOpencode({}), file);
   assert.equal(removeOpencode({}), null);
   fs.writeFileSync(file, 'mine');
