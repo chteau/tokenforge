@@ -7,7 +7,7 @@ import { EXAMPLE_PLAN, loadPlan, planPath, topoOrder } from '../lib/plan.mjs';
 import { buildSystemPrompt, buildTaskPrompt, runPlan } from '../lib/runner.mjs';
 import { commandCosts } from '../lib/insights.mjs';
 import { formatLedger, formatSessions, listTranscripts, meterLedger, meterSessions } from '../lib/meter.mjs';
-import { FORGE_DIR, fmtUsd, projectRoot, readJson } from '../lib/util.mjs';
+import { FORGE_DIR, fmtUsd, projectRoot, readJson, spawnable } from '../lib/util.mjs';
 import { TERSE_LEVELS, configFile, terseLevel, writeConfig } from '../lib/config.mjs';
 import { installStatusline, removeStatusline } from '../lib/limits.mjs';
 import { LEAN_DENY, leanOff, leanOn, leanStatus } from '../lib/lean.mjs';
@@ -126,13 +126,30 @@ async function useProxy() {
   console.log(`workers go through the tokenforge proxy (${url}); see: tforge proxy report`);
 }
 
+// Claude Code keeps ANTHROPIC_BASE_URL for the whole session: if the proxy dies, every request fails. Restart it on
+// the same port. Several sessions may race to do it; the loser's proxy fails to bind and exits.
+function superviseProxy(port, everyMs = Number(process.env.TFORGE_PROXY_WATCH_MS) || 2000) {
+  let busy = false;
+  setInterval(async () => {
+    if (busy || daemonState('proxy')) return;
+    busy = true;
+    try {
+      await daemonStart('proxy', { port, detach: true });
+    } catch {}
+    busy = false;
+  }, everyMs).unref();
+}
+
 // `tforge claude ...`: everything after the command goes to claude untouched.
 async function runClaude(args) {
   const st = await ensureProxy(Number(process.env.TFORGE_PROXY_PORT) || undefined);
   const env = { ...process.env };
-  if (st) env.ANTHROPIC_BASE_URL = `http://127.0.0.1:${st.port}`;
-  else console.error('tforge: the proxy did not start (see ~/.cache/tokenforge/proxy.log); running claude directly');
-  const child = spawn(process.env.TFORGE_CLAUDE || 'claude', args, { stdio: 'inherit', env });
+  if (st) {
+    env.ANTHROPIC_BASE_URL = `http://127.0.0.1:${st.port}`;
+    superviseProxy(st.port);
+  } else console.error('tforge: the proxy did not start (see ~/.cache/tokenforge/proxy.log); running claude directly');
+  const sp = spawnable(process.env.TFORGE_CLAUDE || 'claude', args, { env });
+  const child = spawn(sp.cmd, sp.args, { stdio: 'inherit', env, ...sp.opts });
   for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => {});
   child.on('error', (e) => {
     console.error(`tforge: ${e.message}`);
@@ -300,6 +317,8 @@ async function main() {
       }
       const r = await proxy.startProxy({ port: o.port || Number(process.env.TFORGE_PROXY_PORT) || proxy.DEFAULT_PORT });
       await daemonStart('proxy', { port: r.port, foreground: true });
+      // sessions depend on it: a bug in one request is logged, not fatal
+      process.on('uncaughtException', (e) => console.error(`tforge proxy: ${new Date().toISOString()} ${e.stack || e}`));
       console.log(`tforge proxy: 127.0.0.1:${r.port} -> ${r.upstream}  (Ctrl+C to stop)\nuse: ${hint(r.port)}`);
       return new Promise(() => {});
     }

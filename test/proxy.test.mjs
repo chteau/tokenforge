@@ -5,6 +5,8 @@ import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 
 process.env.XDG_CACHE_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'cache-'));
 const { cacheBreak, capText, cleanText, compressResult, crushJson, foldRead, formatReport, matchSummary, openMemo, proxyReport, requestShape, startProxy, transformRequest } = await import('../lib/proxy.mjs');
@@ -162,6 +164,48 @@ test('transformRequest counts edits and reads on files whose Read went out folde
   assert.equal(transformRequest(structuredClone({ messages: next }), memo).foldEdits, 0); // count_tokens: not counted
 });
 
+test('a folded file an Edit missed on is read whole from then on', () => {
+  const memo = openMemo(null);
+  const file = '/p/a.js';
+  const src = numbered(bigSource());
+  const msgs = [
+    { role: 'user', content: 'go' },
+    { role: 'assistant', content: [{ type: 'tool_use', id: 'r', name: 'Read', input: { file_path: file } }] },
+    { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'r', content: src }] },
+  ];
+  transformRequest({ messages: structuredClone(msgs) }, memo);
+  const folded = memo.get('r').c;
+  msgs.push(
+    { role: 'assistant', content: [{ type: 'tool_use', id: 'e', name: 'Edit', input: { file_path: file } }] },
+    { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'e', is_error: true, content: 'String to replace not found in file.' }] },
+    { role: 'assistant', content: [{ type: 'tool_use', id: 'r2', name: 'Read', input: { file_path: file } }, { type: 'tool_use', id: 'r3', name: 'Read', input: { file_path: '/p/b.js' } }] },
+    { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'r2', content: src }, { type: 'tool_result', tool_use_id: 'r3', content: src }] },
+  );
+  const j = { messages: structuredClone(msgs) };
+  const st = transformRequest(j, memo);
+  assert.equal(j.messages[2].content[0].content, folded); // the first Read stays as sent: the cache holds
+  assert.equal(j.messages[6].content[0].content, src); // read again after the miss: whole
+  assert.ok(j.messages[6].content[1].content.length < src.length / 2); // another file still folds
+  assert.equal(st.compressed, 1);
+});
+
+test('memo stays under its size cap, dropping the least recently used entries', () => {
+  const file = path.join(os.tmpdir(), 'memo-cap.jsonl');
+  const m = openMemo(file, { maxBytes: 10000 });
+  const big = 'x'.repeat(1000);
+  for (let i = 0; i < 8; i++) m.set(`e${i}`, { h: 'h', c: big, t: Date.now() });
+  m.get('e0'); // used again: kept
+  for (let i = 8; i < 12; i++) m.set(`e${i}`, { h: 'h', c: big, t: Date.now() });
+  assert.ok(m.bytes() <= 10000);
+  assert.ok(m.get('e0'));
+  assert.equal(m.get('e1'), undefined);
+  assert.ok(m.get('e11'));
+  assert.ok(fs.statSync(file).size <= 15000);
+  const again = openMemo(file, { maxBytes: 10000 });
+  assert.equal(again.size(), m.size());
+  assert.ok(again.get('e0'));
+});
+
 test('cacheBreak names the first prefix part that changed, or expiry', () => {
   const base = { model: 'm', metadata: { user_id: 'u' }, system: [{ type: 'text', text: 'S' }], tools: [{ name: 't' }], messages: [{ role: 'user', content: 'a' }, { role: 'assistant', content: 'b' }] };
   const shape = (f) => requestShape(f(structuredClone(base)));
@@ -283,4 +327,40 @@ test('proxy: an unreachable upstream answers 502 with an API-shaped error', asyn
   } finally {
     p.server.close();
   }
+});
+
+test('tforge claude restarts the proxy on the same port when it dies', { skip: process.platform === 'win32' && 'shebang script' }, async () => {
+  const port = await new Promise((r) => {
+    const srv = http.createServer().listen(0, '127.0.0.1', () => {
+      const p = srv.address().port;
+      srv.close(() => r(p));
+    });
+  });
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sup-'));
+  const fake = path.join(dir, 'claude');
+  // the "session": kill the proxy, then wait for a new one on the same port
+  fs.writeFileSync(
+    fake,
+    `#!${process.execPath}
+const fs = require('fs'), path = require('path');
+const file = path.join(process.env.XDG_CACHE_HOME, 'tokenforge', 'proxy.json');
+const first = JSON.parse(fs.readFileSync(file, 'utf8'));
+if (process.env.ANTHROPIC_BASE_URL !== 'http://127.0.0.1:' + first.port) process.exit(2);
+process.kill(first.pid);
+const t0 = Date.now();
+(function poll() {
+  try {
+    const s = JSON.parse(fs.readFileSync(file, 'utf8'));
+    if (s.pid !== first.pid && s.port === first.port) { process.kill(s.pid); process.exit(0); }
+  } catch {}
+  if (Date.now() - t0 > 8000) process.exit(3);
+  setTimeout(poll, 100);
+})();
+`,
+    { mode: 0o755 },
+  );
+  const tforge = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'tforge');
+  const env = { ...process.env, XDG_CACHE_HOME: path.join(dir, 'cache'), TFORGE_CLAUDE: fake, TFORGE_PROXY_PORT: String(port), TFORGE_PROXY_WATCH_MS: '200', TFORGE_PROXY_UPSTREAM: 'http://127.0.0.1:1' };
+  const r = spawnSync(process.execPath, [tforge, 'claude'], { env, encoding: 'utf8', timeout: 20000 });
+  assert.equal(r.status, 0, r.stderr);
 });

@@ -257,9 +257,13 @@ A local dashboard starts in the background with your first session. Open it with
   - **Folded Reads.** How many Edits hit a file whose Read went out folded, how many of those failed because the text was not found, and how many Reads went back into folded bodies. These say whether folding saves more than it costs.
 - **Compresses tool results the first time they are sent.** A whole-file Read above 12k characters (code, not prose or markup) folds long definition bodies, keeping every kept line's number and `Read offset=N limit=M` in place of each fold; partial reads, which Edit works from, stay whole. Bash and other text output loses colors and progress-bar redraws, repeated lines become a count, and output above 16k characters keeps its head and tail with the full text saved to a file the model can grep. When the cut output is a search result (`path:line:` lines or a list of paths), it starts with the match count for every file, or every folder, so the cut part still shows where the matches are. Large JSON loses its indentation, and long arrays keep their first, error-looking and last items.
 
-The prompt cache is why only new results change: if earlier content differs from the last request, the API writes it to the cache again at 1.25× instead of reading it at 0.1×. Each compressed result is remembered by its tool_use_id, so every later request sends the same bytes. A result the proxy first passed unchanged (it was started mid-session) is never touched later, and one that Claude Code itself rewrote passes as sent. If a request cannot be parsed, it goes out unchanged.
+The prompt cache is why only new results change: if earlier content differs from the last request, the API writes it to the cache again at 1.25× instead of reading it at 0.1×. Each compressed result is remembered by its tool_use_id, so every later request sends the same bytes. A result the proxy first passed unchanged (it was started mid-session) is never touched later, and one that Claude Code itself rewrote passes as sent. If a request cannot be parsed, it goes out unchanged. Once an Edit fails with "not found" on a file whose Read was folded, later Reads of that file are sent whole.
 
-`TFORGE_PROXY_COMPRESS=0` logs only. `TFORGE_PROXY_FOLD=0` turns off Read folding. `TFORGE_PROXY_CAP` sets the Bash output cap in characters (`0`: none). `TFORGE_PROXY_UPSTREAM` sets where requests go (default: an `ANTHROPIC_BASE_URL` you already had, else `https://api.anthropic.com`).
+Claude Code keeps `ANTHROPIC_BASE_URL` for the whole session, so `tforge claude` checks every 2 seconds that the proxy is still running and restarts it on the same port if it stopped. An error in one request is logged in `~/.cache/tokenforge/proxy.log` and does not stop the proxy.
+
+To estimate the savings on your own past sessions without calling the API, run `node bench/scripts/proxy-replay.mjs [--days 30]`. It replays the tool results in your transcripts through the same compression and prints only totals.
+
+`TFORGE_PROXY_COMPRESS=0` logs only. `TFORGE_PROXY_FOLD=0` turns off Read folding. `TFORGE_PROXY_CAP` sets the Bash output cap in characters (`0`: none). `TFORGE_PROXY_MEMO_MB` caps the memo of compressed results (default 64 MB; the least recently used go first). `TFORGE_PROXY_UPSTREAM` sets where requests go (default: an `ANTHROPIC_BASE_URL` you already had, else `https://api.anthropic.com`).
 
 **Privacy.** The proxy listens on 127.0.0.1 only and rejects other Host headers. Its request log (`~/.cache/tokenforge/proxy/requests-*.jsonl`) holds sizes and token counts only. Two files hold content, both readable by you only and dropped after 14 days: `memo.jsonl` (the compressed results, so later requests can resend them) and `out/` (full outputs that were capped).
 
@@ -437,6 +441,7 @@ Workers run with `--permission-mode acceptEdits` and only `Read`, `Write` and `E
 | `TFORGE_PROXY_COMPRESS` / `TFORGE_PROXY_FOLD` | | `0`: the proxy only logs / does not fold whole-file Reads |
 | `TFORGE_PROXY_CAP` | `16000` | Characters of Bash and other text output the proxy keeps (head and tail); `0`: no cap |
 | `TFORGE_RUN_PROXY` | | `1`: `tforge run` workers go through the proxy, the same as `--proxy` or `"proxy": true` in the plan |
+| `TFORGE_PROXY_MEMO_MB` | `64` | Size cap of the proxy's memo of compressed results |
 | `TFORGE_PROXY_UPSTREAM` | | Where the proxy forwards (default: an existing `ANTHROPIC_BASE_URL`, else the Anthropic API) |
 | `TFORGE_NO_DOWNLOAD` | | `1` never downloads tmap; build with cargo instead |
 | `TFORGE_DISTILL_MODEL` / `_TIMEOUT` / `_MAX_BYTES` | `haiku` / `120` / `480000` | Model, timeout (s) and input cap for `tkit distill` and `web --ask` |
