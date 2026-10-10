@@ -159,6 +159,16 @@ Inside Claude Code:
 
 Requirements: Claude Code and Node.js 18 or newer. Subscription (OAuth) logins and API keys both work. `tmap` needs a release binary for your platform, or Rust to build one.
 
+### OpenAI Codex
+
+Codex runs the same hooks. Add the marketplace, install `tokenforge` from it, then open `/hooks` and trust tokenforge's hooks (Codex skips plugin hooks until you do):
+
+```
+codex plugin marketplace add chteau/tokenforge
+```
+
+What works there: the Bash router (`tkit check`, `tkit test`, `tview`; refusals of interactive ssh and installers), MCP result distillation, the answer cache, prompt routing, the session-start policy, checkpoints and skills. Codex has no Read or Grep tool, so the Read narrowing and code redirect never fire; the 4-minute cap on polling waits is off (Codex takes a rewritten input only with an approval). Context-budget alerts read Claude Code's transcript format and stay silent on Codex. The dashboard, workers and proxy are Claude Code only.
+
 ### Updates
 
 tokenforge is a normal plugin. It never patches Claude Code, wraps the `claude` binary or edits your settings files, so Claude Code's own auto-update keeps working as usual. To update tokenforge itself automatically, open `/plugin`, go to **Marketplaces**, select `tokenforge` and enable auto-update. Otherwise run `/plugin marketplace update tokenforge` whenever you like.

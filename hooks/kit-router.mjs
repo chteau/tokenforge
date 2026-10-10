@@ -23,7 +23,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { docReplacement } from '../lib/docread.mjs';
-import { deny, exeName, isMain, kitHookOff, readInput, seenBefore, shq, skippedAgent, splitPipes, splitSegments, tokenize } from '../lib/hookutil.mjs';
+import { codexHost, deny, exeName, isMain, kitHookOff, readInput, seenBefore, shq, skippedAgent, splitPipes, splitSegments, tokenize } from '../lib/hookutil.mjs';
 
 // ---------- build/test rewrites ----------
 const DROP = new Set(['-q', '--quiet', '-v', '--verbose', '-B', '--batch-mode', '--console=plain', '--color=never', '--no-color']);
@@ -654,7 +654,8 @@ function cacheTtl(input) {
 function waitCap(input, cmd) {
   const ti = input.tool_input || {};
   const asked = Number(ti.timeout) || Number(process.env.BASH_DEFAULT_TIMEOUT_MS) || 120e3;
-  if (asked <= WAIT_CAP || ti.run_in_background || !pollingWait(cmd)) return null;
+  // Codex: no Bash timeout field to lower, and updatedInput without 'allow' is an error there.
+  if (codexHost(input) || asked <= WAIT_CAP || ti.run_in_background || !pollingWait(cmd)) return null;
   if ((cacheTtl(input) || (input.agent_id ? '5m' : null)) !== '5m') return null;
   const out = { updatedInput: { ...ti, timeout: WAIT_CAP } };
   if (!seenBefore(input.session_id, `waitcap\0${input.agent_id || ''}`, 'kit')) {

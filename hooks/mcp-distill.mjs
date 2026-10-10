@@ -5,7 +5,7 @@
 // tool input contains "#raw", when no tmap binary is installed, or when distillation fails or times out.
 // Off: TFORGE_KIT_HOOKS=0 or TFORGE_KIT_DISTILL=0. Model and limits: TFORGE_DISTILL_MODEL, TFORGE_DISTILL_TIMEOUT (s, default 60 here).
 import { existingBinary } from '../lib/tmapbin.mjs';
-import { isMain, kitHookOff, readInput, runTmap, skippedAgent } from '../lib/hookutil.mjs';
+import { codexHost, isMain, kitHookOff, readInput, runTmap, skippedAgent } from '../lib/hookutil.mjs';
 
 export function responseText(r) {
   const texts = (arr) => arr.filter((c) => c && c.type === 'text').map((c) => c.text).join('\n');
@@ -51,8 +51,13 @@ function main() {
   try {
     t = distill(input);
   } catch {}
-  if (t)
-    process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: 'PostToolUse', updatedMCPToolOutput: { content: [{ type: 'text', text: t }] } } }));
+  if (t) process.stdout.write(JSON.stringify(distillOut(input, t)));
+}
+
+// Codex has no updatedMCPToolOutput; there decision 'block' replaces the tool result with the reason.
+export function distillOut(input, t) {
+  if (codexHost(input)) return { decision: 'block', reason: t };
+  return { hookSpecificOutput: { hookEventName: 'PostToolUse', updatedMCPToolOutput: { content: [{ type: 'text', text: t }] } } };
 }
 
 if (isMain(import.meta.url)) main();

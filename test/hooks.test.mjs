@@ -359,6 +359,30 @@ test('kit router: a long polling wait gets 4 minutes where the prompt cache live
   }
 });
 
+test('codex: same hooks.json; rewrites always carry allow, MCP distill uses decision block', () => {
+  const dir = tmpdir('tforge-codex-');
+  const raw = (hook, input, env) => {
+    const r = spawnSync('node', [HOOK(hook)], { input: JSON.stringify(input), encoding: 'utf8', env: { ...BASE_ENV, ...env } });
+    assert.equal(r.status, 0, r.stderr);
+    return r.stdout ? JSON.parse(r.stdout) : null;
+  };
+  const codex = { PLUGIN_ROOT: path.join(HERE, '..') };
+  const big = 'x'.repeat(9000);
+  const d = raw('mcp-distill.mjs', { session_id: sid(), turn_id: 't1', tool_name: 'mcp__ctx__search', tool_input: {}, tool_response: big }, { TMAP_BIN: fakeTmap(dir), ...codex });
+  assert.equal(d.decision, 'block');
+  assert.match(d.reason, /src\/a\.rs:12 the answer$/);
+  assert.equal(d.hookSpecificOutput, undefined);
+  const wait = 'until [ -s out.txt ]; do sleep 20; done; cat out.txt';
+  assert.equal(raw('kit-router.mjs', { tool_name: 'Bash', session_id: sid(), turn_id: 't1', agent_id: 'a1', cwd: dir, tool_input: { command: wait, timeout: 600000 } }, codex), null, 'no waitCap under Codex');
+  const r = raw('kit-router.mjs', { tool_name: 'Bash', session_id: sid(), turn_id: 't1', cwd: dir, tool_input: { command: 'cat node_modules/react/index.js' } }, codex);
+  if (r) assert.equal(r.hookSpecificOutput.permissionDecision, 'allow');
+  const cc = JSON.parse(fs.readFileSync(path.join(HERE, '..', '.claude-plugin', 'plugin.json'), 'utf8'));
+  const cx = JSON.parse(fs.readFileSync(path.join(HERE, '..', '.codex-plugin', 'plugin.json'), 'utf8'));
+  assert.equal(cx.version, cc.version, '.codex-plugin version follows .claude-plugin');
+  assert.equal(cx.name, cc.name);
+  assert.ok(fs.existsSync(path.join(HERE, '..', cx.hooks)));
+});
+
 test('tforge lean: each level sets when 1M-context sessions compact, never over your own value; old installs get it once', () => {
   const dir = tmpdir('tforge-win-');
   const env = { CLAUDE_CONFIG_DIR: path.join(dir, 'cc'), XDG_CONFIG_HOME: path.join(dir, 'xdg'), TFORGE_UI: '0', TFORGE_BANNER: '0' };
