@@ -21,6 +21,10 @@ Correctness: a safer answer cache, versioned benchmark figures, memory that surv
 - `subagentSkip` (`TFORGE_SUBAGENT_SKIP`): agent types, with `*` wildcards (`spec-audit:*`), that tokenforge leaves alone: no policy, instruction files, Bash router, code redirect, MCP distill or budget notes.
 - `leanKeep` (`TFORGE_LEAN_KEEP`): tools lean levels never deny. A rule tokenforge already added for a kept tool is lifted at the next start; `tforge lean status` still reports the level.
 - Reloaded snapshots and checkpoints say they are a record of earlier turns, not instructions.
+- Workers: a task marked `sensitive` (or every task, and the final check, with `isolateChecks`) runs its check in a temporary git worktree that holds the current edits, so the check's side effects stay out of your checkout. It is removed even on timeout, and refused outside git.
+- Plans: a `verify` must be one non-empty line; destructive commands in it (`rm -rf /`, `git push`, `curl | sh`, `sudo`, `mkfs`, `dd` to a device) get a warning in `tforge validate`.
+- Bash router, found by new differential tests that run the original and rewritten command: an env prefix with spaces (`FOO="a b" cargo test`) ran a command named `FOO=a b`; `$VARS`, `$(…)`, `~`, globs and braces were quoted into literal text; `| tee log`, `| wc -l` or a redirect after a rewritten test command was dropped; `cat *.txt` through tview did not follow the shell's order. Such commands now run as typed, and only display filters (`head`, `tail`, plain `grep`) may be dropped after a rewrite.
+- Check logs: a `FAILED` line right after a compiler warning is no longer cut from what a worker sees.
 - docs/external-audit-2026-10.md: what ContextForge and icm-graph-context-flow do and what is worth taking. icm-graph-context-flow is not software: it runs base64-decoded secrets every hour and its README borrows the TokenForge name with a `curl | bash` install. Don't use it.
 
 ## 0.9.1

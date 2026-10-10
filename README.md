@@ -363,7 +363,9 @@ tforge gc [--dry-run] [--json]
 | `tasks[].files` | Files the task owns. Every file has exactly one owner. Writes outside them are recorded in the ledger. |
 | `tasks[].reads` | Extra files inlined for this task only. |
 | `tasks[].deps` | Tasks that must pass first. A failed dependency blocks its dependents. |
-| `tasks[].verify` | The task's check. Without one, the task passes as soon as its files exist. |
+| `tasks[].verify` | The task's check, one line (join steps with `&&`). Without one, the task passes as soon as its files exist. `tforge validate` warns about destructive commands in it (`rm -rf /`, `git push`, `curl … \| sh`, `sudo`). |
+| `tasks[].sensitive` | `true` runs this task's check in a temporary git worktree of HEAD holding the current edits (gitignored files such as `node_modules` are not copied), removed afterwards, even on timeout. Refused outside git. |
+| `isolateChecks` | `true` does the same for every task's check and the final `verify`. |
 | `tasks[].model` | `haiku`, `sonnet` or `opus`. |
 | `defaults` | `model`, `integrateModel`, `tools`, `maxTurns` (12), `retries` (2), `escalate` (true), `budgetUsd` (1.5 per attempt), `timeoutMin` (20), `verifyTimeoutMin` (10), `inlineMaxChars` (60000). |
 

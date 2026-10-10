@@ -70,7 +70,7 @@ The Bash router turns some commands into `tkit` calls or compacts their output. 
 
 Today the tests check the rewritten command line. Build and test commands are rewritten only when their flags are fully understood, heredocs are never touched, and a `TFORGE_RAW=1` prefix runs a command as typed.
 
-- [ ] Differential tests: run the original and the rewritten command, compare exit codes and outputs.
+- [x] Differential tests: run the original and the rewritten command, compare exit codes and outputs.
 - [ ] Property tests over quoting, pipes, redirections, substitutions, paths with spaces, environment variables and exit codes.
 - [ ] Check that output caps never hide an error at the end of a log.
 - [ ] Compare `tkit test` with the native test command.
@@ -97,10 +97,10 @@ Workers can't run commands: the driver runs each task's `verify` command from th
 
 Today checks run in your checkout with a time limit (`verifyTimeoutMin`, 10 minutes by default). The docs say to read a plan before running it and to build on a branch or a worktree.
 
-- [ ] Stricter validation of `verify` commands.
+- [x] Stricter validation of `verify` commands.
 - [ ] Time limits and working directories enforced for every check.
 - [ ] Side effects of checks isolated.
-- [ ] For sensitive tasks, checks run in a git worktree or a sandbox, never in the current environment without inspection.
+- [x] For sensitive tasks, checks run in a git worktree or a sandbox, never in the current environment without inspection.
 
 ## P2: Adaptive orchestration
 
