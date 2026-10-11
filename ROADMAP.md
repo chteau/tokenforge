@@ -2,7 +2,7 @@
 
 Updated 2026-10-09.
 
-0.9.2 adds no features. It makes the savings safe and checkable: a cache reuses an answer only while it still holds, a rewritten command behaves like the original, and every published number names the version that produced it.
+0.9.2 makes the savings safe and checkable: a cache reuses an answer only while it still holds, a rewritten command behaves like the original, and every published number names the version that produced it.
 
 This plan follows an external review of the public repo. The review read the docs and the benchmark method, not the code or the test suite.
 
@@ -25,8 +25,8 @@ This plan follows an external review of the public repo. The review read the doc
 
 Today every benchmark run records the TokenForge and Claude Code versions, and the environment a hash of the plugin files. But the site's headline figures come from 0.8.0 runs while its pages show the current version, 0.9.1. The benchmarked version is named only further down the benchmark page.
 
-- [ ] Show the TokenForge version, build hash and Claude Code version next to every published figure: site, README, reports.
-- [ ] Refuse to build a report from runs of different versions, unless it labels each one.
+- [ ] Show the TokenForge version, build hash and Claude Code version next to every published figure: site, README, reports. README and reports done; the site is not.
+- [x] Refuse to build a report from runs of different versions, unless it labels each one.
 
 ## P0: A safer answer cache
 
@@ -34,11 +34,11 @@ An unchanged project does not prove an answer still holds. "Do the tests pass?" 
 
 Today an earlier answer is replayed only for the same question, from a turn that edited nothing, when no project file (tracked, or untracked and not ignored) has changed since. Prompts that ask to review, verify, check or audit (English and French) skip it. Sending the message again asks Claude; `TFORGE_ANSWER_CACHE=0` turns it off.
 
-- [ ] Never replay an answer to a request to run, test, build or verify something, to a security question, or to a question about the current state ("is it up", "latest", "now").
-- [ ] Tell questions that ask for information from requests that need an action or a fresh observation. When unsure, ask Claude.
-- [ ] Include the repo's identity, the model, the configuration and the relevant dependencies in the cache's validity, where they affect the answer.
-- [ ] An explicit, visible bypass that works before sending, not only by sending again.
-- [ ] Adversarial tests for false positives: the same words with another intent, other languages, a changed environment with unchanged files.
+- [x] Never replay an answer to a request to run, test, build or verify something, to a security question, or to a question about the current state ("is it up", "latest", "now").
+- [x] Tell questions that ask for information from requests that need an action or a fresh observation. When unsure, ask Claude.
+- [x] Include the repo's identity, the model, the configuration and the relevant dependencies in the cache's validity, where they affect the answer.
+- [x] An explicit, visible bypass that works before sending, not only by sending again.
+- [x] Adversarial tests for false positives: the same words with another intent, other languages, a changed environment with unchanged files.
 
 ## P0: Formal cache invalidation
 
@@ -70,7 +70,7 @@ The Bash router turns some commands into `tkit` calls or compacts their output. 
 
 Today the tests check the rewritten command line. Build and test commands are rewritten only when their flags are fully understood, heredocs are never touched, and a `TFORGE_RAW=1` prefix runs a command as typed.
 
-- [ ] Differential tests: run the original and the rewritten command, compare exit codes and outputs.
+- [x] Differential tests: run the original and the rewritten command, compare exit codes and outputs.
 - [ ] Property tests over quoting, pipes, redirections, substitutions, paths with spaces, environment variables and exit codes.
 - [ ] Check that output caps never hide an error at the end of a log.
 - [ ] Compare `tkit test` with the native test command.
@@ -97,10 +97,10 @@ Workers can't run commands: the driver runs each task's `verify` command from th
 
 Today checks run in your checkout with a time limit (`verifyTimeoutMin`, 10 minutes by default). The docs say to read a plan before running it and to build on a branch or a worktree.
 
-- [ ] Stricter validation of `verify` commands.
+- [x] Stricter validation of `verify` commands.
 - [ ] Time limits and working directories enforced for every check.
 - [ ] Side effects of checks isolated.
-- [ ] For sensitive tasks, checks run in a git worktree or a sandbox, never in the current environment without inspection.
+- [x] For sensitive tasks, checks run in a git worktree or a sandbox, never in the current environment without inspection.
 
 ## P2: Adaptive orchestration
 
@@ -114,11 +114,19 @@ The goal is the cheapest setup for the actual task, not workers by default.
 
 ## P2: Lean levels: measure the whole cost
 
-`balanced`, `max` and `ultra` hide tools: `max` and `ultra` hide skills and subagents, `ultra` also the native Read, Edit and Write. If `ultra` saves tool definitions but causes more Bash calls, quoting errors or failed edits, the saving can vanish.
+`balanced`, `max` and `ultra` hide tools: `max` and `ultra` hide skills and subagents, `ultra` also the native Read, Edit and Write, and asks for edits through `tkit edit`. If `ultra` saves tool definitions but causes more Bash calls, quoting errors or failed edits, the saving can vanish.
 
 Today each level's fixed context per request is measured.
 
 - [ ] A report per level: tokens, cost, quality, time, attempts and regressions, not only the starting context.
+
+## P2: Smaller code reads
+
+With lean `ultra` and the proxy, 6 benchmark tasks save a median 57% of tokens (9 runs per task against 4 native runs, quality unchanged). Most of what is left is code read through Bash: in 18 runs, `cat` returned 345k characters and `sed -n` 229k, read again on every later call until pruned. Architecture and banking-transfers sit at 55-59%; 3 more points on each would put the median past 60%.
+
+- [ ] Replay the recorded commands (no API calls): which `cat` and `sed -n` outputs are long enough to fold, and how often the model reads the same lines again after a fold.
+- [ ] Fold `sed -n` ranges only where the replay shows no re-read: a range is a deliberate read, and folding one can cost a second call.
+- [ ] Prune a file's earlier reads once a later read or an edit of the same file supersedes them.
 
 ## Caching
 

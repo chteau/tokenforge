@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { existingBinary } from '../lib/tmapbin.mjs';
-import { deny, exeName, isMain, seenBefore, splitPipes, splitSegments, tokenize } from '../lib/hookutil.mjs';
+import { deny, exeName, isMain, seenBefore, skippedAgent, splitPipes, splitSegments, tokenize } from '../lib/hookutil.mjs';
 
 const CODE_EXT = /\.(rs|ts|mts|cts|tsx|js|jsx|mjs|cjs|py|pyi|go)$/;
 const BIG_FILE_LINES = Number(process.env.TFORGE_READ_OUTLINE_LINES) || 250;
@@ -176,6 +176,7 @@ function main() {
   } catch {
     return;
   }
+  if (skippedAgent(input)) return;
   const bin = existingBinary();
   if (!bin) return;
   if (input.tool_name === 'Grep') onGrep(input, bin);

@@ -29,7 +29,7 @@
           {
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/context-watch.mjs\"",
-            "timeout": 5
+            "timeout": 10
           }
         ]
       },
@@ -50,7 +50,7 @@
           {
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/context-watch.mjs\"",
-            "timeout": 5
+            "timeout": 10
           }
         ]
       },
@@ -86,12 +86,12 @@
     ],
     "SessionStart": [
       {
-        "matcher": "startup|clear|compact",
+        "matcher": "startup|clear|compact|resume",
         "hooks": [
           {
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/session-start.mjs\"",
-            "timeout": 5
+            "timeout": 15
           }
         ]
       }

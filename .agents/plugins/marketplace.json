@@ -1,0 +1,12 @@
+{
+  "name": "tokenforge",
+  "interface": { "displayName": "tokenforge" },
+  "plugins": [
+    {
+      "name": "tokenforge",
+      "source": { "source": "local", "path": "./" },
+      "policy": { "installation": "AVAILABLE", "authentication": "ON_INSTALL" },
+      "category": "Productivity"
+    }
+  ]
+}

@@ -4,8 +4,10 @@
 //   `cat FILES` inside the project -> `tview FILES` (long definition bodies folded, see lib/view.mjs).
 //   grep/rg printing lines -> `tkit run --group` (each path once above its lines, long lines cut, capped);
 //     noisy installs, CI logs and recursive listings -> `tkit run` (squeezed, capped, full log saved).
-//   Refused (deny + the tkit command to use): interactive `ssh HOST`, reads inside dependency
-//     registries (Bash and whole-file Read).
+//   Refused (deny + the command to use): interactive `ssh HOST` and installers that would stop for an answer.
+//   Narrowed with a note instead of refused (a deny shows as "hook error"): a lone `cat` of dependency source
+//     -> tview; a whole-file Read of dependency source, a lockfile or generated file -> its first 200 lines; of a
+//     big saved tool output (tool-results/*.txt) -> its last ~8k chars.
 //   Never refused: focused reads (grep, sed -n, head, cat) and inline edit scripts. A refusal costs a round trip
 //     that re-reads the whole context, more than the output it saves, and one script that edits a file in one
 //     call is cheaper than a chain of small Edit calls.
@@ -21,7 +23,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { docReplacement } from '../lib/docread.mjs';
-import { deny, exeName, isMain, kitHookOff, readInput, seenBefore, shq, splitPipes, splitSegments, tokenize } from '../lib/hookutil.mjs';
+import { codexHost, deny, exeName, hostName, withKitPath, isMain, kitHookOff, readInput, seenBefore, shq, skippedAgent, splitPipes, splitSegments, tokenize } from '../lib/hookutil.mjs';
 
 // ---------- build/test rewrites ----------
 const DROP = new Set(['-q', '--quiet', '-v', '--verbose', '-B', '--batch-mode', '--console=plain', '--color=never', '--no-color']);
@@ -308,7 +310,19 @@ export function denyReason(cmd) {
   return null;
 }
 
-// Lockfiles, minified bundles, source maps and build output: huge, no signal. Whole-file Reads are refused once.
+// A lone `cat` of dependency source is shown through tview (long bodies folded) with a note, rather than refused:
+// Claude Code shows any deny as "hook error". Read-only either way; the usual permission check still applies.
+export function depsView(cmd) {
+  const reg = registryPkg(cmd);
+  const t = reg && tokenize(cmd.trim());
+  if (!t || t.length < 2 || t[0] !== 'cat' || !t.slice(1).every((a) => !/^-|[<>|;&*?$`(){}]/.test(a))) return null;
+  return {
+    command: `node ${shq(TVIEW)} ${t.slice(1).map(shq).join(' ')}`,
+    note: `tokenforge: dependency source, shown with long bodies folded (each fold gives the sed -n command that prints it). Next time: \`tkit deps api ${reg[0]} [SYMBOL]\` from the project dir.`,
+  };
+}
+
+// Lockfiles, minified bundles, source maps and build output: huge, no signal. Whole-file Reads are narrowed once.
 const BULK = /(^|[\\/])(package-lock\.json|yarn\.lock|pnpm-lock\.yaml|bun\.lockb?|Cargo\.lock|poetry\.lock|Pipfile\.lock|composer\.lock|Gemfile\.lock|go\.sum)$|\.(min\.(js|css)|map)$|[\\/](dist|build|target|\.next|__pycache__)[\\/]/;
 
 // Whole-file Read inside a dependency registry, or of a bulk generated file.
@@ -324,20 +338,63 @@ export function readReason(file, sliced) {
 }
 
 const ENV = /^[A-Za-z_][A-Za-z0-9_]*=/;
+// An assignment re-quoted as one word (`'FOO=a b'`) is a command name, not an assignment: quote the value only.
+const envq = (x) => x.replace(/=([\s\S]*)$/, (_, v) => `=${shq(v)}`);
+
+// True when the shell would expand something in `s`: $VAR, $(..) or `..` (unquoted or in double quotes), and unquoted
+// globs, braces and a leading ~. Rewrites rebuild a command from its tokens and quote every one, which would turn these
+// into literals: `find "$D"` searching a directory named $D, `ls -R ~/x` one named ~.
+export function expands(s) {
+  let q = null;
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (q === "'") {
+      if (c === "'") q = null;
+    } else if (c === '\\') i++;
+    else if (c === '$' || c === '`') return true;
+    else if (q === '"') {
+      if (c === '"') q = null;
+    } else if (c === "'" || c === '"') q = c;
+    else if ('*?[{'.includes(c) || (c === '~' && (i === 0 || /[\s=:]/.test(s[i - 1])))) return true;
+  }
+  return false;
+}
+
+// Later pipeline stages a rewritten build/test command may drop: they only trim what is displayed. Anything that
+// writes (tee, a redirection), counts or transforms the output keeps the command as typed.
+function displayOnly(stage) {
+  const t = tokenize(stage);
+  if (!t || !t.length || t.some((x) => !NULLREDIR.has(x) && /[<>]|^[&(){}]$/.test(x))) return false;
+  const exe = exeName(t[0]);
+  if (exe === 'head' || exe === 'cat' || exe === 'less' || exe === 'more') return true;
+  if (exe === 'tail') return !t.some((x) => /^-[a-zA-Z]*[fF]|^--follow/.test(x));
+  if (['grep', 'egrep', 'fgrep'].includes(exe)) return !t.some((x) => /^-[a-zA-Z]*[clLqoZz]/.test(x) || GREP_SKIP.has(x));
+  return false;
+}
 const NULLREDIR = new Set(['2>&1', '&>/dev/null', '>/dev/null', '2>/dev/null', '>NUL', '2>NUL']);
 
 // Rewrite raw build/test/ssh/scp segments. Returns { command, notes, allow } or null when nothing changed.
 const TVIEW = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'tview');
 
+// One brace group of plain words (`src/{a,b}.ts`, `*.{ts,tsx}`), in bash's order; null for anything else (nested, ranges).
+export function braceWords(a) {
+  if (!a.includes('{')) return [a];
+  const m = /^([^{}]*)\{([\w./@+=-]*(?:,[\w./@+=-]*)+)\}([^{}]*)$/.exec(a);
+  return m ? m[2].split(',').map((w) => m[1] + w + m[3]) : null;
+}
+
 // `cat` of regular files inside the project root, no flags: [files] or null.
 export function catFiles(core, cwd, root) {
   if (exeName(core[0]) !== 'cat' || core.length < 2 || !cwd) return null;
   const args = core.slice(1);
-  if (args.some((f) => f.startsWith('-') || /[$`~{\[]/.test(f))) return null;
-  // globs are expanded here only to check them; the shell still expands them in the rewritten command
+  if (args.some((f) => f.startsWith('-') || /[$`~\[]/.test(f))) return null;
+  // braces and globs are expanded here only to check them; the rewritten command keeps them as typed so the shell
+  // expands them in its own (locale) order, which fs.globSync does not follow. A quoted or unusual glob is left alone.
   const files = [];
-  for (const a of args) {
+  for (const a of args.flatMap((x) => braceWords(x) || [null])) {
+    if (a === null) return null;
     if (!/[*?]/.test(a)) files.push(a);
+    else if (!/^[\w./*?@+,=-]+$/.test(a)) return null;
     else if (typeof fs.globSync !== 'function') return null; // Node < 22: leave globbed cats alone
     else {
       let m = [];
@@ -487,23 +544,28 @@ export function routeCommand(cmd, { cwd, permissionMode } = {}) {
       // ssh output piped locally (`ssh h cat f | grep x`) must keep its pipe
       const remotePipe = pipes.length > 1 && ['ssh', 'scp'].includes(exeName(core[0]));
       if (!redirFile && !meta && !remotePipe) {
-        // `cat FILES` alone, or piped only into filters (`| head -700`, `| grep x`): the first stage becomes tview
-        const filters = pipes.slice(1).every((p) => { const t = tokenize(p); return t && ['head', 'tail', 'grep', 'sed'].includes(exeName(t[0])) && readOnly(t); });
+        // `cat FILES` alone, or piped only into head/tail: the first stage becomes tview. Not into grep or sed: they
+        // would search folded text and count its lines, and miss or misnumber what cat would have shown them.
+        const filters = pipes.slice(1).every((p) => { const t = tokenize(p); return t && ['head', 'tail'].includes(exeName(t[0])) && readOnly(t); });
         const files = filters && !env.length ? catFiles(core, here, root) : null;
-        if (files) {
+        const words = pipes[0].trim().split(/\s+/);
+        if (files && core.slice(1).every((a) => !/[*?{]/.test(a) || words.includes(a))) {
           const lead = /^\s*/.exec(text)[0];
           const rest = pipes.slice(1).map((p) => ` | ${p.trim()}`).join('');
-          out.push(`${lead}node ${shq(TVIEW)} ${files.map(shq).join(' ')}${rest}${sep && !sep.startsWith('\n') ? ' ' : ''}${sep}`);
+          out.push(`${lead}node ${shq(TVIEW)} ${core.slice(1).map((a) => (/[*?{]/.test(a) ? a : shq(a))).join(' ')}${rest}${sep && !sep.startsWith('\n') ? ' ' : ''}${sep}`);
           viewed = true;
           continue;
         }
-        kitcmd = rewrite(core) || (pipes.length === 1 && !env.length ? grepWrap(core, toks, pipes[0], here) : null);
-        // filters after a rewritten generic/git command would be dropped: leave piped commands alone
-        if (kitcmd && pipes.length > 1 && /^(tkit run|git )/.test(kitcmd)) kitcmd = null;
+        // grepWrap keeps the typed text, so expansions survive there; other rewrites re-quote every token
+        const literal = !expands(pipes[0]);
+        kitcmd = (literal && rewrite(core)) || (pipes.length === 1 && !env.length ? grepWrap(core, toks, pipes[0], here) : null);
+        // filters after a rewritten generic/git command would be dropped: leave piped commands alone; a build/test
+        // command drops only display filters (`| tail -30`), never a tee, a count or a redirection
+        if (kitcmd && pipes.length > 1 && (/^(tkit run|git )/.test(kitcmd) || !pipes.slice(1).every(displayOnly))) kitcmd = null;
         // `tkit run` wraps any command: only read-only ones may skip the permission prompt
         if (kitcmd && /^tkit run/.test(kitcmd) && !readOnly(core)) onlyKit = false;
         // opt-in: cap the output of any other plain command (TFORGE_CAP_ALL=1)
-        if (!kitcmd && process.env.TFORGE_CAP_ALL === '1' && pipes.length === 1 && !env.length && !redirFile &&
+        if (!kitcmd && process.env.TFORGE_CAP_ALL === '1' && pipes.length === 1 && !env.length && !redirFile && literal &&
             !['cd', 'export', 'source', 'tkit', 'tread', 'tview', 'tforge', 'tmap', 'vim', 'nano', 'less', 'top', 'htop', 'ssh', 'scp', 'sleep', 'echo', 'printf'].includes(exeName(core[0] || '')) &&
             !core.some((x) => ['-f', '--follow', '-i', '-w', '--watch'].includes(x))) {
           kitcmd = kit('run', '-n', '200', ...core);
@@ -520,7 +582,7 @@ export function routeCommand(cmd, { cwd, permissionMode } = {}) {
     }
     if (env.length || ['ssh', 'scp'].includes(exeName(core[0]))) onlyKit = false;
     const lead = /^\s*/.exec(text)[0];
-    out.push(`${lead}${[...env.map(shq), kitcmd].join(' ')}${sep && !sep.startsWith('\n') ? ' ' : ''}${sep}`);
+    out.push(`${lead}${[...env.map(envq), kitcmd].join(' ')}${sep && !sep.startsWith('\n') ? ' ' : ''}${sep}`);
     notes.push(`\`${core.map(shq).join(' ')}\` -> \`${kitcmd}\``);
   }
   if (!notes.length && !viewed) return null;
@@ -601,7 +663,8 @@ function cacheTtl(input) {
 function waitCap(input, cmd) {
   const ti = input.tool_input || {};
   const asked = Number(ti.timeout) || Number(process.env.BASH_DEFAULT_TIMEOUT_MS) || 120e3;
-  if (asked <= WAIT_CAP || ti.run_in_background || !pollingWait(cmd)) return null;
+  // Codex: no Bash timeout field to lower, and updatedInput without 'allow' is an error there.
+  if (codexHost(input) || asked <= WAIT_CAP || ti.run_in_background || !pollingWait(cmd)) return null;
   if ((cacheTtl(input) || (input.agent_id ? '5m' : null)) !== '5m') return null;
   const out = { updatedInput: { ...ti, timeout: WAIT_CAP } };
   if (!seenBefore(input.session_id, `waitcap\0${input.agent_id || ''}`, 'kit')) {
@@ -614,6 +677,12 @@ async function onBash(input) {
   const ti = input.tool_input || {};
   const cmd = String(ti.command || '');
   if (!cmd || RAW.test(cmd)) return;
+  const dv = depsView(cmd);
+  if (dv) {
+    if (!seenBefore(input.session_id, `kitdeny\0${cmd}`, 'kit'))
+      rewriteOut({ ...ti, command: dv.command }, `${dv.note}\nRepeating the identical command runs it as is.`, 'allow');
+    return;
+  }
   const why = denyReason(cmd);
   if (why) {
     if (!seenBefore(input.session_id, `kitdeny\0${cmd}`, 'kit')) deny('PreToolUse', why + '\nRepeating the identical command runs it as is.');
@@ -627,14 +696,18 @@ async function onBash(input) {
   const r = routeCommand(cmd, { cwd: input.cwd, permissionMode: input.permission_mode });
   let out = cap;
   if (r) {
-    if (!seenBefore(input.session_id, `kitrw\0${cmd}`, 'kit')) out = { ...cap, permissionDecision: 'allow', updatedInput: { ...ti, ...cap?.updatedInput, command: r.command } };
+    // Outside Claude Code bin/ is not on PATH, so the rewrite carries it.
+    const command = hostName(input) === 'claude' ? r.command : withKitPath(r.command);
+    if (!seenBefore(input.session_id, `kitrw\0${cmd}`, 'kit')) out = { ...cap, permissionDecision: 'allow', updatedInput: { ...ti, ...cap?.updatedInput, command } };
   } else if (ownToolsOnly(cmd, input.permission_mode)) out = { ...cap, permissionDecision: 'allow' };
   if (out) process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', ...out } }));
 }
 
-// Claude Code saves oversized Bash output under .../tool-results/ and shows a preview; reading the
-// whole file back puts the full output into context anyway. Ask for the part that matters instead.
-export function spillReason(file, sliced) {
+// Claude Code saves oversized Bash output under .../tool-results/ and shows a preview of its start; reading the
+// whole file back puts the full output into context anyway. A whole Read of one is narrowed to its last ~8k
+// chars (where errors and summaries usually are) with a note on how to see the rest. A rewrite, not a deny:
+// Claude Code shows any deny as "hook error", which looked like a crash.
+export function spillWindow(file, sliced) {
   if (sliced || !/[\\/]tool-results[\\/][^\\/]+\.txt$/.test(String(file || ''))) return null;
   let text;
   try {
@@ -643,11 +716,17 @@ export function spillReason(file, sliced) {
     return null;
   }
   if (text.length < 8000) return null;
-  const lines = text.split('\n').length;
-  return (
-    `tokenforge: ${file} is saved command output (${lines} lines, ${text.length} chars); reading it whole puts all of it into context. ` +
-    `Print only what you need: \`grep -n PATTERN FILE | head -40\`, \`sed -n a,bp FILE\`, or \`tail -50 FILE\`; or Read with offset/limit. Repeat this Read to load it whole.`
-  );
+  const lines = text.split('\n');
+  if (lines.at(-1) === '') lines.pop();
+  let from = lines.length;
+  for (let chars = 0; from > 0 && (chars < 8000 || lines.length - from < 20); ) chars += lines[--from].length + 1;
+  if (from === 0) return null;
+  const offset = from + 1;
+  const note =
+    `tokenforge: ${file} is saved command output (${lines.length} lines, ${text.length} chars). ` +
+    `This Read was narrowed to lines ${offset}-${lines.length} (the end); the preview already showed the start. ` +
+    `For other parts, Read with offset/limit or search the file for a pattern; repeat the same whole Read to load all of it.`;
+  return { offset, limit: lines.length - from, note };
 }
 
 function onRead(input) {
@@ -659,8 +738,31 @@ function onRead(input) {
       return;
     }
   } catch {}
-  const why = readReason(ti.file_path, Boolean(ti.offset || ti.limit)) || spillReason(ti.file_path, Boolean(ti.offset || ti.limit));
-  if (why && !seenBefore(input.session_id, `kitread\0${ti.file_path}`, 'kit')) deny('PreToolUse', why);
+  const sliced = Boolean(ti.offset || ti.limit);
+  const win = headWindow(ti.file_path, readReason(ti.file_path, sliced)) || spillWindow(ti.file_path, sliced);
+  if (win && !seenBefore(input.session_id, `kitread\0${ti.file_path}`, 'kit')) rewriteOut({ ...ti, offset: win.offset, limit: win.limit }, win.note);
+}
+
+// A rewritten tool input plus a note for the model, used instead of a deny (Claude Code shows any deny as "hook
+// error"). With no decision the usual permission check runs on the new input; 'allow' only for a pure tview call.
+function rewriteOut(updatedInput, note, decision) {
+  process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', ...(decision && { permissionDecision: decision }), updatedInput, additionalContext: note } }));
+}
+
+// A whole Read that readReason flags (lockfile, generated file, dependency source) is narrowed to its first
+// HEAD_LINES lines; a file not much longer than that, or unreadable, is left alone.
+const HEAD_LINES = 200;
+export function headWindow(file, why) {
+  if (!why) return null;
+  let lines;
+  try {
+    if (fs.statSync(file).size > 64e6) return null;
+    lines = fs.readFileSync(file, 'utf8').split('\n').length;
+  } catch {
+    return null;
+  }
+  if (lines <= HEAD_LINES * 1.5) return null;
+  return { offset: 1, limit: HEAD_LINES, note: `${why.replace(/ Repeat this Read.*$|If you really need.*$/, '')}\nThis Read was narrowed to lines 1-${HEAD_LINES} of ${lines}; Read with offset/limit for other parts, or repeat the same whole Read to load all of it.` };
 }
 
 // PowerShell (Windows): only plain one-line commands with nothing PowerShell-specific in them are routed
@@ -677,7 +779,7 @@ async function onPowerShell(input) {
 async function main() {
   if (kitHookOff('TFORGE_KIT_ROUTE')) return;
   const input = readInput();
-  if (!input) return;
+  if (!input || skippedAgent(input)) return;
   try {
     if (input.tool_name === 'Bash') await onBash(input);
     else if (input.tool_name === 'PowerShell') await onPowerShell(input);

@@ -25,6 +25,7 @@ const HELP: &str = "Multi-file edits in one call, no JSON escaping. Atomic: all 
   >>>
   EOF
 
+A `new` or `append` header may skip <<< >>>: its body then runs to the next @@ or EOF.
 One @@ header may hold several <<< blocks. Blocks apply in order; line numbers
 refer to the file as it is when that block runs (edit bottom-up to keep them stable).
 -n dry run   -d print unified diff   -t run a test command afterwards (exit code = its result);
@@ -85,8 +86,25 @@ pub fn parse(input: &str, exists: impl Fn(&str) -> bool) -> Result<Vec<Op>, Stri
             } else if mode == Mode::Insert(usize::MAX) {
                 return Err(format!("line {}: unknown mode '{word}'", i + 1));
             }
-            cur = Some((file, mode, i + 1));
+            // `new`/`append` without <<< >>>: the body is the raw text up to the next @@ header or EOF.
+            let raw = matches!(mode, Mode::New | Mode::Append);
+            let hl = i + 1;
             i += 1;
+            if raw && lines.get(i).is_some_and(|l| *l != "<<<" && !l.starts_with("@@ ")) {
+                let mut j = i;
+                while j < lines.len() && !lines[j].starts_with("@@ ") {
+                    j += 1;
+                }
+                let mut body = &lines[i..j];
+                while let [rest @ .., ""] = body {
+                    body = rest;
+                }
+                if !body.is_empty() {
+                    ops.push(Op { file: file.clone(), mode: mode.clone(), old: None, new: body.join("\n"), hl });
+                }
+                i = j;
+            }
+            cur = Some((file, mode, hl));
             continue;
         }
         if ln == "<<<" {
@@ -101,7 +119,16 @@ pub fn parse(input: &str, exists: impl Fn(&str) -> bool) -> Result<Vec<Op>, Stri
                 }
                 j += 1;
             }
-            if j >= lines.len() {
+            if j >= lines.len() && !repl {
+                // An unclosed body for an insert/new/append block runs to the next @@ header or EOF.
+                let end = body.iter().position(|l| l.starts_with("@@ ")).unwrap_or(body.len());
+                j = i + 1 + end;
+                body.truncate(end);
+                while body.last() == Some(&"") {
+                    body.pop();
+                }
+                j -= 1;
+            } else if j >= lines.len() {
                 return Err(format!("line {}: unterminated <<< block", i + 1));
             }
             if repl && old.is_none() {
@@ -558,8 +585,15 @@ mod tests {
         assert!(parse("@@ f bogus\n", |_| false).unwrap_err().contains("unknown mode 'bogus'"));
         assert!(parse("<<<\n>>>\n", |_| false).unwrap_err().contains("before any @@"));
         assert!(parse("@@ f\n<<<\nx\n", |_| false).unwrap_err().contains("unterminated"));
+        let u = ops("@@ n.py new\n<<<\nx\n\n@@ m.py new\n<<<\ny\n");
+        assert_eq!((u.len(), u[0].new.as_str(), u[1].file.as_str(), u[1].new.as_str()), (2, "x", "m.py", "y"));
         assert!(parse("@@ f\n<<<\nx\n>>>\n", |_| false).unwrap_err().contains("needs ==="));
         assert_eq!(parse("@@ f\nstray\n", |_| false).unwrap_err(), "line 2: unexpected text outside a block: 'stray'");
+        let n = ops("@@ n.py new\nimport os\n\nx = 1\n\n@@ a.py append\ny\n@@ b.py new\n<<<\nz\n");
+        assert_eq!(n.len(), 3);
+        assert_eq!((n[0].mode.clone(), n[0].new.as_str(), n[0].hl), (Mode::New, "import os\n\nx = 1", 1));
+        assert_eq!((n[1].mode.clone(), n[1].new.as_str()), (Mode::Append, "y"));
+        assert_eq!((n[2].file.as_str(), n[2].new.as_str()), ("b.py", "z"));
     }
 
     #[test]

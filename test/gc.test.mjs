@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
-import { AUTO_MARK, chunkName, listSnapshots, noteLoad, pruneSnapshots, render, staleHandoff } from '../hooks/checkpoint.mjs';
+import { AUTO_MARK, chunkName, listSnapshots, noteHandoffGiven, noteLoad, pruneSnapshots, render, staleHandoff } from '../hooks/checkpoint.mjs';
 import { formatGc, gc } from '../lib/gc.mjs';
 import { stateDir } from '../lib/hookutil.mjs';
 import { EXE, tmapVersion } from '../lib/tmapbin.mjs';
@@ -126,22 +126,29 @@ test('pruneSnapshots forgets chunks by use, missing files and newer chunks; the 
   assert.deepEqual(Object.keys(JSON.parse(fs.readFileSync(path.join(cwd, '.forge', 'snapshots', 'loads.json'), 'utf8'))), [reread]);
 });
 
-test('staleHandoff drops an automatic handoff once another session started after it, or when old', () => {
+test('staleHandoff archives an automatic handoff once a session given it worked, or when past the cap', () => {
   const cwd = tmpdir('handoff-');
   const file = path.join(cwd, '.forge', 'HANDOFF.md');
   const auto = `${AUTO_MARK}\n# Handoff (automatic, session 11111111, 2026-10-09 01:00 UTC, context ~50k tokens)\n`;
   make(file, 30 * D, '# Handoff\nWritten by the user.\n');
-  assert.equal(staleHandoff(cwd, 72, { now }), false);
-  make(file, H, auto);
+  assert.equal(staleHandoff(cwd, 336, { now }), false);
+  make(file, 4 * D, auto); // a long weekend: time alone does not spend it
+  const mtime = fs.statSync(file).mtimeMs;
   snapshot(cwd, uuid(1), 1, 30 * 60e3); // its writer started again
-  snapshot(cwd, uuid(2), 2, 30 * 60e3); // a session that started before it went on
-  assert.equal(staleHandoff(cwd, 72, { now }), false);
+  snapshot(cwd, uuid(2), 1, 30 * 60e3); // a parallel session that was never given it
+  assert.equal(staleHandoff(cwd, 336, { now }), false);
+  noteHandoffGiven(cwd, uuid(3), mtime); // given at startup, no work yet
+  assert.equal(staleHandoff(cwd, 336, { now }), false);
   snapshot(cwd, uuid(3), 1, 20 * 60e3);
-  assert.equal(staleHandoff(cwd, 72, { now, dryRun: true }), true);
+  assert.equal(staleHandoff(cwd, 336, { now, dryRun: true }), true);
   assert.ok(fs.existsSync(file));
-  assert.equal(staleHandoff(cwd, 72, { now }), true);
+  assert.equal(staleHandoff(cwd, 336, { now }), true);
   assert.ok(!fs.existsSync(file));
+  const archived = fs.readdirSync(path.join(cwd, '.forge', 'handoffs'));
+  assert.equal(archived.length, 1);
+  assert.match(archived[0], /^\d{8}-\d{4}-11111111\.md$/);
+  assert.match(fs.readFileSync(path.join(cwd, '.forge', '.gitignore'), 'utf8'), /^handoffs\/$/m);
   const old = tmpdir('handoff-');
-  make(path.join(old, '.forge', 'HANDOFF.md'), 73 * H, auto);
-  assert.equal(staleHandoff(old, 72, { now }), true);
+  make(path.join(old, '.forge', 'HANDOFF.md'), 337 * H, auto);
+  assert.equal(staleHandoff(old, 336, { now }), true);
 });

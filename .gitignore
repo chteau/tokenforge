@@ -7,3 +7,4 @@ bench/runs-superseded/
 bench/environments/*/template/
 bench/results/raw/
 __pycache__/
+TODO-private.md

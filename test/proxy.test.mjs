@@ -1,0 +1,494 @@
+import './tmp.mjs';
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import http from 'node:http';
+import os from 'node:os';
+import path from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+
+process.env.XDG_CACHE_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'cache-'));
+const { cacheBreak, capText, cleanText, compressResult, crushJson, foldRead, formatReport, matchSummary, openMemo, proxyReport, requestShape, setCacheTtl, startProxy, wantTtl, transformRequest, transformResponses, usageParser } = await import('../lib/proxy.mjs');
+
+const numbered = (text) => text.split('\n').map((l, i) => `${i + 1}\t${l}`).join('\n');
+const bigSource = () => {
+  const fns = [];
+  for (let f = 0; f < 30; f++) {
+    fns.push(`function f${f}(a, b) {`);
+    for (let k = 0; k < 15; k++) fns.push(`  const v${k} = a * ${k} + b; // line of body number ${k} in f${f}`);
+    fns.push('  return a;', '}', '');
+  }
+  return fns.join('\n');
+};
+const bashResult = () => ['\x1b[32mstart\x1b[0m', ...Array(400).fill('polling...'), ...Array.from({ length: 2000 }, (_, i) => `line ${i} of build output`), 'FAILED: test x'].join('\n');
+
+test('cleanText strips colors, keeps the last state of \\r progress lines, counts repeats', () => {
+  const out = cleanText('\x1b[1mbold\x1b[0m\n10%\r50%\r100%\nsame\nsame\nsame\nsame\nend');
+  assert.equal(out, 'bold\n100%\nsame\n[previous line repeated 3 more times]\nend');
+});
+
+test('capText keeps head and tail and points to the full text', () => {
+  const text = Array.from({ length: 1000 }, (_, i) => `row ${i}`).join('\n');
+  let saved;
+  const out = capText(text, 2000, (t) => ((saved = t), '/x/full.txt'));
+  assert.ok(out.length < 2200);
+  assert.match(out, /^row 0\n/);
+  assert.match(out, /row 999$/);
+  assert.match(out, /lines \(\d+ chars\) omitted; full output: \/x\/full\.txt/);
+  assert.equal(saved, text);
+  assert.equal(capText('short', 2000, () => 'f'), 'short');
+});
+
+test('a capped search result starts with its match counts per file, or per folder for a path list', () => {
+  const grep = [];
+  for (let i = 0; i < 300; i++) grep.push(`src/a.js:${i + 1}:  call(x)`);
+  for (let i = 0; i < 40; i++) grep.push(`lib/b.mjs:${i + 1}:call(y)`);
+  grep.push('test/c.test.mjs:7:call(z)');
+  const out = capText(grep.join('\n'), 2000, () => '/f');
+  assert.match(out, /^\[all 341 lines, by file: src\/a\.js 300, lib\/b\.mjs 40, test\/c\.test\.mjs 1\]\nsrc\/a\.js:1:/);
+  const paths = Array.from({ length: 30 }, (_, i) => `${i < 20 ? 'src/x' : 'docs'}/f${i}.md`).join('\n');
+  assert.equal(matchSummary(paths), '[all 30 lines, by folder: src/x/ 20, docs/ 10]');
+  const many = Array.from({ length: 40 }, (_, i) => `d${i}/f.js:1:x`).join('\n');
+  assert.match(matchSummary(many, 3), /d0\/f\.js 1, d1\/f\.js 1, d10\/f\.js 1, \+37 more files\]$/);
+  assert.equal(matchSummary(bashResult()), null); // not a search result
+  assert.equal(matchSummary(grep.slice(0, 5).join('\n')), null); // too short to need it
+  assert.doesNotMatch(capText(grep.slice(0, 30).join('\n'), 20000, () => '/f'), /^\[all/); // not capped: no summary
+});
+
+test('crushJson compacts, keeps first, error and last items of long arrays', () => {
+  const v = { items: Array.from({ length: 50 }, (_, i) => ({ id: i, status: i === 30 ? 'error: boom' : 'ok' })) };
+  const out = crushJson(JSON.stringify(v, null, 2), () => '/x/full.json');
+  assert.match(out, /"id":0/);
+  assert.match(out, /error: boom/);
+  assert.match(out, /"id":49/);
+  assert.doesNotMatch(out, /"id":20,/);
+  assert.match(out, /items omitted; full JSON: \/x\/full\.json/);
+  assert.equal(crushJson('not json', () => null), null);
+});
+
+test('foldRead folds long bodies of a whole-file Read and keeps the line numbers of what it keeps', () => {
+  const src = bigSource();
+  const out = foldRead(numbered(src) + '\n\n<system-reminder>x</system-reminder>', 'a.js');
+  assert.ok(out.length < src.length / 2);
+  assert.match(out, /^1\tfunction f0\(a, b\) \{$/m);
+  assert.match(out, /^\t {2}… 16 lines folded: Read offset=2 limit=16$/m);
+  assert.match(out, /^18\t\}$/m);
+  assert.match(out, /<system-reminder>x<\/system-reminder>$/);
+});
+
+test('compressResult leaves partial reads, prose, small and image results alone', () => {
+  const content = numbered(bigSource());
+  const read = (input) => compressResult({ type: 'tool_result', tool_use_id: 't', content }, { name: 'Read', input });
+  assert.ok(read({ file_path: '/p/a.js' }));
+  assert.equal(read({ file_path: '/p/a.js', offset: 1, limit: 2000 }), null);
+  assert.equal(read({ file_path: '/p/a.md' }), null);
+  assert.equal(compressResult({ type: 'tool_result', content: 'tiny' }, { name: 'Bash', input: {} }), null);
+  const img = [{ type: 'text', text: bashResult() }, { type: 'image', source: {} }];
+  assert.equal(compressResult({ type: 'tool_result', content: img }, { name: 'Bash', input: {} }), null);
+  const one = compressResult({ type: 'tool_result', content: [{ type: 'text', text: bashResult() }] }, { name: 'Bash', input: {} }, { saveFull: () => '/f' });
+  assert.equal(one[0].type, 'text');
+  assert.ok(one[0].text.length < bashResult().length);
+});
+
+const conversation = () => ({
+  model: 'claude-x',
+  messages: [
+    { role: 'user', content: 'go' },
+    { role: 'assistant', content: [{ type: 'tool_use', id: 'old', name: 'Bash', input: { command: 'make' } }] },
+    { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'old', content: bashResult() }] },
+    { role: 'assistant', content: [{ type: 'tool_use', id: 'new', name: 'Bash', input: { command: 'make' } }] },
+    { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'new', content: bashResult(), cache_control: { type: 'ephemeral' } }] },
+  ],
+});
+
+test('transformRequest: only the newest results are compressed, and later requests resend the same bytes', () => {
+  const memo = openMemo(null);
+  const a = conversation();
+  const st = transformRequest(a, memo, { saveFull: () => '/f', prune: false });
+  assert.equal(st.compressed, 1);
+  assert.equal(a.messages[2].content[0].content, bashResult()); // first seen in an older message: untouched
+  const compressed = a.messages[4].content[0].content;
+  assert.ok(compressed.length < bashResult().length / 2);
+  assert.deepEqual(a.messages[4].content[0].cache_control, { type: 'ephemeral' });
+
+  const b = conversation();
+  b.messages.push({ role: 'assistant', content: [{ type: 'text', text: 'ok' }] }, { role: 'user', content: 'next' });
+  const st2 = transformRequest(b, memo, { saveFull: () => '/f', prune: false });
+  assert.equal(st2.memoHits, 1);
+  assert.equal(st2.compressed, 0);
+  assert.equal(b.messages[4].content[0].content, compressed);
+  assert.equal(b.messages[2].content[0].content, bashResult());
+
+  // Claude Code rewrote the old result itself: the hash no longer matches and its text passes as sent
+  const c = conversation();
+  c.messages[4].content[0].content = '[Old tool result content cleared]';
+  c.messages.push({ role: 'user', content: 'next' });
+  transformRequest(c, memo, { prune: false });
+  assert.equal(c.messages[4].content[0].content, '[Old tool result content cleared]');
+
+  // Claude Code ends requests with a `system` message after the tool results: they are still the newest
+  const d = conversation();
+  d.messages.push({ role: 'system', content: [{ type: 'text', text: 'reminder' }] });
+  assert.equal(transformRequest(d, openMemo(null), { saveFull: () => '/f', prune: false }).compressed, 1);
+});
+
+test('transformRequest counts edits and reads on files whose Read went out folded', () => {
+  const memo = openMemo(null);
+  const file = '/p/a.js';
+  const msgs = [
+    { role: 'user', content: 'go' },
+    { role: 'assistant', content: [{ type: 'tool_use', id: 'r', name: 'Read', input: { file_path: file } }] },
+    { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'r', content: numbered(bigSource()) }] },
+  ];
+  transformRequest({ messages: msgs }, memo, { countFolds: true });
+  assert.equal(memo.get('r').fold, 1);
+  const next = structuredClone(msgs);
+  next.push(
+    {
+      role: 'assistant',
+      content: [
+        { type: 'tool_use', id: 'e1', name: 'Edit', input: { file_path: file } },
+        { type: 'tool_use', id: 'e2', name: 'Edit', input: { file_path: file } },
+        { type: 'tool_use', id: 'r2', name: 'Read', input: { file_path: file, offset: 2, limit: 16 } },
+        { type: 'tool_use', id: 'o', name: 'Edit', input: { file_path: '/p/other.js' } },
+      ],
+    },
+    {
+      role: 'user',
+      content: [
+        { type: 'tool_result', tool_use_id: 'e1', is_error: true, content: '<tool_use_error>String to replace not found in file.</tool_use_error>' },
+        { type: 'tool_result', tool_use_id: 'e2', content: 'ok' },
+        { type: 'tool_result', tool_use_id: 'r2', content: '2\tx' },
+        { type: 'tool_result', tool_use_id: 'o', is_error: true, content: 'String to replace not found' },
+      ],
+    },
+  );
+  const st = transformRequest(structuredClone({ messages: next }), memo, { countFolds: true });
+  assert.deepEqual([st.foldEdits, st.foldMisses, st.foldReads], [2, 1, 1]);
+  assert.equal(transformRequest(structuredClone({ messages: next }), memo).foldEdits, 0); // count_tokens: not counted
+});
+
+test('a folded file an Edit missed on is read whole from then on', () => {
+  const memo = openMemo(null);
+  const file = '/p/a.js';
+  const src = numbered(bigSource());
+  const msgs = [
+    { role: 'user', content: 'go' },
+    { role: 'assistant', content: [{ type: 'tool_use', id: 'r', name: 'Read', input: { file_path: file } }] },
+    { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'r', content: src }] },
+  ];
+  transformRequest({ messages: structuredClone(msgs) }, memo, { prune: false });
+  const folded = memo.get('r').c;
+  msgs.push(
+    { role: 'assistant', content: [{ type: 'tool_use', id: 'e', name: 'Edit', input: { file_path: file } }] },
+    { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'e', is_error: true, content: 'String to replace not found in file.' }] },
+    { role: 'assistant', content: [{ type: 'tool_use', id: 'r2', name: 'Read', input: { file_path: file } }, { type: 'tool_use', id: 'r3', name: 'Read', input: { file_path: '/p/b.js' } }] },
+    { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'r2', content: src }, { type: 'tool_result', tool_use_id: 'r3', content: src }] },
+  );
+  const j = { messages: structuredClone(msgs) };
+  const st = transformRequest(j, memo, { prune: false });
+  assert.equal(j.messages[2].content[0].content, folded); // the first Read stays as sent: the cache holds
+  assert.equal(j.messages[6].content[0].content, src); // read again after the miss: whole
+  assert.ok(j.messages[6].content[1].content.length < src.length / 2); // another file still folds
+  assert.equal(st.compressed, 1);
+});
+
+test('memo stays under its size cap, dropping the least recently used entries', () => {
+  const file = path.join(os.tmpdir(), 'memo-cap.jsonl');
+  const m = openMemo(file, { maxBytes: 10000 });
+  const big = 'x'.repeat(1000);
+  for (let i = 0; i < 8; i++) m.set(`e${i}`, { h: 'h', c: big, t: Date.now() });
+  m.get('e0'); // used again: kept
+  for (let i = 8; i < 12; i++) m.set(`e${i}`, { h: 'h', c: big, t: Date.now() });
+  assert.ok(m.bytes() <= 10000);
+  assert.ok(m.get('e0'));
+  assert.equal(m.get('e1'), undefined);
+  assert.ok(m.get('e11'));
+  assert.ok(fs.statSync(file).size <= 15000);
+  const again = openMemo(file, { maxBytes: 10000 });
+  assert.equal(again.size(), m.size());
+  assert.ok(again.get('e0'));
+});
+
+test('cacheBreak names the first prefix part that changed, or expiry', () => {
+  const base = { model: 'm', metadata: { user_id: 'u' }, system: [{ type: 'text', text: 'S' }], tools: [{ name: 't' }], messages: [{ role: 'user', content: 'a' }, { role: 'assistant', content: 'b' }] };
+  const shape = (f) => requestShape(f(structuredClone(base)));
+  const prev = { ...shape((j) => j), ctx: 50000, t: 1e6 };
+  const u = (cr) => ({ in: 10, cr, cw: 50000 - cr });
+  const later = (j) => (j.messages.push({ role: 'user', content: 'c' }), j);
+  assert.equal(cacheBreak(prev, shape(later), u(49000), 1e6 + 1000), null); // cache held
+  assert.equal(shape((j) => ((j.system[0].cache_control = { type: 'ephemeral' }), j)).sys, prev.sys); // markers don't count
+  assert.equal(shape(later).chain, prev.chain);
+  assert.deepEqual(cacheBreak(prev, shape((j) => ((j.system[0].text = 'S2'), j)), u(0), 1e6), { cause: 'system', lost: 50000 });
+  assert.equal(cacheBreak(prev, shape((j) => (j.tools.push({ name: 'x' }), j)), u(3000), 1e6).cause, 'tools');
+  assert.deepEqual(cacheBreak(prev, shape((j) => ((j.messages[1].content = 'B'), j)), u(100), 1e6), { cause: 'history', lost: 49900, idx: 1 });
+  assert.equal(cacheBreak(prev, shape(later), u(0), 1e6 + 400e3).cause, 'expired');
+  assert.equal(cacheBreak(prev, shape(later), u(0), 1e6 + 1000).cause, 'unknown');
+  const r = { requests: 2, in: 0, cr: 0, cw: 0, out: 0, compressed: 0, saved: 0, system: 0, tools: 0, resultChars: 0, models: {}, breaks: { tools: { n: 1, lost: 48000 } }, foldEdits: 3, foldMisses: 1, foldReads: 2 };
+  assert.match(formatReport(r, 1), /cache breaks {3}tools 1 \(~48\.0k tokens written again\)/);
+  assert.match(formatReport(r, 1), /3 edits on folded files, 1 failed; 2 reads back/);
+  assert.doesNotMatch(formatReport(r, 1), /thinking sent/);
+  assert.match(formatReport({ ...r, thinkReqs: 2, thinkPast: 12000, thinkPastBlocks: 3, thinkNow: 0 }, 1), /thinking sent {2}earlier turns 12\.0k chars in 3 blocks \(prunable\), current turn 0 chars; over 2 requests/);
+});
+
+test('memo survives a restart and drops stale entries', () => {
+  const file = path.join(os.tmpdir(), 'memo-test.jsonl');
+  const m = openMemo(file);
+  m.set('x', { h: 'h1', c: 'C', t: Date.now() });
+  fs.appendFileSync(file, JSON.stringify({ id: 'stale', h: 'h', c: 'c', t: Date.now() - 30 * 86400e3 }) + '\n');
+  const again = openMemo(file);
+  assert.equal(again.get('x').c, 'C');
+  assert.equal(again.get('stale'), undefined);
+  assert.doesNotMatch(fs.readFileSync(file, 'utf8'), /stale/);
+});
+
+function fakeUpstream() {
+  const seen = [];
+  const server = http.createServer((req, res) => {
+    const chunks = [];
+    req.on('data', (c) => chunks.push(c));
+    req.on('end', () => {
+      seen.push({ url: req.url, headers: req.headers, body: Buffer.concat(chunks).toString() });
+      if (req.url.startsWith('/v1/messages/count_tokens')) {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        return res.end('{"input_tokens":42}');
+      }
+      if (!req.url.startsWith('/v1/messages')) {
+        res.writeHead(404, { 'content-type': 'text/plain' });
+        return res.end('nope');
+      }
+      res.writeHead(200, { 'content-type': 'text/event-stream' });
+      res.write('event: message_start\ndata: {"type":"message_start","message":{"usage":{"input_tokens":5,"cache_read_input_tokens":1000,"cache_creation_input_tokens":200,"output_tokens":1}}}\n\n');
+      setTimeout(() => {
+        res.write('event: message_delta\ndata: {"type":"message_delta","usage":{"output_tokens":33}}\n\n');
+        res.end('event: message_stop\ndata: {"type":"message_stop"}\n\n');
+      }, 20);
+    });
+  });
+  return new Promise((r) => server.listen(0, '127.0.0.1', () => r({ server, seen, url: `http://127.0.0.1:${server.address().port}` })));
+}
+
+function send(port, { method = 'POST', url = '/v1/messages?beta=true', body, headers = {} }) {
+  return new Promise((resolve, reject) => {
+    const req = http.request({ host: '127.0.0.1', port, method, path: url, headers: { 'content-type': 'application/json', ...headers } }, (res) => {
+      const chunks = [];
+      res.on('data', (c) => chunks.push(c));
+      res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, body: Buffer.concat(chunks).toString() }));
+    });
+    req.on('error', reject);
+    req.end(body);
+  });
+}
+
+test('proxy: streams the answer unchanged, forwards auth, compresses new results, logs sizes and usage', async (t) => {
+  process.env.TFORGE_PROXY_PRUNE = 'off'; // the fixture re-runs one command: pruning has its own tests
+  t.after(() => delete process.env.TFORGE_PROXY_PRUNE);
+  const up = await fakeUpstream();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'proxy-'));
+  const p = await startProxy({ port: 0, upstream: up.url, dir });
+  try {
+    const body = JSON.stringify({ ...conversation(), stream: true });
+    const r = await send(p.port, { body, headers: { authorization: 'Bearer tok', 'anthropic-beta': 'x' } });
+    assert.equal(r.status, 200);
+    assert.match(r.body, /message_start[^]*message_delta[^]*message_stop/);
+    const got = up.seen[0];
+    assert.equal(got.url, '/v1/messages?beta=true');
+    assert.equal(got.headers.authorization, 'Bearer tok');
+    assert.equal(got.headers.host, new URL(up.url).host);
+    const sent = JSON.parse(got.body);
+    assert.ok(sent.messages[4].content[0].content.length < bashResult().length / 2);
+    assert.equal(sent.messages[2].content[0].content, bashResult());
+
+    const ct = await send(p.port, { url: '/v1/messages/count_tokens?beta=true', body });
+    assert.equal(JSON.parse(ct.body).input_tokens, 42);
+    assert.equal(JSON.parse(up.seen[1].body).messages[4].content[0].content, sent.messages[4].content[0].content);
+
+    // not JSON: passed through as sent (fail-safe), other endpoints too
+    await send(p.port, { body: '{broken' });
+    assert.equal(up.seen[2].body, '{broken');
+    const other = await send(p.port, { method: 'GET', url: '/v1/models' });
+    assert.equal(other.status, 404);
+
+    const log = fs.readFileSync(fs.readdirSync(dir).filter((f) => f.startsWith('requests-')).map((f) => path.join(dir, f))[0], 'utf8');
+    const recs = log.trim().split('\n').map((l) => JSON.parse(l));
+    const first = recs.find((e) => e.ep === '/v1/messages' && e.compressed);
+    assert.deepEqual(first.usage, { in: 5, cr: 1000, cw: 200, out: 33 });
+    assert.ok(first.saved > 10000);
+    assert.doesNotMatch(log, /build output|Bearer/); // sizes only, never content or credentials
+    assert.ok(recs.some((e) => e.error && /transform/.test(e.error)));
+    const rep = proxyReport({ dir });
+    assert.equal(rep.cr, 2000); // the broken body was forwarded too, and answered
+    assert.ok(first.chain && !first.brk);
+  } finally {
+    p.server.close();
+    up.server.close();
+  }
+});
+
+test('cache TTL: opt-in 5m drops every 1h marker, deterministically; off by default', async () => {
+  const cc1h = () => ({ type: 'ephemeral', ttl: '1h' });
+  const req = () => ({
+    system: [{ type: 'text', text: 's', cache_control: cc1h() }],
+    tools: [{ name: 't', input_schema: {}, cache_control: cc1h() }],
+    messages: [{ role: 'user', content: [{ type: 'text', text: 'hi', cache_control: cc1h() }, { type: 'tool_result', tool_use_id: 'x', content: [{ type: 'text', text: 'r', cache_control: { type: 'ephemeral' } }] }] }],
+  });
+  assert.equal(wantTtl({}), null, 'off by default');
+  assert.equal(wantTtl({ 'x-tokenforge-cache-ttl': '5m' }), '5m');
+  assert.equal(wantTtl({ 'x-tokenforge-cache-ttl': '2h' }), null, 'only 5m is accepted');
+  const ua = (e) => ({ 'user-agent': `claude-cli/2.1.296 (external, ${e})` });
+  assert.equal(wantTtl(ua('sdk-cli')), '5m', 'claude -p: no one pauses');
+  assert.equal(wantTtl(ua('cli')), null, 'interactive keeps the 1-hour cache');
+  assert.equal(wantTtl(ua('sdk-ts')), null, 'an SDK app may wait on a person');
+  assert.equal(wantTtl({ ...ua('sdk-cli'), 'x-tokenforge-cache-ttl': '1h' }), null, 'opt-out');
+  const a = req();
+  assert.equal(setCacheTtl(a, null), 0);
+  assert.deepEqual(a, req());
+  assert.equal(setCacheTtl(a, '5m'), 3);
+  assert.doesNotMatch(JSON.stringify(a), /"ttl"/);
+  assert.equal(requestShape(a).ttl, 300e3, 'cache-break expiry follows the TTL sent');
+  assert.equal(setCacheTtl(a, '5m'), 0, 'idempotent');
+
+  const up = await fakeUpstream();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'proxy-'));
+  const p = await startProxy({ port: 0, upstream: up.url, dir });
+  try {
+    await send(p.port, { body: JSON.stringify(req()) });
+    assert.match(up.seen[0].body, /"ttl":"1h"/, 'without the header the request goes out as sent');
+    await send(p.port, { body: JSON.stringify(req()), headers: { 'x-tokenforge-cache-ttl': '5m' } });
+    assert.doesNotMatch(up.seen[1].body, /"ttl"/);
+    assert.equal(up.seen[1].headers['x-tokenforge-cache-ttl'], undefined, 'the header is not forwarded');
+  } finally {
+    p.server.close();
+    up.server.close();
+  }
+});
+
+test('proxy: an unreachable upstream answers 502 with an API-shaped error', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'proxy-'));
+  const p = await startProxy({ port: 0, upstream: 'http://127.0.0.1:1', dir });
+  try {
+    const r = await send(p.port, { body: JSON.stringify({ messages: [] }) });
+    assert.equal(r.status, 502);
+    assert.equal(JSON.parse(r.body).type, 'error');
+  } finally {
+    p.server.close();
+  }
+});
+
+test('tforge claude restarts the proxy on the same port when it dies', { skip: process.platform === 'win32' && 'shebang script' }, async () => {
+  const port = await new Promise((r) => {
+    const srv = http.createServer().listen(0, '127.0.0.1', () => {
+      const p = srv.address().port;
+      srv.close(() => r(p));
+    });
+  });
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sup-'));
+  const fake = path.join(dir, 'claude');
+  // the "session": kill the proxy, then wait for a new one on the same port
+  fs.writeFileSync(
+    fake,
+    `#!${process.execPath}
+const fs = require('fs'), path = require('path');
+const file = path.join(process.env.XDG_CACHE_HOME, 'tokenforge', 'proxy.json');
+const first = JSON.parse(fs.readFileSync(file, 'utf8'));
+if (process.env.ANTHROPIC_BASE_URL !== 'http://127.0.0.1:' + first.port) process.exit(2);
+process.kill(first.pid);
+const t0 = Date.now();
+(function poll() {
+  try {
+    const s = JSON.parse(fs.readFileSync(file, 'utf8'));
+    if (s.pid !== first.pid && s.port === first.port) { process.kill(s.pid); process.exit(0); }
+  } catch {}
+  if (Date.now() - t0 > 8000) process.exit(3);
+  setTimeout(poll, 100);
+})();
+`,
+    { mode: 0o755 },
+  );
+  const tforge = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'tforge');
+  const env = { ...process.env, XDG_CACHE_HOME: path.join(dir, 'cache'), TFORGE_CLAUDE: fake, TFORGE_PROXY_PORT: String(port), TFORGE_PROXY_WATCH_MS: '200', TFORGE_PROXY_UPSTREAM: 'http://127.0.0.1:1' };
+  const r = spawnSync(process.execPath, [tforge, 'claude'], { env, encoding: 'utf8', timeout: 20000 });
+  assert.equal(r.status, 0, r.stderr);
+});
+
+const codexInput = () => [
+  { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'build it' }] },
+  { type: 'function_call', name: 'shell', call_id: 'c1', arguments: '{"command":["make"]}' },
+  { type: 'function_call_output', call_id: 'c1', output: bashResult() },
+  { type: 'function_call', name: 'exec_command', call_id: 'c2', arguments: '{"cmd":"make"}' },
+  { type: 'function_call_output', call_id: 'c2', output: JSON.stringify({ output: bashResult(), metadata: { exit_code: 0 } }) },
+  { type: 'function_call', name: 'shell', call_id: 'c3', arguments: '{"command":["ls"]}' },
+  { type: 'function_call_output', call_id: 'c3', output: 'a\nb' },
+];
+
+test('responses: compresses only the current turn outputs, JSON-wrapped output keeps its wrapper, memo replays', () => {
+  const memo = new Map();
+  const old = { type: 'function_call_output', call_id: 'c0', output: bashResult() };
+  const body = { model: 'gpt-5', instructions: 'sys', input: [{ type: 'function_call', name: 'shell', call_id: 'c0', arguments: '{}' }, old, ...codexInput()] };
+  const st = transformResponses(body, memo, { saveFull: () => null });
+  assert.equal(body.input[1].output, bashResult()); // before the last message: left as sent
+  assert.ok(body.input[4].output.length < bashResult().length / 2);
+  const w = JSON.parse(body.input[6].output);
+  assert.ok(w.output.length < bashResult().length / 2);
+  assert.match(w.output, /FAILED: test x/);
+  assert.equal(w.metadata.exit_code, 0);
+  assert.equal(body.input[8].output, 'a\nb');
+  assert.equal(st.results, 4);
+  assert.equal(st.compressed, 2);
+  // next request: same history plus a new turn; the compressed outputs are replayed byte-identical
+  const next = { model: 'gpt-5', instructions: 'sys', input: [...codexInput(), { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'done' }] }] };
+  const st2 = transformResponses(next, memo, { saveFull: () => null });
+  assert.equal(next.input[4].output, body.input[6].output);
+  assert.equal(st2.memoHits, 2);
+  assert.equal(st2.fresh, 0);
+});
+
+test('responses: usage from response.completed (stream) and from the JSON body', () => {
+  const s = usageParser('text/event-stream', 'responses');
+  s.feed(Buffer.from('event: response.created\ndata: {"type":"response.created"}\n\nevent: response.completed\ndata: {"type":"response.completed","response":{"usage":{"input_tokens":1200,"input_tokens_details":{"cached_tokens":1000},"output_tokens":40}}}\n\n'));
+  assert.deepEqual(s.end(), { in: 200, cr: 1000, cw: 0, out: 40 });
+  const j = usageParser('application/json', 'responses');
+  j.feed(Buffer.from('{"usage":{"input_tokens":10,"output_tokens":2}}'));
+  assert.deepEqual(j.end(), { in: 10, cr: 0, cw: 0, out: 2 });
+});
+
+test('proxy: /v1/responses goes to the OpenAI upstream, compressed, usage logged, no content or key in the log', async () => {
+  const seen = [];
+  const oai = http.createServer((req, res) => {
+    const chunks = [];
+    req.on('data', (c) => chunks.push(c));
+    req.on('end', () => {
+      seen.push({ url: req.url, headers: req.headers, body: Buffer.concat(chunks).toString() });
+      res.writeHead(200, { 'content-type': 'text/event-stream' });
+      res.end('event: response.completed\ndata: {"type":"response.completed","response":{"usage":{"input_tokens":900,"input_tokens_details":{"cached_tokens":800},"output_tokens":7}}}\n\n');
+    });
+  });
+  await new Promise((r) => oai.listen(0, '127.0.0.1', r));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'proxy-'));
+  const p = await startProxy({ port: 0, upstream: 'http://127.0.0.1:9', openaiUpstream: `http://127.0.0.1:${oai.address().port}`, dir });
+  try {
+    const r = await send(p.port, { url: '/v1/responses', body: JSON.stringify({ model: 'gpt-5', stream: true, input: codexInput() }), headers: { authorization: 'Bearer sk-secret' } });
+    assert.equal(r.status, 200);
+    assert.equal(seen[0].url, '/v1/responses');
+    assert.equal(seen[0].headers.authorization, 'Bearer sk-secret');
+    assert.ok(JSON.parse(seen[0].body).input[4].output.length < bashResult().length / 2);
+    const log = fs.readFileSync(fs.readdirSync(dir).filter((f) => f.startsWith('requests-')).map((f) => path.join(dir, f))[0], 'utf8');
+    const rec = JSON.parse(log.trim().split('\n')[0]);
+    assert.equal(rec.wire, 'responses');
+    assert.deepEqual(rec.usage, { in: 100, cr: 800, cw: 0, out: 7 });
+    assert.equal(rec.compressed, 2);
+    assert.doesNotMatch(log, /build output|Bearer|sk-secret/);
+  } finally {
+    p.server.close();
+    oai.close();
+  }
+});
+
+test('a file shown by the shell is never cleaned or capped: tview already sized it, and Edit matches its lines', () => {
+  const content = Array.from({ length: 2000 }, (_, i) => `line ${i % 3 ? i : 'same'}`).join('\n');
+  const bash = (command) => compressResult({ type: 'tool_result', tool_use_id: 't', content }, { name: 'Bash', input: { command } }, { cap: 4000 });
+  assert.equal(bash('cat src/a.ts src/b.ts'), null);
+  assert.equal(bash("sed -n '1,400p' src/a.ts"), null);
+  assert.ok(bash('npm test'), 'other output is still capped');
+});

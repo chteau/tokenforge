@@ -7,7 +7,7 @@ from __future__ import annotations
 import json
 import math
 import statistics as st
-from collections import defaultdict
+from collections import Counter, defaultdict
 from pathlib import Path
 
 import telemetry
@@ -95,7 +95,51 @@ def fmt(x, d=0):
     return str(x)
 
 
-def build(sessions, root: Path, out_name="benchmark-report"):
+def tf_build(r):
+    """(TokenForge version, plugin build hash) of a Token Forge run; None for other agents."""
+    if r.get("agent") != "token-forge":
+        return None
+    return (r.get("token_forge_version") or "unknown", r.get("token_forge_plugin_sha256") or "unknown")
+
+
+def build_label(b):
+    """'0.8.0 (build 31952bff7273)' for a tf_build() pair."""
+    return f"{b[0]} (build {b[1][:12]})"
+
+
+def versions(runs):
+    """The TokenForge builds and Claude Code versions a set of runs comes from, with run counts."""
+    tf = Counter(tf_build(r) for r in runs if r.get("agent") == "token-forge")
+    cc = Counter(r.get("claude_code_version") or "unknown" for r in runs)
+    return {"token_forge": [{"version": v, "plugin_sha256": h, "runs": n} for (v, h), n in sorted(tf.items())],
+            "claude_code": [{"version": v, "runs": n} for v, n in sorted(cc.items())]}
+
+
+def provenance(v):
+    """One line naming the versions behind a figure or table, e.g. for a caption."""
+    tf = "; ".join(f"{build_label((x['version'], x['plugin_sha256']))}, {x['runs']} runs" for x in v["token_forge"])
+    cc = "; ".join(f"{x['version']}, {x['runs']} runs" for x in v["claude_code"])
+    return f"TokenForge {tf or 'none'} · Claude Code {cc or 'none'}"
+
+
+class MixedVersions(SystemExit):
+    pass
+
+
+def check_versions(runs, mixed=False, what="report"):
+    """Refuse runs of more than one TokenForge version or build, or Claude Code version, unless mixed is set
+    (the caller then labels each row or series with its version). Returns versions(runs)."""
+    v = versions(runs)
+    if not mixed and (len(v["token_forge"]) > 1 or len(v["claude_code"]) > 1):
+        lines = [f"{what}: refusing to combine runs of different versions:"]
+        lines += [f"  TokenForge {build_label((x['version'], x['plugin_sha256']))}: {x['runs']} runs" for x in v["token_forge"]]
+        lines += [f"  Claude Code {x['version']}: {x['runs']} runs" for x in v["claude_code"]]
+        lines.append("Use runs of one version, or pass --mixed-versions to label each row or series with its version.")
+        raise MixedVersions("\n".join(lines))
+    return v
+
+
+def build(sessions, root: Path, out_name="benchmark-report", mixed_versions=False):
     root = Path(root)
     runs = load_runs(sessions)
     # Only Token Forge runs of the plugin build under test (environments/token-forge/manifest.json) count;
@@ -114,6 +158,7 @@ def build(sessions, root: Path, out_name="benchmark-report"):
     # their runs stay in runs/ and are listed in the report
     excluded_tasks = json.loads((root / "benchmark.config.json").read_text()).get("excluded_tasks", {})
     runs = [r for r in runs if r.get("task") not in excluded_tasks]
+    used = check_versions(runs, mixed_versions, f"reports/{out_name}")
     executed = [r for r in runs if r.get("status") in EXECUTED]
     not_run = [r for r in runs if r.get("status") not in EXECUTED]
     by_task = defaultdict(lambda: defaultdict(list))
@@ -133,6 +178,8 @@ def build(sessions, root: Path, out_name="benchmark-report"):
             row[agent]["subagent_calls"] = med([{"x": tool(r, "subagent_calls")} for r in rs], "x")
             row[agent]["completion_rate"] = round(sum(bool(r.get("task_completed")) for r in rs) / len(rs), 3) if rs else None
             row[agent]["statuses"] = [r.get("status") for r in rs]
+            row[agent]["versions"] = sorted({build_label(tf_build(r)) if agent == "token-forge" else f"Claude Code {r.get('claude_code_version')}"
+                                             for r in rs})
             row[agent]["tests_passed"] = [r.get("tests_passed") for r in rs]
             q, t = row[agent]["quality_score"], row[agent]["total_tokens"]
             row[agent]["tokens_per_quality_point"] = round(t / q, 1) if q and t else None
@@ -274,6 +321,7 @@ def build(sessions, root: Path, out_name="benchmark-report"):
             "excluded_runs_other_build": [f"{r['_session']}/{r.get('run_id')}" for r in other_build],
             "excluded_runs_other_claude_code": [f"{r['_session']}/{r.get('run_id')}" for r in other_cc],
             "excluded_tasks": excluded_tasks,
+            "versions_used": used, "mixed_versions": bool(mixed_versions),
             "aggregate": agg, "per_agent": per_agent, "per_category": per_cat, "per_task": per_task,
             "validation": validation,
             "runs": [{k: v for k, v in r.items() if not k.startswith("_")} | {"tools": (r.get("_tel") or {}).get("tools"),
@@ -293,14 +341,19 @@ def render_md(d):
     L = ["# Token Forge vs clean Claude Code — benchmark report", ""]
     s0 = next(iter(d["sessions"].values()), {})
     b = d["token_forge_build"]
+    used = d.get("versions_used") or versions(d.get("runs", []))
+    mixed = d.get("mixed_versions")
+    cap = [f"_Runs used: {provenance(used)}" + (" (mixed versions: Token Forge rows name their build)" if mixed else "") + "._", ""]
+    who = lambda ag, x: LABEL[ag] + (f" {', '.join(x.get('versions', []))}" if mixed and ag == "token-forge" else "")  # noqa: E731
     L += [f"Model `{s0.get('model')}`, Claude Code {s0.get('claude_code_version')}, benchmark {s0.get('benchmark_version')}. "
           f"Token Forge build under test: {b['version']} (plugin sha256 `{(b['plugin_sha256'] or '')[:12]}`, git {(b['plugin_git_commit'] or '')[:8]}{' + uncommitted changes' if b['plugin_git_dirty'] else ''}), lean: {b.get('lean') or 'off'}. "
           f"Sessions: {', '.join(d['sessions'])}.", ""]
+    L += [f"**Versions of the runs in this report:** {provenance(used)}.", ""]
     if d["excluded_runs_other_build"]:
         L += [f"Excluded: {len(d['excluded_runs_other_build'])} Token Forge runs of other plugin builds (listed in the JSON report).", ""]
     for tid, why in (d.get("excluded_tasks") or {}).items():
         L += [f"Excluded task `{tid}`: {why}", ""]
-    L += ["## Executive summary", ""]
+    L += ["## Executive summary", ""] + cap
     ts = a["token_savings_percent"]
     if ts:
         L += [f"Across {a['tasks_paired']} paired tasks ({a['runs_executed']} executed runs, {a['runs_not_executed']} not executed):", "",
@@ -318,14 +371,14 @@ def render_md(d):
         L += ["No paired measurements yet.", ""]
     L += ["Positive savings mean Token Forge used fewer tokens; negative means it used more. "
           "`total tokens` = input + cache writes + cache reads + output, summed over the main session, subagents and nested `claude -p` sessions.", ""]
-    L += ["## Per-task comparison (median over repetitions)", "",
+    L += ["## Per-task comparison (median over repetitions)", "", *cap,
           "| Task | Agent | Runs | Total tokens | Input | Output | Uncached in | Cost $ | Tool calls | Files read | Tests | Quality | Status |",
           "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---|---:|---|"]
     for r in d["per_task"]:
         for ag in AGENTS:
             x = r[ag]
             tests = ",".join("PASS" if t else ("FAIL" if t is False else "n/a") for t in x["tests_passed"])
-            L.append(f"| {r['task']} | {LABEL[ag]} | {r['runs'][ag]} | {fmt(x['total_tokens'])} | {fmt(x['input_tokens'])} | {fmt(x['output_tokens'])} | "
+            L.append(f"| {r['task']} | {who(ag, x)} | {r['runs'][ag]} | {fmt(x['total_tokens'])} | {fmt(x['input_tokens'])} | {fmt(x['output_tokens'])} | "
                      f"{fmt(x['uncached_input_tokens'])} | {fmt(x['total_cost_usd_reported'], 2)} | {fmt(x['tool_calls'])} | {fmt(x['files_read_incl_bash'])} | {tests} | "
                      f"{fmt(x['quality_score'], 1)} | {','.join(map(str, x['statuses']))} |")
     L += ["", "| Task | Token diff | Savings % | Input % | Output % | Thinking % | Uncached % | List cost % | Quality Δ | Tool calls % | Files read % | Lines read % |",
@@ -337,13 +390,13 @@ def render_md(d):
         L.append(f"| {r['task']} | {fmt(x['total_tokens_abs'])} | {fmt(x['token_savings_percent'], 1)} | {fmt(x['input_savings_percent'], 1)} | "
                  f"{fmt(x['output_savings_percent'], 1)} | {fmt(x['thinking_savings_percent'], 1)} | {fmt(x['uncached_input_savings_percent'], 1)} | {fmt(x['list_cost_savings_percent'], 1)} | "
                  f"{fmt(x['quality_diff'], 1)} | {fmt(x['tool_call_diff_percent'], 1)} | {fmt(x['files_read_diff_percent'], 1)} | {fmt(x['lines_read_diff_percent'], 1)} |")
-    L += ["", "## Quality-adjusted efficiency", "", "| Task | Native tokens/quality pt | TF tokens/quality pt | Native quality/Mtok | TF quality/Mtok |", "|---|---:|---:|---:|---:|"]
+    L += ["", "## Quality-adjusted efficiency", "", *cap, "| Task | Native tokens/quality pt | TF tokens/quality pt | Native quality/Mtok | TF quality/Mtok |", "|---|---:|---:|---:|---:|"]
     for r in d["per_task"]:
         L.append(f"| {r['task']} | {fmt(r['native']['tokens_per_quality_point'])} | {fmt(r['token-forge']['tokens_per_quality_point'])} | "
                  f"{fmt(r['native']['quality_per_million_tokens'], 2)} | {fmt(r['token-forge']['quality_per_million_tokens'], 2)} |")
-    L += ["", "## Distribution statistics (all executed runs)", ""]
+    L += ["", "## Distribution statistics (all executed runs)", ""] + cap
     for ag in AGENTS:
-        L += [f"**{LABEL[ag]}** ({pa[ag]['runs']} runs)", "", "| Metric | mean | median | min | max | stdev |", "|---|---:|---:|---:|---:|---:|"]
+        L += [f"**{LABEL[ag]}** ({pa[ag]['runs']} runs; {', '.join(sorted({v for r in d['per_task'] for v in r[ag].get('versions', [])}))})", "", "| Metric | mean | median | min | max | stdev |", "|---|---:|---:|---:|---:|---:|"]
         for k in METRICS:
             x = pa[ag][k]
             if x:
@@ -351,16 +404,16 @@ def render_md(d):
         L.append("")
     if ts:
         L += ["Per-task token savings %: " + ", ".join(f"{k} {ts[k]}" for k in ("mean", "median", "p10", "p25", "p75", "p90")), ""]
-    L += ["## Per-category results", "", "| Category | Tasks | Median savings % | Median quality Δ | Verdict |", "|---|---|---:|---:|---|"]
+    L += ["## Per-category results", "", *cap, "| Category | Tasks | Median savings % | Median quality Δ | Verdict |", "|---|---|---:|---:|---|"]
     for c, x in d["per_category"].items():
         L.append(f"| {c} | {', '.join(x['tasks'])} | {fmt(x['median_token_savings_percent'], 1)} | {fmt(x['median_quality_diff'], 1)} | {x['verdict']} |")
-    L += ["", "## Why: tool and context traces (medians)", "",
+    L += ["", "## Why: tool and context traces (medians)", "", *cap,
           "| Task | Agent | API requests | First-request context | Lines read | Tool-result bytes | Redundant reads | Context precision≈ | Subagents | Nested-session tokens |",
           "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|"]
     for r in d["per_task"]:
         for ag in AGENTS:
             x = r[ag]
-            L.append(f"| {r['task']} | {LABEL[ag]} | {fmt(x['api_requests'])} | {fmt(x['first_request_context_tokens'])} | {fmt(x['lines_read'])} | "
+            L.append(f"| {r['task']} | {who(ag, x)} | {fmt(x['api_requests'])} | {fmt(x['first_request_context_tokens'])} | {fmt(x['lines_read'])} | "
                      f"{fmt(x['tool_result_bytes'])} | {fmt(x['redundant_reads'])} | {fmt(x['context_precision_approx'], 2)} | {fmt(x['subagent_calls'])} | {fmt(x['nested_session_tokens'])} |")
     L += ["", "Context precision is approximate: the share of files read that match the task's `relevant_files` globs. "
           "Files read via `cat`/`sed`/`head` in Bash are detected heuristically.", ""]

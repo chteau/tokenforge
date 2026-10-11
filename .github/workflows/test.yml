@@ -34,6 +34,25 @@ jobs:
           for i in $(seq 20); do node bin/tforge ui --status | grep -q "running at http://127.0.0.1" && break; sleep 1; done
           node bin/tforge ui --status | grep "running at http://127.0.0.1"
           node bin/tforge ui --stop
+      - name: Proxy and command resolution tests
+        run: node --test test/proxy.test.mjs test/portable.test.mjs
+      - name: Proxy daemon
+        shell: bash
+        run: |
+          node bin/tforge proxy --detach --port 7899
+          node bin/tforge proxy --status | grep "running on 127.0.0.1:7899"
+          node bin/tforge proxy --stop
+      - name: tforge claude through a .cmd shim
+        shell: bash
+        run: |
+          mkdir -p shim
+          printf '@echo off\r\nnode "%%~dp0check.js" %%*\r\n' > shim/fakeclaude.cmd
+          echo 'process.exit(process.env.ANTHROPIC_BASE_URL === "http://127.0.0.1:7898" && process.argv[2] === "a \"b\" & %x%" ? 0 : 5)' > shim/check.js
+          PATH="$PWD/shim:$PATH" TFORGE_CLAUDE=fakeclaude TFORGE_PROXY_PORT=7898 node bin/tforge claude 'a "b" & %x%'
+          node bin/tforge proxy --stop
+      - name: Full test suite (informational until it passes on Windows)
+        continue-on-error: true
+        run: node --test test/*.test.mjs
   tmap:
     strategy:
       matrix:
