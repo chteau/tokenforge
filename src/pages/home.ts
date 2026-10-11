@@ -162,5 +162,5 @@ const LEVELS = [
   { k: 'on', p: 'Hides agent-orchestration tools: Workflow, Monitor, Cron, worktrees, NotebookEdit.' },
   { k: 'balanced', p: 'Also hides the 19 built-in skills from Claude. You can still type them. Your skills, subagents and web stay.' },
   { k: 'max', p: 'Also drops the Skill tool, subagents, web tools and the git instructions.' },
-  { k: 'ultra', p: 'Also drops Read, Edit and Write. Claude works through Bash. No image or PDF viewing.' },
+  { k: 'ultra', p: 'Also drops Read, Edit and Write. Claude edits with one tkit edit per step and reads with tread or cat. No image or PDF viewing.' },
 ];

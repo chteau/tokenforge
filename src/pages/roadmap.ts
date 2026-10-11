@@ -17,13 +17,16 @@ const STEPS: [string, string][] = [
   ['Profile the system.', 'CPU, memory, I/O, hook time, worker startup and index cost. Optimize only confirmed bottlenecks.'],
 ];
 
+// A plan item already done in ROADMAP.md ([x]).
+const ok = (s: string) => `<span class="done">Done</span> ${s}`;
+
 const ITEMS: Item[] = [
   {
     prio: 'P0', title: 'Every result names the version that produced it',
     today: 'Every benchmark run records the TokenForge and Claude Code versions, and the environment a hash of the plugin files. But the site’s headline figures come from 0.8.0 runs while its pages show the current version, 0.9.1. The benchmarked version is named only further down the benchmark page.',
     plan: [
-      'Show the TokenForge version, build hash and Claude Code version next to every published figure: site, README, reports.',
-      'Refuse to build a report from runs of different versions, unless it labels each one.',
+      'Show the TokenForge version, build hash and Claude Code version next to every published figure: site, README, reports. README and reports done; the site is not.',
+      ok('Refuse to build a report from runs of different versions, unless it labels each one.'),
     ],
   },
   {
@@ -31,11 +34,11 @@ const ITEMS: Item[] = [
     why: 'An unchanged project does not prove an answer still holds. “Do the tests pass?” asked again after a dependency or environment change is the same text, and may need a different answer.',
     today: 'An earlier answer is replayed only for the same question, from a turn that edited nothing, when no project file (tracked, or untracked and not ignored) has changed since. Prompts that ask to review, verify, check or audit (English and French) skip it. Sending the message again asks Claude; <code>TFORGE_ANSWER_CACHE=0</code> turns it off.',
     plan: [
-      'Never replay an answer to a request to run, test, build or verify something, to a security question, or to a question about the current state (“is it up”, “latest”, “now”).',
-      'Tell questions that ask for information from requests that need an action or a fresh observation. When unsure, ask Claude.',
-      'Include the repo’s identity, the model, the configuration and the relevant dependencies in the cache’s validity, where they affect the answer.',
-      'An explicit, visible bypass that works before sending, not only by sending again.',
-      'Adversarial tests for false positives: the same words with another intent, other languages, a changed environment with unchanged files.',
+      ok('Never replay an answer to a request to run, test, build or verify something, to a security question, or to a question about the current state (“is it up”, “latest”, “now”).'),
+      ok('Tell questions that ask for information from requests that need an action or a fresh observation. When unsure, ask Claude.'),
+      ok('Include the repo’s identity, the model, the configuration and the relevant dependencies in the cache’s validity, where they affect the answer.'),
+      ok('An explicit, visible bypass that works before sending, not only by sending again.'),
+      ok('Adversarial tests for false positives: the same words with another intent, other languages, a changed environment with unchanged files.'),
     ],
   },
   {
@@ -68,7 +71,7 @@ const ITEMS: Item[] = [
     why: 'The Bash router turns some commands into <code>tkit</code> calls or compacts their output. That saves a lot, and it is also where an optimization could change what a command does.',
     today: 'The tests check the rewritten command line. Build and test commands are rewritten only when their flags are fully understood, heredocs are never touched, and a <code>TFORGE_RAW=1</code> prefix runs a command as typed.',
     plan: [
-      'Differential tests: run the original and the rewritten command, compare exit codes and outputs.',
+      ok('Differential tests: run the original and the rewritten command, compare exit codes and outputs.'),
       'Property tests over quoting, pipes, redirections, substitutions, paths with spaces, environment variables and exit codes.',
       'Check that output caps never hide an error at the end of a log.',
       'Compare <code>tkit test</code> with the native test command.',
@@ -93,10 +96,10 @@ const ITEMS: Item[] = [
     why: 'Workers can’t run commands: the driver runs each task’s <code>verify</code> command from the plan.',
     today: 'Checks run in your checkout with a time limit (<code>verifyTimeoutMin</code>, 10 minutes by default). The docs say to read a plan before running it and to build on a branch or a worktree.',
     plan: [
-      'Stricter validation of <code>verify</code> commands.',
+      ok('Stricter validation of <code>verify</code> commands.'),
       'Time limits and working directories enforced for every check.',
       'Side effects of checks isolated.',
-      'For sensitive tasks, checks run in a git worktree or a sandbox, never in the current environment without inspection.',
+      ok('For sensitive tasks, checks run in a git worktree or a sandbox, never in the current environment without inspection.'),
     ],
   },
   {
@@ -108,9 +111,19 @@ const ITEMS: Item[] = [
   },
   {
     prio: 'P2', title: 'Lean levels: measure the whole cost',
-    why: '<code>balanced</code>, <code>max</code> and <code>ultra</code> hide tools: <code>max</code> and <code>ultra</code> hide skills and subagents, <code>ultra</code> also the native Read, Edit and Write. If <code>ultra</code> saves tool definitions but causes more Bash calls, quoting errors or failed edits, the saving can vanish.',
+    why: '<code>balanced</code>, <code>max</code> and <code>ultra</code> hide tools: <code>max</code> and <code>ultra</code> hide skills and subagents, <code>ultra</code> also the native Read, Edit and Write, and asks for edits through <code>tkit edit</code>. If <code>ultra</code> saves tool definitions but causes more Bash calls, quoting errors or failed edits, the saving can vanish.',
     today: 'Each level’s fixed context per request is measured.',
     plan: ['A report per level: tokens, cost, quality, time, attempts and regressions, not only the starting context.'],
+  },
+  {
+    prio: 'P2', title: 'Smaller code reads',
+    why: 'Most of what is left is code read through Bash: in 18 runs, <code>cat</code> returned 345k characters and <code>sed -n</code> 229k, read again on every later call until pruned. Architecture and banking-transfers sit at 55–59%; 3 more points on each would put the median past 60%.',
+    today: 'With lean <code>ultra</code> and the proxy, 6 benchmark tasks save a median 57% of tokens (9 runs per task against 4 native runs, quality unchanged).',
+    plan: [
+      'Replay the recorded commands (no API calls): which <code>cat</code> and <code>sed -n</code> outputs are long enough to fold, and how often the model reads the same lines again after a fold.',
+      'Fold <code>sed -n</code> ranges only where the replay shows no re-read: a range is a deliberate read, and folding one can cost a second call.',
+      'Prune a file’s earlier reads once a later read or an edit of the same file supersedes them.',
+    ],
   },
 ];
 
@@ -146,9 +159,9 @@ const card = (it: Item) => `<article class="card ritem">
 export function roadmap(view: HTMLElement): void {
   view.innerHTML = `
   <header class="page-head">
-    <div class="crumb">Roadmap · updated 2026-10-09</div>
+    <div class="crumb">Roadmap · updated 2026-10-11</div>
     <h1>What comes next</h1>
-    <p>0.9.2 adds no features. It makes the savings safe and checkable: a cache reuses an answer only while it still holds, a rewritten command behaves like the original, and every published number names the version that produced it. This plan follows an external review of the public repo, which read the docs and the benchmark method, not the code or the test suite.</p>
+    <p>0.9.2 makes the savings safe and checkable: a cache reuses an answer only while it still holds, a rewritten command behaves like the original, and every published number names the version that produced it. This plan follows an external review of the public repo, which read the docs and the benchmark method, not the code or the test suite.</p>
   </header>
 
   <div class="grid cols-2" style="align-items:start">

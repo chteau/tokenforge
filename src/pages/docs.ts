@@ -38,12 +38,14 @@ ${pre('TFORGE_LEAN_DEFAULT=off claude')}
 <p>To undo it later, run <code>tforge lean off</code>. It removes exactly the entries TokenForge added, never your own.</p>
 
 <h2>Updates</h2>
-<p>TokenForge is a normal plugin. It never patches Claude Code or wraps the <code>claude</code> binary, so Claude Code’s auto-update keeps working. It edits your settings only for lean levels (above).</p>
+<p>TokenForge is a normal plugin. It never patches Claude Code or wraps the <code>claude</code> binary, so Claude Code’s auto-update keeps working. It edits your settings in two places only, both reversible: the lean level (above) and the <a href="#/docs/proxy">API proxy</a> address.</p>
 <p>To update TokenForge automatically: open <code>/plugin</code>, go to <strong>Marketplaces</strong>, select <code>tokenforge</code> and enable auto-update. Or run this whenever you like:</p>
 ${pre('/plugin marketplace update tokenforge')}
 
 <h2>Uninstall</h2>
-${pre('/plugin uninstall tokenforge@tokenforge')}
+<p><strong>First turn the proxy off</strong>, then uninstall:</p>
+${pre('tforge proxy off              # or /tokenforge:proxy off\n/plugin uninstall tokenforge@tokenforge')}
+<p>Without the first step your settings keep sending Claude Code’s requests to a proxy that no longer runs, and every request fails. To fix it by hand, remove <code>ANTHROPIC_BASE_URL</code> from the <code>env</code> of <code>~/.claude/settings.json</code>.</p>
 <p>Nothing is left behind except <code>.forge/</code> folders in the projects where you used it. If you want the lean entries gone too, run <code>tforge lean off</code> first.</p>`,
   },
   {
@@ -57,7 +59,7 @@ ${leanTable()}
   <li><strong><code>on</code></strong> hides agent-orchestration tools: Workflow, Monitor, Cron*, ScheduleWakeup, RemoteTrigger, PushNotification, SendMessage, ListAgents, TaskStop, DesignSync, ReportFindings, worktrees, NotebookEdit.</li>
   <li><strong><code>balanced</code></strong> (default) also marks Claude Code’s 19 built-in skills <code>user-invocable-only</code>. Claude no longer sees them, but you can still type them as slash commands. Your own skills, plugin skills, subagents and web tools stay.</li>
   <li><strong><code>max</code></strong> also hides the Skill tool, subagents (<code>Task</code>), <code>WebFetch</code>/<code>WebSearch</code> and Claude Code’s git instructions.</li>
-  <li><strong><code>ultra</code></strong> also hides <code>Read</code>/<code>Edit</code>/<code>Write</code>. Claude reads and edits files with Bash (<code>sed -n</code>, <code>cat &gt; file</code>, scripts). No image or PDF viewing.</li>
+  <li><strong><code>ultra</code></strong> also hides <code>Read</code>/<code>Edit</code>/<code>Write</code>. A line in the session-start policy sends edits to one <code>tkit edit</code> per step and new files to <code>cat &gt;</code>; Claude reads code with <code>tread</code> or <code>cat</code>, which <code>tview</code> folds. No image or PDF viewing.</li>
 </ul>
 
 <h2>Change the level</h2>
@@ -72,8 +74,36 @@ ${pre('/tokenforge:lean balanced     # inside Claude Code\ntforge lean max      
 <p>Each level also sets when 1M-context sessions compact (<code>autoCompactWindow</code>): at 400k tokens for <code>on</code> and <code>balanced</code>, 300k for <code>max</code>, 200k for <code>ultra</code>, instead of near 1M. Every request re-reads the whole context; replaying 14 days of sessions, 400k cut main-session input 40% and subagent input 17%, at one compaction per ~340 calls. Models with a 200k window are unaffected. A value you set yourself, or pick with <code>/autocompact</code>, wins, and <code>off</code> removes only TokenForge’s. Installs from before 0.9.0 get it once, with a notice.</p>
 
 <h2>Which one to use</h2>
-<p>Keep <code>balanced</code> unless you have a reason. On short tasks this fixed floor is most of the cost, so going lower helps. <code>ultra</code> is the smallest, but Claude loses image and PDF viewing.</p>
+<p>Keep <code>balanced</code> unless you have a reason. On short tasks this fixed floor is most of the cost, so going lower helps. <code>ultra</code> is the smallest: Claude edits through <code>tkit edit</code> instead of the native tools, and loses image and PDF viewing.</p>
 <p><code>max</code> and <code>ultra</code> hide the Skill and subagent tools that skill plugins such as <a href="https://github.com/magicmoux/SpecAudit">SpecAudit</a> run on: use <code>balanced</code> with them.</p>`,
+  },
+  {
+    slug: 'proxy', title: 'API proxy',
+    lead: 'A local proxy between Claude Code and the API. It logs sizes, compresses new tool results and prunes stale context. On by default since 0.9.2, and optional.',
+    body: () => `
+<h2>On by default</h2>
+<p>The first session after install starts the proxy in the background on <code>127.0.0.1:7879</code>. Once it answers, <code>ANTHROPIC_BASE_URL=http://127.0.0.1:7879</code> goes into the <code>env</code> of your Claude Code user settings, and sessions started from then on go through it. It is not set when you already route requests elsewhere (your own <code>ANTHROPIC_BASE_URL</code>, Bedrock, Vertex or Foundry).</p>
+${pre('TFORGE_PROXY=0 claude         # before the first session: never turn it on\ntforge proxy off              # or /tokenforge:proxy off\ntforge proxy on\ntforge proxy --status')}
+<p><code>off</code> removes only the entry TokenForge added. Claude Code reads the address once per session, so the hooks restart a stopped proxy at session start, at every prompt and after every tool call, and tell you how to fix it if they can’t.</p>
+<div class="callout"><b>Before uninstalling</b>, run <code>tforge proxy off</code>. Otherwise every request goes to a proxy that no longer runs, and fails (<a href="#/docs/install">Install</a>).</div>
+
+<h2>What it does</h2>
+<ul>
+  <li><strong>Logs sizes</strong> of every request: system prompt, tool definitions, tool results, and the usage the API reports. No text.</li>
+  <li><strong>Compresses tool results the first time they are sent.</strong> Whole-file Reads of code fold long bodies (line numbers kept), Bash output is cleaned and capped with the full text saved to a file, large JSON is crushed. Shell reads (<code>cat</code>, <code>sed -n</code>, <code>head</code>, <code>tview</code>) are left whole: Claude edits from them. Each result is remembered, so later requests resend the same bytes and the prompt cache holds.</li>
+  <li><strong>Prunes stale context.</strong> A file read again or rewritten, a command run again, a test run superseded by a later one, a written body once Claude has moved on: each becomes a one-line stub saying why. Thinking from earlier turns is dropped. Pruning makes the API write the cache again, so in the default <code>cost</code> mode it goes only on an expired cache, or when the cache reads saved outweigh the rewrite. <code>TFORGE_PROXY_PRUNE=tokens</code> prunes more often; <code>off</code> stops it.</li>
+</ul>
+<p>Works with a subscription login or an API key: the proxy forwards every header as sent. If a request cannot be parsed, it goes out unchanged. It also serves Codex (OpenAI Responses API); see the README.</p>
+
+<h2>Without the default</h2>
+<p><code>tforge claude</code> runs one Claude Code session through the proxy, starting it if needed and restarting it if it stops. <code>tforge proxy</code> runs it in a terminal, <code>--detach</code> in the background, <code>--stop</code> stops it. <code>tforge run --proxy</code> sends <a href="#/docs/workers">workers</a> through it.</p>
+
+<h2>Report</h2>
+${pre('tforge proxy report [--days N]')}
+<p>Sums the logged requests and shows cache breaks with a probable cause (system prompt, tool definitions or an earlier message changed, or the cache expired), how Edits went on files whose Read was folded, what was pruned, and how much thinking each request sent back.</p>
+
+<h2>Privacy</h2>
+<p>The proxy listens on <code>127.0.0.1</code> only and rejects other Host headers. Its request log holds sizes and token counts only. Two files hold content, readable by you only and dropped after 14 days: the memo of compressed results, and the full outputs that were capped. Settings for the port, pruning, caps and the prompt-cache TTL are in <a href="#/docs/config">Configuration</a>.</p>`,
   },
   {
     slug: 'dashboard', title: 'Dashboard',
@@ -144,10 +174,11 @@ ${pre('tforge recall budget alerts\ntforge recall --session &lt;ID&gt;     # one
 <h2>How it works</h2>
 <ul>
   <li>You ask a question you already asked in this project.</li>
-  <li>That earlier turn changed no files.</li>
+  <li>That earlier turn changed no files, and the repo (path and remotes), branch, commit, working tree contents, dependency files, terse level and model are the same. Changes are found by content, not modification time.</li>
   <li>The prompt is <strong>not sent to Claude</strong>. You see the earlier answer and its date. Cost: 0 tokens.</li>
 </ul>
-<p>Want a fresh answer? <strong>Send the same message again</strong>, and it goes to Claude as usual.</p>
+<p>Only information questions are replayed. A request to run, test, build, verify or deploy, a security question, or a question about the current state (“is it up”, “latest”, “now”) always goes to Claude, in English and French. When unsure, it goes to Claude.</p>
+<p>Want a fresh answer? Put <code>!nocache</code> as the first or last word of the prompt, or <strong>send the same message again</strong>, and it goes to Claude as usual.</p>
 
 <h2>Similar questions</h2>
 <p>A closely similar earlier question (for example “I forgot the dev admin password”) is not blocked. Claude gets the earlier answer as one short hint instead of searching for it.</p>
@@ -348,12 +379,13 @@ ${pre(`{
         ['TFORGE_VIEW_CHARS / _FOLD / _LINES', '12000 / 8 / 40', '<code>tview</code>: dump size that folds, body lines that fold, file lines that fold'],
         ['TFORGE_CHECKPOINT', '', '<code>0</code> stops writing snapshots'],
         ['TFORGE_SNAPSHOT_PROMPTS / _KEEP', '6 / 50', 'Requests per snapshot chunk; most chunks kept per project'],
-        ['TFORGE_HANDOFF_MAX_AGE_H', '72', 'Ignore older handoffs; an older automatic one is deleted'],
+        ['TFORGE_HANDOFF_MAX_AGE_H', '336', 'Ignore older handoffs; an older automatic one is moved to <code>.forge/handoffs/</code>'],
         ['TFORGE_RECALL', '', '<code>inject</code> restores snapshot loading at start; <code>0</code> turns the recall hint off'],
         ['TFORGE_ANSWER_CACHE', '', '<code>0</code> turns off repeated-question answers'],
         ['TFORGE_LAZY', '', '<code>0</code> drops the scope rules from the policy'],
         ['TFORGE_TERSE', '', '<code>full</code>, <code>lite</code> or <code>off</code>; overrides the saved choice'],
-        ['TFORGE_MAP', '', '<code>1</code> adds the tmap hint at session start'],
+        ['TFORGE_MAP', '', '<code>0</code>: no repo map at session start; <code>1</code>: the one-line tmap hint instead'],
+        ['TFORGE_MAP_CHARS', '3000', 'Size cap of the repo map loaded at session start'],
         ['TFORGE_REDIRECT', '', '<code>1</code> answers identifier Grep calls, identifier greps in Bash, and big whole-file reads from tmap'],
         ['TFORGE_KIT_HOOKS', '', '<code>0</code> disables all tkit hooks (policy, Bash router, prompt router, MCP distill)'],
         ['TFORGE_KIT_POLICY / _ROUTE / _DISTILL', '', '<code>0</code> disables that one hook'],
@@ -370,6 +402,18 @@ ${pre(`{
         ['TFORGE_INSTRUCTIONS', '', '<code>0</code> stops adding the instruction files Claude Code did not load'],
         ['TFORGE_UI', '', '<code>0</code> stops the dashboard from starting with your first session'],
         ['TFORGE_UI_PORT', '7878', 'Dashboard port (the next free one is used if taken)'],
+        ['TFORGE_PROXY', '', '<code>0</code> before the first session: the <a href="#/docs/proxy">API proxy</a> is not turned on by default'],
+        ['TFORGE_PROXY_PORT', '7879', '<code>tforge proxy</code> / <code>tforge claude</code> port, and the one the default setup uses'],
+        ['TFORGE_PROXY_PRUNE', 'cost', 'Stale-context pruning: <code>cost</code>, <code>tokens</code> or <code>off</code>'],
+        ['TFORGE_PROXY_PRUNE_WRITES', '', '<code>0</code>: written bodies and ran scripts are pruned only when read back or rewritten, not by age'],
+        ['TFORGE_PROXY_PRUNE_MIN', '8000', 'Stale characters needed before a <code>tokens</code> batch goes'],
+        ['TFORGE_PROXY_COMPRESS / _FOLD', '', '<code>0</code>: the proxy only logs / does not fold whole-file Reads'],
+        ['TFORGE_PROXY_CAP', '16000', 'Characters of Bash and other text output the proxy keeps (head and tail); <code>0</code>: no cap'],
+        ['TFORGE_PROXY_MEMO_MB', '64', 'Size cap of the proxy’s memo of compressed results'],
+        ['TFORGE_PROXY_UPSTREAM', '', 'Where the proxy forwards (default: an existing <code>ANTHROPIC_BASE_URL</code>, else the Anthropic API)'],
+        ['TFORGE_PROXY_TTL', '', '<code>5m</code>: 5-minute prompt cache instead of 1 hour (the default for <code>claude -p</code>); <code>1h</code>: never change it'],
+        ['TFORGE_PROXY_OPENAI_UPSTREAM', 'https://api.openai.com', 'Where the proxy forwards <code>/v1/responses</code> (Codex)'],
+        ['TFORGE_RUN_PROXY', '', '<code>1</code>: <code>tforge run</code> workers go through the proxy, like <code>--proxy</code>'],
       ];
       return `
 <p>Set them in your shell profile, or for one session: <code>TFORGE_LAZY=0 claude</code>.</p>
@@ -407,6 +451,9 @@ ${rows.map(([k, d, w]) => `<tr><td><code>${k}</code></td><td>${d ? `<code>${d}</
   <li>MCP distill and <code>tkit distill</code> send large outputs to Haiku through Claude Code (<code>claude -p</code>), like any other model call in your account. <code>TFORGE_KIT_DISTILL=0</code> turns the hook off.</li>
 </ul>
 
+<h2>API proxy</h2>
+<p>On by default since 0.9.2, on <code>127.0.0.1</code> only. Its log holds sizes and token counts; compressed results and capped outputs are kept, readable by you only, for 14 days. See <a href="#/docs/proxy">API proxy</a>.</p>
+
 <h2>Turning things off</h2>
 <p><code>TFORGE_UI=0</code> disables the dashboard auto-start, and <code>tforge ui --stop</code> stops it. See <a href="#/docs/config">Configuration</a> for every switch.</p>`,
   },
@@ -441,6 +488,20 @@ ${rows.map(([k, d, w]) => `<tr><td><code>${k}</code></td><td>${d ? `<code>${d}</
     slug: 'changelog', title: 'Changelog',
     lead: 'What changed in the latest releases.',
     body: () => `
+<h2>0.9.2</h2>
+<p>Correctness first: a safer answer cache, versioned benchmark figures, memory that survives resume and compaction, subagent work in snapshots. And the API proxy, now on by default. On 6 benchmark tasks, lean <code>ultra</code> with the proxy used a median 57% fewer tokens and cost 47% less than plain Claude Code, with quality unchanged (9 runs per task against 4 native runs).</p>
+<ul>
+  <li><strong>API proxy on by default</strong> (optional): on <code>127.0.0.1:7879</code>, it logs sizes, compresses tool results the first time they are sent and prunes stale context, by default only when that saves money (<code>cost</code> mode). <code>TFORGE_PROXY=0</code> before the first session, or <code>tforge proxy off</code>, turns it off; run <code>tforge proxy off</code> before uninstalling (<a href="#/docs/proxy">API proxy</a>).</li>
+  <li><strong>Safer answer cache</strong>: only information questions are replayed, never a request to run, test, build, verify or deploy, a security question or a question about the current state. A replay needs the same repo, branch, commit, working tree contents, dependency files, terse level and model, compared by content. <code>!nocache</code> as the first or last word skips it (<a href="#/docs/repeated">Repeated questions</a>).</li>
+  <li><strong>Versioned figures</strong>: bench reports and charts name the TokenForge version, build hash and Claude Code version, and refuse to mix versions unless each row is labelled. <code>tforge version</code> prints the build hash.</li>
+  <li><strong>Resume and compaction</strong>: a resumed session gets only what changed while it was away; after a compaction, this session’s own checkpoint is reloaded. Snapshots now include subagents, and automatic handoffs are kept 14 days instead of 72 hours.</li>
+  <li><strong>Lean <code>ultra</code></strong> adds a policy line: edits go through one <code>tkit edit</code> per step, new files through <code>cat &gt;</code>. <code>tkit edit</code> (tmap 0.5.1) also takes <code>new</code> and <code>append</code> bodies left unclosed (<a href="#/docs/lean">Lean levels</a>).</li>
+  <li><strong>Repo map at session start</strong> (<code>tmap tree</code>, two levels, 3000 characters), so the first call need not list the repo. <code>TFORGE_MAP=0</code> turns it off.</li>
+  <li><strong>Skill plugins</strong>: <code>stateFiles</code> reloads a skill’s state files, <code>subagentSkip</code> leaves chosen agent types alone, <code>leanKeep</code> keeps tools a lean level would deny, and agents with their own definition no longer get TokenForge’s scope and planning rules.</li>
+  <li><strong>Bash router fixes</strong>, found by differential tests that run the original and the rewritten command: env prefixes with spaces, <code>$VARS</code>, globs, braces and pipes after a rewritten test command now behave as typed.</li>
+  <li><strong>Workers</strong>: a <code>sensitive</code> task runs its check in a temporary git worktree; destructive <code>verify</code> commands get a warning in <code>tforge validate</code>.</li>
+  <li><strong>Codex and opencode</strong>: plugin files for OpenAI Codex, <code>tforge opencode install</code> for opencode, and <code>tkit</code> found on both.</li>
+</ul>
 <h2>0.9.1</h2>
 <ul>
   <li><strong>Quieter context alert</strong>: your next message gets it once the context passes the budget, then each time the context doubles, instead of every 10k tokens and after tool calls. A session started on 0.7.0–0.7.2 keeps that version’s blocking alert (“A hook blocked your prompt”) until it ends: after updating, start a new session.</li>

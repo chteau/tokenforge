@@ -7,7 +7,7 @@ export const LEAN_HIDES: Record<string, string> = {
   on: 'Agent-orchestration tools (Workflow, Monitor, Cron*, SendMessage, worktrees, NotebookEdit…).',
   balanced: 'Also Claude Code’s 19 built-in skills (still typeable as slash commands).',
   max: 'Also the Skill tool, subagents, WebFetch/WebSearch and the git instructions.',
-  ultra: 'Also Read/Edit/Write: Claude reads and edits files with Bash.',
+  ultra: 'Also Read/Edit/Write: Claude edits with tkit edit and reads with tread or cat.',
 };
 
 export function leanChart(box: HTMLElement): void {

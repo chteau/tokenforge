@@ -445,3 +445,4 @@ ol.rsteps { list-style: none; padding: 0; margin: 12px 0 0; }
 .ritem .today { font-size: 13.5px; background: var(--wash); padding: 8px 12px; }
 .ritem .today b { color: var(--text-primary); }
 @media (max-width: 640px) { table.stack td[data-l]::before { content: attr(data-l) ": "; color: var(--muted); } }
+.ritem .done { display: inline-block; font-size: 11px; font-weight: 600; letter-spacing: .02em; text-transform: uppercase; color: var(--good); border: 1px solid currentColor; border-radius: 4px; padding: 0 5px; margin-right: 4px; vertical-align: 1px; }
