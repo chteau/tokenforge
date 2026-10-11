@@ -8,7 +8,7 @@
 // the background gc when it is due. As a SubagentStart hook it injects the policy and the instruction files.
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { projectRoot } from '../lib/util.mjs';
 import { TERSE_RULES, globRe, listSetting, readConfig, terseLevel, writeConfig } from '../lib/config.mjs';
@@ -18,7 +18,9 @@ import { hostName, isMain, kitPathPrefix, kitHookOff, skippedAgent, unattended }
 import { maybeGc } from '../lib/gc.mjs';
 import { OMITS_INSTRUCTIONS, digest, writeGiven } from '../lib/instructions.mjs';
 import { applyDefaultOnce, applyKeep, applyWindowOnce, leanStatus } from '../lib/lean.mjs';
+import { applyProxyDefaultOnce, proxyGuard } from '../lib/proxy-setup.mjs';
 import { autoStatusline } from '../lib/limits.mjs';
+import { existingBinary } from '../lib/tmapbin.mjs';
 import { memoryHint } from '../lib/memory.mjs';
 import { updateNotice } from '../lib/update-check.mjs';
 
@@ -31,6 +33,57 @@ const MAP_HINT =
   'Code search (tokenforge tmap): `tmap find <words>` gives ranked `path:start-end signature` lines; `tmap tree [dir|file]` gives a map or outline; ' +
   '`tmap sym|callers|callees <name>`. Use it before Grep or whole-file reads, then Read only the returned line ranges.';
 
+// Repo map, preloaded (default): the first call of most tasks lists the repo (`git ls-files`, `ls -R`, `tree`), and
+// that listing is re-read on every later call. The tmap outline (folders, files, their top names) answers it before
+// any call. Capped: long lines are cut and the map stops at MAP_CHARS. Skipped for tiny repos, without the tmap
+// binary, or when tmap takes longer than MAP_TIMEOUT_MS (a first index of a huge repo). TFORGE_MAP=0: off;
+// TFORGE_MAP=1: the hint above instead of the map.
+const MAP_CHARS = Number(process.env.TFORGE_MAP_CHARS) || 3000;
+const MAP_LINE = 110;
+const MAP_MIN_FILES = 8;
+const MAP_TIMEOUT_MS = 3000;
+export function repoMap(root, { bin = existingBinary(), maxChars = MAP_CHARS } = {}) {
+  if (!bin) return null;
+  const tree = (depth) => {
+    try {
+      const r = spawnSync(bin, ['tree', '-d', String(depth), '-C', root], { encoding: 'utf8', timeout: MAP_TIMEOUT_MS, maxBuffer: 8 << 20, windowsHide: true });
+      return r.status === 0 && r.stdout ? r.stdout.trimEnd().split('\n') : null;
+    } catch {
+      return null;
+    }
+  };
+  let lines = tree(2);
+  if (!lines) return null;
+  // too long with every file's top names: file names only, a folder's files on shared lines (the whole tree rather
+  // than half of it)
+  const size = (ls) => ls.reduce((a, l) => a + Math.min(l.length, MAP_LINE) + 1, 0);
+  if (size(lines) > maxChars) {
+    const packed = [];
+    for (const l of lines) {
+      const m = /^(\s+)([^\s:]+): /.exec(l);
+      const last = packed[packed.length - 1];
+      if (m && last?.files && last.indent === m[1] && last.text.length + m[2].length + 2 <= MAP_LINE) last.text += `, ${m[2]}`;
+      else packed.push(m ? { files: true, indent: m[1], text: m[1] + m[2] } : { text: l });
+    }
+    lines = packed.map((x) => x.text);
+  }
+  const files = Number(/\((\d+) files?/.exec(lines[0] || '')?.[1]);
+  if (!(files >= MAP_MIN_FILES)) return null;
+  const head = 'Repo map (tmap; `tmap tree DIR|FILE` outlines more, `tmap find WORDS` locates code): no need to list the repo.';
+  const out = [head];
+  let n = head.length;
+  for (const l of lines) {
+    const line = l.length > MAP_LINE ? l.slice(0, MAP_LINE - 1) + '…' : l;
+    if (n + line.length + 1 > maxChars) {
+      out.push('  … (cut; tmap tree DIR for the rest)');
+      break;
+    }
+    out.push(line);
+    n += line.length + 1;
+  }
+  return out.join('\n');
+}
+
 // Always-on efficiency policy. Paid on every call, so it stays short (~300 tokens, ~100 more with the default
 // planning line). Measured in bench/: tool results are 80-95% of context growth, and every result is re-read on
 // every later call, so the rules target result size and call count. Off: TFORGE_KIT_HOOKS=0 or TFORGE_KIT_POLICY=0.
@@ -42,7 +95,7 @@ export function kitPolicy(quiet = true, subagent = false, own = false) {
   if (kitHookOff('TFORGE_KIT_POLICY')) return null;
   const plan = own ? '' : process.env.TFORGE_PLAN ?? (subagent ? '' : 'look');
   return [
-    'tokenforge: tool results are re-read on every later call: keep them small, calls few. Read code in ONE call, not grep then sed: `tread NAME Type.method path:40-80 "path:/regex/"` prints definitions by name, line ranges, or the definition around each match, across files. Batch reads (<25k chars); edit each file in one call; create new files several per call (`tkit edit` `@@ path new`, not `cat >`). Independent shell commands: ONE `tkit batch "a" "b"`; throwaway code (math, parsing, a try): `tkit eval py|js|sh <<\'EOF\'`, sandboxed, no scratch files.' +
+    'tokenforge: tool results are re-read on every later call: keep them small, calls few. Read code in ONE call, not grep then sed: `tread NAME Type.method path:40-80 "path:/regex/"` prints definitions by name, line ranges, or the definition around each match, across files. Batch reads (<25k chars); edit each file in one call; new files: several per call (`tkit edit` `@@ path new`, not `cat >`). Independent calls: in one message; shell ones: ONE `tkit batch "a" "b"`; throwaway code (math, parsing): `tkit eval py|js|sh <<\'EOF\'`, sandboxed, no scratch files.' +
       (quiet ? ' No text between tool calls ("Now X."): just call the tool; text only in the final answer.' : ''),
     'Build/test output is compacted (tkit test [FILTER], tkit check). Changed code: run relevant checks once, at the end; read-only work: none; never re-run to double-check.',
     // "Lazy, not negligent" (adapted from ponytail without its challenge-the-requirement mode, which skips
@@ -286,6 +339,18 @@ function leanDefault() {
     : null;
 }
 
+// Shown to the user only. Proxy on by default (lib/proxy-setup.mjs): written once, effective next session.
+async function proxyDefault() {
+  try {
+    const r = await applyProxyDefaultOnce();
+    return r
+      ? `tokenforge: from your next session, Claude Code's requests go through the local tokenforge proxy (${r.url}, set in your Claude Code settings): it drops context the conversation made stale and shrinks old tool results. Off: \`tforge proxy off\` or /tokenforge:proxy off. Before uninstalling tokenforge, run \`tforge proxy off\` first.`
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 // The status-line shim lives outside the plugin (it survives updates) and loads lib/estimate.mjs from here.
 const PLUGIN_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 function statusline() {
@@ -383,7 +448,7 @@ export function reloadParts(cwd, source, sessionId) {
   return parts;
 }
 
-function main() {
+async function main() {
   let input = {};
   try {
     input = JSON.parse(fs.readFileSync(0, 'utf8'));
@@ -420,6 +485,8 @@ function main() {
     if (d && !b) notices.push(d);
     const lean = leanDefault();
     if (lean) notices.push(lean);
+    const px = unattended() ? null : await proxyDefault();
+    if (px) notices.push(px);
     const sl = statusline();
     if (sl) notices.push(sl);
   }
@@ -430,8 +497,12 @@ function main() {
   const level = terseLevel();
   if (!resume) {
     if (level !== 'off') parts.push(TERSE_RULES[level]);
-    // Opt-in: in A/B runs the hint alone never got tmap used and slightly raised token use.
+    // In A/B runs the hint alone never got tmap used and slightly raised token use: TFORGE_MAP=1 keeps it opt-in.
     if (process.env.TFORGE_MAP === '1') parts.push(MAP_HINT);
+    else if (process.env.TFORGE_MAP !== '0' && !kitHookOff('TFORGE_KIT_POLICY')) {
+      const map = repoMap(cwd);
+      if (map) parts.push(map);
+    }
     const kit = kitPolicy(level !== 'full', false, own);
     if (kit) parts.push(kit);
     // Codex and opencode do not put the plugin's bin/ on PATH.
@@ -445,6 +516,11 @@ function main() {
     const c = clearNotice(cwd, reload.some((p) => p.startsWith('tokenforge checkpoint') || p.startsWith('tokenforge state file')));
     if (c) notices.push(c);
   }
+  // sessions started with the proxy in their settings send their first request soon after this
+  try {
+    const down = await proxyGuard();
+    if (down) notices.push(down);
+  } catch {}
   const notice = notices.join('\n') || null;
   if (!parts.length && !notice) return;
   const out = {};

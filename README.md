@@ -182,9 +182,9 @@ It writes a one-line plugin that loads tokenforge from the clone, so `git pull` 
 
 ### Updates
 
-tokenforge is a normal plugin. It never patches Claude Code, wraps the `claude` binary or edits your settings files, so Claude Code's own auto-update keeps working as usual. To update tokenforge itself automatically, open `/plugin`, go to **Marketplaces**, select `tokenforge` and enable auto-update. Otherwise run `/plugin marketplace update tokenforge` whenever you like.
+tokenforge is a normal plugin. It never patches Claude Code or wraps the `claude` binary, so Claude Code's own auto-update keeps working as usual. It writes to your Claude Code settings in two places only, both reversible: the lean tool level (`tforge lean off`) and the proxy address (`tforge proxy off`). To update tokenforge itself automatically, open `/plugin`, go to **Marketplaces**, select `tokenforge` and enable auto-update. Otherwise run `/plugin marketplace update tokenforge` whenever you like.
 
-To uninstall, run `/plugin uninstall tokenforge@tokenforge`. Nothing is left behind except `.forge/` folders in the projects where you used it.
+To uninstall, **first run `tforge proxy off`** (or `/tokenforge:proxy off`), then `/plugin uninstall tokenforge@tokenforge`. Without that step your settings keep sending Claude Code's requests to the proxy, which no longer runs, and every request fails; removing `ANTHROPIC_BASE_URL` from the `env` of `~/.claude/settings.json` fixes it by hand. Nothing else is left behind except `.forge/` folders in the projects where you used it.
 
 ## Use
 
@@ -269,18 +269,26 @@ A local dashboard starts in the background with your first session. Open it with
 
 **Privacy.** The server listens on 127.0.0.1 only and rejects other Host headers, which blocks DNS rebinding. It answers GET requests, plus one POST for the Settings page (lean level, skills, terse), accepted only from its own page (same-origin `Origin` and a JSON body). It loads nothing from the internet. It reads your transcripts incrementally: only new bytes, with a cache in `~/.cache/tokenforge/`. From transcripts it keeps and serves numbers only, never prompt, reply or file text. Three exceptions: the session page's "Where the tokens went" table, which shows the command or file path behind each costly tool result (read on demand, never cached); the Memory page, which shows prompt and reply snippets and file names from that project's sessions (the index behind it, in `~/.cache/tokenforge/memory/`, holds those snippets); and a project's own `.forge/snapshots/`, shown on its project page so you can see what `/clear` will reload; only files listed in that folder can be requested. `TFORGE_UI=0` disables the auto-start, and `tforge ui --stop` stops it.
 
-### API proxy (optional, off unless you start it)
+### API proxy (on by default, optional)
 
-`tforge claude` runs Claude Code through a local proxy (`ANTHROPIC_BASE_URL=http://127.0.0.1:7879`), started in the background if needed; `tforge proxy` runs it in a terminal, `--detach` in the background, `--stop` stops it. Works with a subscription login or an API key: the proxy forwards every header as sent. It does two things:
+Since 0.9.2 the first session after install turns the proxy on: it starts in the background on `127.0.0.1:7879`, and only once it answers, `ANTHROPIC_BASE_URL=http://127.0.0.1:7879` goes into the `env` of your Claude Code user settings. Sessions started from then on go through it (the session that set it does not). It is not set when you already route requests elsewhere (your own `ANTHROPIC_BASE_URL`, Bedrock, Vertex or Foundry), nor when `TFORGE_PROXY=0` is set before that first session. Turn it off at any time with `tforge proxy off` or `/tokenforge:proxy off` (only the entry tokenforge added is removed), back on with `tforge proxy on`; `tforge proxy --status` says where things stand.
+
+Claude Code reads the address once per session, so a stopped proxy would make every request fail. The hooks restart it at session start, at every prompt and after every tool call (a file read and a signal when it runs); if it cannot be restarted, you get a message saying how to start it or turn it off. Before uninstalling tokenforge, run `tforge proxy off` (see Updates).
+
+Without the default, `tforge claude` runs Claude Code through the proxy for one session, started in the background if needed; `tforge proxy` runs it in a terminal, `--detach` in the background, `--stop` stops it. Works with a subscription login or an API key: the proxy forwards every header as sent. It does three things:
 
 - **Logs** every request: sizes of the system prompt, tool definitions and tool results, and the usage the API reports (input, cache reads, cache writes, output). `tforge proxy report [--days N]` sums them, and also shows:
   - **Cache breaks.** A request that reads much less from cache than the previous request of the same conversation had in context. The report gives a probable cause: the system prompt changed, the tool definitions changed, an earlier message changed, or the cache expired (more than 5 minutes, or 1 hour with a 1h TTL). It also says how many tokens were written again.
   - **Folded Reads.** How many Edits hit a file whose Read went out folded, how many of those failed because the text was not found, and how many Reads went back into folded bodies. These say whether folding saves more than it costs.
 - **Compresses tool results the first time they are sent.** A whole-file Read above 12k characters (code, not prose or markup) folds long definition bodies, keeping every kept line's number and `Read offset=N limit=M` in place of each fold; partial reads, which Edit works from, stay whole. Bash and other text output loses colors and progress-bar redraws, repeated lines become a count, and output above 16k characters keeps its head and tail with the full text saved to a file the model can grep. When the cut output is a search result (`path:line:` lines or a list of paths), it starts with the match count for every file, or every folder, so the cut part still shows where the matches are. Large JSON loses its indentation, and long arrays keep their first, error-looking and last items.
 
+- **Prunes stale context.** A tool result made obsolete later in the conversation is replaced by a one-line stub saying why: a file read that was read again whole or rewritten later (Read, `cat`, `sed -n`, `head`, `tview`, including chains like `cat a b; sed -n '1,40p' c`; every file must be covered), the body of a file written and then read back whole or rewritten, a command run again identically, and a test or build run (`npm test`, `pytest`, `cargo test`, `go test`, `make`, `tkit test`…) superseded by the same run after a change. Thinking blocks from turns before the last user prompt are dropped too. The newest result is never pruned, a failed later read covers nothing, and an append (`cat >>`) never counts as a rewrite.
+
+  Pruning changes earlier content, so the API writes the cache again from that point. It therefore goes in batches, each decision remembered so every later request sends the same bytes. `TFORGE_PROXY_PRUNE` picks when: `tokens` (default) prunes once at least `TFORGE_PROXY_PRUNE_MIN` characters (8000) are stale: fewer tokens per request, but on a warm cache the rewrite can cost more dollars than it saves; `cost` prunes when the cache has expired anyway (free), or on a warm cache only when the cache reads saved over the next requests outweigh the rewrite; `off` prunes nothing new. Offline, on long interactive sessions of ours, `tokens` cut 1-17% of input tokens; short single-task sessions have almost nothing stale. `tforge proxy report` shows what was pruned, in how many batches, and how many requests Claude Code sent with its own `context_management`.
+
 The prompt cache is why only new results change: if earlier content differs from the last request, the API writes it to the cache again at 1.25× instead of reading it at 0.1×. Each compressed result is remembered by its tool_use_id, so every later request sends the same bytes. A result the proxy first passed unchanged (it was started mid-session) is never touched later, and one that Claude Code itself rewrote passes as sent. If a request cannot be parsed, it goes out unchanged. Once an Edit fails with "not found" on a file whose Read was folded, later Reads of that file are sent whole.
 
-Claude Code keeps `ANTHROPIC_BASE_URL` for the whole session, so `tforge claude` checks every 2 seconds that the proxy is still running and restarts it on the same port if it stopped. An error in one request is logged in `~/.cache/tokenforge/proxy.log` and does not stop the proxy.
+Claude Code keeps `ANTHROPIC_BASE_URL` for the whole session, so (besides the hooks) `tforge claude` checks every 2 seconds that the proxy is still running and restarts it on the same port if it stopped. An error in one request is logged in `~/.cache/tokenforge/proxy.log` and does not stop the proxy.
 
 To estimate the savings on your own past sessions without calling the API, run `node bench/scripts/proxy-replay.mjs [--days 30]`. It replays the tool results in your transcripts through the same compression and prints only totals.
 
@@ -327,8 +335,10 @@ Output for "where is orbit speed handled":
 | `codegraph query` | ~220 tokens |
 | `tmap find orbit speed` | **~70 tokens**, with the right definition and its line range |
 
+**Repo map at session start (default since 0.9.2, not benchmarked yet).** Most tasks begin by listing the repo, and that listing is re-sent with every later request. Session start now loads the `tmap tree` outline instead (folders, files and their top definitions, two levels deep; file names only when that is too long), capped at 3000 characters (`TFORGE_MAP_CHARS`, ~750 tokens). Skipped for repos under 8 files, without the tmap binary, or when tmap takes over 3 seconds. `TFORGE_MAP=0` turns it off.
+
 **Where it pays off:** the `forge` skill uses it to hand workers exact line ranges, and `tmap tree` is a fast map for you. In A/B runs of normal Sonnet sessions, a session hint did not get the agent to use `tmap`. Redirecting Grep and Read to it was mixed: two small wins, and one run where the agent worked around it and used more tokens. Both are therefore opt-in:
-- `TFORGE_MAP=1` adds a one-line hint at session start;
+- `TFORGE_MAP=1` adds a one-line hint at session start instead of the map below;
 - `TFORGE_REDIRECT=1` answers identifier-like Grep calls, Bash greps for one code identifier, and whole-file reads of large source files from the index. Repeating the identical call always goes through.
 
 First use: the launcher downloads the prebuilt binary for your platform from this repo's releases and checks it against the published SHA-256. If no release binary fits, it builds once with `cargo` (one to two minutes). `TMAP_BIN` points to your own binary.
@@ -450,7 +460,8 @@ Workers run with `--permission-mode acceptEdits` and only `Read`, `Write` and `E
 | `TFORGE_SUBAGENT_SKIP` | | Agent types tokenforge leaves alone (`spec-audit:*`); `subagentSkip` in `config.json` |
 | `TFORGE_LEAN_KEEP` | | Tools lean levels never deny; `leanKeep` in `config.json` |
 | `TFORGE_TERSE` | | `full`, `lite` or `off`; overrides the saved choice |
-| `TFORGE_MAP` | | `1` adds the tmap hint at session start |
+| `TFORGE_MAP` | | `0`: no repo map at session start; `1`: the one-line tmap hint instead |
+| `TFORGE_MAP_CHARS` | `3000` | Size cap of the repo map loaded at session start |
 | `TFORGE_REDIRECT` | | `1` answers identifier Grep calls, identifier greps in Bash, and big whole-file reads from tmap |
 | `TFORGE_KIT_HOOKS` | | `0` disables all tkit hooks (policy, Bash router, prompt router, MCP distill) |
 | `TFORGE_KIT_POLICY` / `TFORGE_KIT_ROUTE` / `TFORGE_KIT_DISTILL` | | `0` disables that one hook |
@@ -473,7 +484,10 @@ Workers run with `--permission-mode acceptEdits` and only `Read`, `Write` and `E
 | `TFORGE_BANNER` | | `0` hides the "TokenForge: active" line at startup and the checkpoint line after `/clear` |
 | `TFORGE_UI` | | `0` stops the dashboard from starting with your first session (it never auto-starts in headless `claude -p`, SDK or CI sessions) |
 | `TFORGE_UI_PORT` | `7878` | Dashboard port (the next free one is used if taken) |
-| `TFORGE_PROXY_PORT` | `7879` | `tforge proxy` / `tforge claude` port |
+| `TFORGE_PROXY` | | `0` before the first session: the proxy is not turned on by default |
+| `TFORGE_PROXY_PORT` | `7879` | `tforge proxy` / `tforge claude` port, and the one the default setup uses |
+| `TFORGE_PROXY_PRUNE` | `tokens` | Stale-context pruning: `tokens`, `cost` or `off` (see API proxy) |
+| `TFORGE_PROXY_PRUNE_MIN` | `8000` | Stale characters needed before a `tokens` batch goes |
 | `TFORGE_PROXY_COMPRESS` / `TFORGE_PROXY_FOLD` | | `0`: the proxy only logs / does not fold whole-file Reads |
 | `TFORGE_PROXY_CAP` | `16000` | Characters of Bash and other text output the proxy keeps (head and tail); `0`: no cap |
 | `TFORGE_RUN_PROXY` | | `1`: `tforge run` workers go through the proxy, the same as `--proxy` or `"proxy": true` in the plan |

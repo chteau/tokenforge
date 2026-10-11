@@ -11,6 +11,7 @@ import path from 'node:path';
 import { AUTO_MARK, SNAP_DIR, analyzeBash, listSnapshots, noteLoad, parseSnapshot } from './checkpoint.mjs';
 import { isMain, skippedAgent, stateDir } from '../lib/hookutil.mjs';
 import { OMITS_INSTRUCTIONS, nestedFor, readGiven, writeGiven } from '../lib/instructions.mjs';
+import { proxyGuard } from '../lib/proxy-setup.mjs';
 import { projectRoot } from '../lib/util.mjs';
 
 const BUDGET = Number(process.env.TFORGE_BUDGET) || 50000;
@@ -225,16 +226,22 @@ function watch(input, event) {
   return { context: note };
 }
 
-function main() {
+async function main() {
   const input = readStdin();
   const event = input.hook_event_name || 'PostToolUse';
+  // the next request goes out right after this hook: the proxy must be up if Claude Code goes through it
+  let down = null;
+  try {
+    down = await proxyGuard();
+  } catch {}
   const nested = event === 'PostToolUse' ? afterTool(input) : '';
   const w = watch(input, event);
   const context = [nested, w?.context].filter(Boolean).join('\n\n');
-  if (!context && !w?.systemMessage) return;
+  const systemMessage = [down, w?.systemMessage].filter(Boolean).join('\n');
+  if (!context && !systemMessage) return;
   process.stdout.write(
     JSON.stringify({
-      ...(w?.systemMessage && { systemMessage: w.systemMessage }),
+      ...(systemMessage && { systemMessage }),
       ...(context && { hookSpecificOutput: { hookEventName: event, additionalContext: context } }),
     }),
   );

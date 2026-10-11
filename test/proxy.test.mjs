@@ -105,7 +105,7 @@ const conversation = () => ({
 test('transformRequest: only the newest results are compressed, and later requests resend the same bytes', () => {
   const memo = openMemo(null);
   const a = conversation();
-  const st = transformRequest(a, memo, { saveFull: () => '/f' });
+  const st = transformRequest(a, memo, { saveFull: () => '/f', prune: false });
   assert.equal(st.compressed, 1);
   assert.equal(a.messages[2].content[0].content, bashResult()); // first seen in an older message: untouched
   const compressed = a.messages[4].content[0].content;
@@ -114,7 +114,7 @@ test('transformRequest: only the newest results are compressed, and later reques
 
   const b = conversation();
   b.messages.push({ role: 'assistant', content: [{ type: 'text', text: 'ok' }] }, { role: 'user', content: 'next' });
-  const st2 = transformRequest(b, memo, { saveFull: () => '/f' });
+  const st2 = transformRequest(b, memo, { saveFull: () => '/f', prune: false });
   assert.equal(st2.memoHits, 1);
   assert.equal(st2.compressed, 0);
   assert.equal(b.messages[4].content[0].content, compressed);
@@ -124,7 +124,7 @@ test('transformRequest: only the newest results are compressed, and later reques
   const c = conversation();
   c.messages[4].content[0].content = '[Old tool result content cleared]';
   c.messages.push({ role: 'user', content: 'next' });
-  transformRequest(c, memo);
+  transformRequest(c, memo, { prune: false });
   assert.equal(c.messages[4].content[0].content, '[Old tool result content cleared]');
 });
 
@@ -173,7 +173,7 @@ test('a folded file an Edit missed on is read whole from then on', () => {
     { role: 'assistant', content: [{ type: 'tool_use', id: 'r', name: 'Read', input: { file_path: file } }] },
     { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'r', content: src }] },
   ];
-  transformRequest({ messages: structuredClone(msgs) }, memo);
+  transformRequest({ messages: structuredClone(msgs) }, memo, { prune: false });
   const folded = memo.get('r').c;
   msgs.push(
     { role: 'assistant', content: [{ type: 'tool_use', id: 'e', name: 'Edit', input: { file_path: file } }] },
@@ -182,7 +182,7 @@ test('a folded file an Edit missed on is read whole from then on', () => {
     { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'r2', content: src }, { type: 'tool_result', tool_use_id: 'r3', content: src }] },
   );
   const j = { messages: structuredClone(msgs) };
-  const st = transformRequest(j, memo);
+  const st = transformRequest(j, memo, { prune: false });
   assert.equal(j.messages[2].content[0].content, folded); // the first Read stays as sent: the cache holds
   assert.equal(j.messages[6].content[0].content, src); // read again after the miss: whole
   assert.ok(j.messages[6].content[1].content.length < src.length / 2); // another file still folds
@@ -274,7 +274,9 @@ function send(port, { method = 'POST', url = '/v1/messages?beta=true', body, hea
   });
 }
 
-test('proxy: streams the answer unchanged, forwards auth, compresses new results, logs sizes and usage', async () => {
+test('proxy: streams the answer unchanged, forwards auth, compresses new results, logs sizes and usage', async (t) => {
+  process.env.TFORGE_PROXY_PRUNE = 'off'; // the fixture re-runs one command: pruning has its own tests
+  t.after(() => delete process.env.TFORGE_PROXY_PRUNE);
   const up = await fakeUpstream();
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'proxy-'));
   const p = await startProxy({ port: 0, upstream: up.url, dir });

@@ -19,7 +19,7 @@ process.env.TFORGE_LEAN_DEFAULT = 'off';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const HOOK = (n) => path.join(HERE, '..', 'hooks', n);
 // The hooks must not see the developer's own switches.
-const BASE_ENV = { ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^(TFORGE_|TS_RAW|TMAP_BIN)/.test(k))), TFORGE_GC: '0' };
+const BASE_ENV = { ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^(TFORGE_|TS_RAW|TMAP_BIN)/.test(k))), TFORGE_GC: '0', TFORGE_PROXY: '0' };
 let seq = 0;
 const sid = () => `hk${process.pid}x${Date.now()}x${seq++}`;
 

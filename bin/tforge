@@ -60,7 +60,15 @@ Usage: tforge <command> [options]
                        cache holds. TFORGE_PROXY_COMPRESS=0: log only; TFORGE_PROXY_FOLD=0: no Read folding;
                        TFORGE_PROXY_CAP=N chars (0: no cap); TFORGE_PROXY_UPSTREAM: where to forward;
                        TFORGE_PROXY_TTL=5m (or header x-tokenforge-cache-ttl: 5m): 5-minute cache instead of 1h,
-                       cheaper writes for back-to-back requests, a full rewrite after any pause over 5 minutes
+                       cheaper writes for back-to-back requests, a full rewrite after any pause over 5 minutes.
+                       Stale pruning: content the conversation made redundant (a file read again or rewritten,
+                       a test run again after changes, earlier turns' thinking) becomes a one-line stub, in
+                       batches. TFORGE_PROXY_PRUNE=tokens (default) | cost (only when cheaper in dollars: an
+                       expired cache, or the stale part near the end) | off; TFORGE_PROXY_PRUNE_MIN=8000 chars
+  proxy on | off       route new Claude Code sessions through the proxy (ANTHROPIC_BASE_URL in your settings) or
+                       stop; on by default since 0.9.2 unless you already use your own base URL, Bedrock, Vertex
+                       or Foundry (TFORGE_PROXY=0 before the first session skips it). Hooks restart it if it dies.
+                       Run \`tforge proxy off\` before uninstalling tokenforge.
   proxy report [--days N] [--json]  what went through the proxy: tokens, cache reads/writes, chars not sent
   claude [args...]     run claude through the proxy (started in the background if needed)
   statusline --setup   status line with your savings ("TF -45% today") and real limits; wraps an existing one
@@ -321,11 +329,25 @@ async function main() {
         const r = proxy.proxyReport({ days });
         return console.log(o.json ? JSON.stringify(r, null, 2) : proxy.formatReport(r, days));
       }
-      if (o._.length) throw new Error('usage: tforge proxy [--port N] [--detach | --stop | --status] | tforge proxy report');
+      if (o._[0] === 'on' || o._[0] === 'off') {
+        const setup = await import('../lib/proxy-setup.mjs');
+        if (o._[0] === 'off') {
+          const r = setup.proxyOff();
+          return console.log(r.removed ? 'tforge proxy: off; new Claude Code sessions call the API directly (running ones keep the proxy until they end).' : 'tforge proxy: was not set in your Claude Code settings; nothing changed.');
+        }
+        const r = await setup.proxyOn(undefined, { port: o.port || setup.proxyPort() });
+        return console.log(r.ok ? `tforge proxy: on; new Claude Code sessions go through ${r.url}. Before uninstalling tokenforge, run \`tforge proxy off\`.` : `tforge proxy: not turned on: ${r.reason}.`);
+      }
+      if (o._.length) throw new Error('usage: tforge proxy on | off | report | [--port N] [--detach | --stop | --status]');
       if (o.stop) return console.log(daemonStop('proxy') ? 'tforge proxy: stopped' : 'tforge proxy: not running');
       const st = daemonState('proxy');
       const hint = (p) => `ANTHROPIC_BASE_URL=http://127.0.0.1:${p} claude   (or: tforge claude)`;
-      if (o.status) return console.log(st ? `tforge proxy: running on 127.0.0.1:${st.port} (pid ${st.pid}); use: ${hint(st.port)}` : 'tforge proxy: not running');
+      if (o.status) {
+        const { proxyWanted } = await import('../lib/proxy-setup.mjs');
+        const url = proxyWanted();
+        const set = url ? `Claude Code sessions go through it (${url}, in your settings; tforge proxy off removes it)` : 'not in your Claude Code settings (tforge proxy on routes new sessions through it)';
+        return console.log(`${st ? `tforge proxy: running on 127.0.0.1:${st.port} (pid ${st.pid})` : 'tforge proxy: not running'}; ${set}`);
+      }
       if (st) return console.log(`tforge proxy: already running on 127.0.0.1:${st.port}; use: ${hint(st.port)}`);
       if (o.detach) {
         const r = await daemonStart('proxy', { port: o.port, detach: true });
