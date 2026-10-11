@@ -13,7 +13,8 @@ test('findOnPath tries PATHEXT on Windows and ignores extensionless files there'
   fs.writeFileSync(path.join(dir, 'claude'), '#!/bin/sh\n'); // npm also writes an sh script next to the .cmd
   fs.writeFileSync(path.join(dir, 'claude.cmd'), '@echo off\n');
   assert.equal(findOnPath('claude', { platform: 'win32', env: winEnv(dir) }), path.join(dir, 'claude.cmd'));
-  assert.equal(findOnPath('claude', { platform: 'linux', env: { PATH: dir } }), path.join(dir, 'claude'));
+  // a POSIX lookup splits PATH on ':', so it only makes sense with a POSIX temp dir
+  if (process.platform !== 'win32') assert.equal(findOnPath('claude', { platform: 'linux', env: { PATH: dir } }), path.join(dir, 'claude'));
   assert.equal(findOnPath('nope', { platform: 'win32', env: winEnv(dir) }), null);
   fs.writeFileSync(path.join(dir, 'claude.exe'), '');
   assert.equal(findOnPath('claude', { platform: 'win32', env: winEnv(dir) }), path.join(dir, 'claude.exe'));

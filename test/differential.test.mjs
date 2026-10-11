@@ -74,6 +74,10 @@ test('differential: cat through tview prints exactly what cat prints, in the sam
     'cat [ab].txt b.txt',
   ]) {
     const r = route(cmd, dir);
+    if (cmd === 'cat *.txt' && typeof fs.globSync !== 'function') {
+      assert.equal(r, null, 'Node < 22 leaves globbed cats alone');
+      continue;
+    }
     if (cmd === 'cat [ab].txt b.txt') {
       assert.equal(r, null, 'bracket globs are left to cat');
       continue;
