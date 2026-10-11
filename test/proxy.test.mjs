@@ -126,6 +126,11 @@ test('transformRequest: only the newest results are compressed, and later reques
   c.messages.push({ role: 'user', content: 'next' });
   transformRequest(c, memo, { prune: false });
   assert.equal(c.messages[4].content[0].content, '[Old tool result content cleared]');
+
+  // Claude Code ends requests with a `system` message after the tool results: they are still the newest
+  const d = conversation();
+  d.messages.push({ role: 'system', content: [{ type: 'text', text: 'reminder' }] });
+  assert.equal(transformRequest(d, openMemo(null), { saveFull: () => '/f', prune: false }).compressed, 1);
 });
 
 test('transformRequest counts edits and reads on files whose Read went out folded', () => {
