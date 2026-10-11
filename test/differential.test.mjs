@@ -63,7 +63,9 @@ test('differential: cat through tview prints exactly what cat prints, in the sam
     "cat 'my file.txt' a.txt",
     'cat my\\ file.txt',
     'cat a.txt b.txt | head -1',
-    'cat a.txt | grep needle',
+    'cat a.txt | tail -1',
+    'cat {b,a}.txt c.txt', // brace order as typed
+    'cat sub/{c.rs,../a.txt}',
     'cat a.txt; cat b.txt',
     'cat a.txt && echo ok',
     'cat a.txt || echo never',
@@ -80,6 +82,9 @@ test('differential: cat through tview prints exactly what cat prints, in the sam
     assert.equal(b.out, a.out, cmd);
   }
   assert.equal(route('cat "*.txt"', dir), null, 'a quoted glob names one file, it is not expanded');
+  assert.equal(route('cat a.txt | grep needle', dir), null, 'grep and sed would search folded text');
+  assert.equal(route('cat {a,zz}.txt', dir), null, 'a brace word naming no file is left to cat');
+  assert.equal(route('cat {a,{b,c}}.txt', dir), null, 'nested braces are left to the shell and cat');
 });
 
 test('differential: git rewrites keep the exit status', () => {

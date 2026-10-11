@@ -42,7 +42,7 @@ export function kitPolicy(quiet = true, subagent = false, own = false) {
   if (kitHookOff('TFORGE_KIT_POLICY')) return null;
   const plan = own ? '' : process.env.TFORGE_PLAN ?? (subagent ? '' : 'look');
   return [
-    'tokenforge: tool results are re-read on every later call: keep them small, calls few. Read code in ONE call, not grep then sed: `tread NAME Type.method path:40-80 "path:/regex/"` prints definitions by name, line ranges, or the definition around each match, across files. Batch reads; edit each file in one call; create new files several per call (`tkit edit` `@@ path new`, not `cat >`). Independent shell commands: ONE `tkit batch "a" "b"`; throwaway code (math, parsing, a try): `tkit eval py|js|sh <<\'EOF\'`, sandboxed, no scratch files.' +
+    'tokenforge: tool results are re-read on every later call: keep them small, calls few. Read code in ONE call, not grep then sed: `tread NAME Type.method path:40-80 "path:/regex/"` prints definitions by name, line ranges, or the definition around each match, across files. Batch reads (<25k chars); edit each file in one call; create new files several per call (`tkit edit` `@@ path new`, not `cat >`). Independent shell commands: ONE `tkit batch "a" "b"`; throwaway code (math, parsing, a try): `tkit eval py|js|sh <<\'EOF\'`, sandboxed, no scratch files.' +
       (quiet ? ' No text between tool calls ("Now X."): just call the tool; text only in the final answer.' : ''),
     'Build/test output is compacted (tkit test [FILTER], tkit check). Changed code: run relevant checks once, at the end; read-only work: none; never re-run to double-check.',
     // "Lazy, not negligent" (adapted from ponytail without its challenge-the-requirement mode, which skips

@@ -58,7 +58,9 @@ Usage: tforge <command> [options]
                        Bash output is cleaned and capped with the full text kept in a file, big JSON is crushed).
                        Compressed results are remembered, so later requests resend the same bytes and the prompt
                        cache holds. TFORGE_PROXY_COMPRESS=0: log only; TFORGE_PROXY_FOLD=0: no Read folding;
-                       TFORGE_PROXY_CAP=N chars (0: no cap); TFORGE_PROXY_UPSTREAM: where to forward
+                       TFORGE_PROXY_CAP=N chars (0: no cap); TFORGE_PROXY_UPSTREAM: where to forward;
+                       TFORGE_PROXY_TTL=5m (or header x-tokenforge-cache-ttl: 5m): 5-minute cache instead of 1h,
+                       cheaper writes for back-to-back requests, a full rewrite after any pause over 5 minutes
   proxy report [--days N] [--json]  what went through the proxy: tokens, cache reads/writes, chars not sent
   claude [args...]     run claude through the proxy (started in the background if needed)
   statusline --setup   status line with your savings ("TF -45% today") and real limits; wraps an existing one

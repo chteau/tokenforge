@@ -40,6 +40,10 @@ Correctness: a safer answer cache, versioned benchmark figures, memory that surv
 - `bench/scripts/proxy-replay.mjs`: offline estimate of the proxy's savings on your own transcripts (no API calls, totals only).
 - `tforge run --proxy` (or `TFORGE_RUN_PROXY=1`, or `"proxy": true` in the plan) sends the workers through the proxy and starts it if needed.
 - docs/external-audit-2026-10.md: what ContextForge and icm-graph-context-flow do and what is worth taking. icm-graph-context-flow is not software: it runs base64-decoded secrets every hour and its README borrows the TokenForge name with a `curl | bash` install. Don't use it.
+- `tview` keeps a dump under Claude Code's Bash output limit (`BASH_MAX_OUTPUT_LENGTH`, 30000 by default, minus 4000; `TFORGE_VIEW_MAX` sets it). Past that limit Claude Code shows a 2KB preview and the model reads the saved file back in pieces: on the 2026-10-10 benchmark, the 21 tokenforge runs that hit it re-read 2.8 files each before editing, against 0.4 for the others. Over the budget, the largest code files become outlines (each definition's first line with its line range, at most 120 rows), and only if that is not enough is the output cut, with a note. Documents (`.md`, `.txt`, `.tex`…) are never outlined or cut.
+- Bash router: `cat` with one brace group (`src/{a,b}.ts`, `*.{ts,tsx}`) goes through `tview` like a glob; the shell still expands it. Nested braces and ranges run unchanged. A `cat` piped into `grep` or `sed` is no longer rewritten: they would search the folded text and miss or misnumber lines. `head` and `tail` still are.
+- Proxy: `TFORGE_PROXY_TTL=5m`, or the header `x-tokenforge-cache-ttl: 5m` for one client (`ANTHROPIC_CUSTOM_HEADERS`; it is not forwarded), asks for the 5-minute prompt cache instead of the 1-hour one Claude Code requests. Cache writes then cost 1.25× the input price instead of 2×; any pause over 5 minutes loses the cache. Off by default; `tforge proxy report` counts the requests it changed.
+- Session policy: "Batch reads (<25k chars)", so batched reads stay under that limit.
 
 ## 0.9.1
 

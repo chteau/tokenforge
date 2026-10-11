@@ -86,6 +86,8 @@ test('kit router: cat of long project files goes through tview; reads elsewhere,
   if (typeof fs.globSync === 'function')
     assert.match(bash('cat *.rs', {}, sid(), dir).updatedInput.command, /tview'? \*\.rs$/, 'globs are checked inside the project and left for the shell to expand');
   assert.equal(bash('cat *.zz', {}, sid(), dir), null, 'a glob that matches nothing runs unchanged');
+  assert.match(bash('cat {a,b}.rs', {}, sid(), dir).updatedInput.command, /tview'? \{a,b\}\.rs$/, 'one brace group is checked and left for the shell');
+  assert.equal(bash('cat a.rs | grep -n f1', {}, sid(), dir), null, 'grep would search the folded text');
   assert.equal(bash('cat a.rs; sed -i s/a/b/ b.rs', {}, sid(), dir), null, 'a write in the line keeps the normal permission flow');
 });
 
@@ -479,6 +481,29 @@ test('tview: language-agnostic folding (Luau) and long-line cutting', async () =
   const small = path.join(dir, 's.luau');
   fs.writeFileSync(small, 'return 1\n');
   assert.equal(view([small]), 'return 1\n', 'small reads are byte-identical to cat');
+});
+
+test('tview: a dump over the output budget outlines its largest code files; small files and documents print whole', async () => {
+  const { view, MAX_CHARS } = await import('../lib/view.mjs');
+  const dir = tmpdir('tforge-tvb-');
+  // short functions: nothing to fold, so only outlining can bring it under the budget
+  const fns = (p) => Array.from({ length: 400 }, (_, i) => `function ${p}${i}(a) {\n  const x = a + ${i};\n  return x * 2;\n}\n`).join('\n');
+  for (const f of ['a.js', 'b.js']) fs.writeFileSync(path.join(dir, f), fns(f[0]));
+  fs.writeFileSync(path.join(dir, 's.js'), 'export const one = 1;\n');
+  const doc = `${'A sentence of the design notes. '.repeat(30)}\n`.repeat(20);
+  fs.writeFileSync(path.join(dir, 'notes.md'), doc);
+  const files = ['notes.md', 'a.js', 's.js', 'b.js'].map((f) => path.join(dir, f));
+  const out = view(files);
+  assert.ok(out.length <= MAX_CHARS + 400, `view is ${out.length} chars, budget ${MAX_CHARS}`);
+  assert.ok(out.includes(doc), 'the document prints whole');
+  assert.match(out, /==> \S*s\.js <==\nexport const one = 1;\n/);
+  assert.match(out, /\[outline only, the whole output would not fit: \d+ lines; print what you need with sed -n 'A,Bp' \S*a\.js\]/);
+  assert.match(out, /^1-4: function a0\(a\) \{$/m, 'outline rows carry the line range');
+  assert.match(out, /\d+ more$/m, 'long outlines say how much they left out');
+  assert.match(out, /file\(s\) outlined; print only what you need/);
+  const one = path.join(dir, 'one.js');
+  fs.writeFileSync(one, fns('c').repeat(3));
+  assert.ok(view([one]).length <= MAX_CHARS, 'a single big file stays under the budget too');
 });
 
 test('session start: the lean default is applied once, never over an explicit choice, and only tells the user', () => {

@@ -9,7 +9,7 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 process.env.XDG_CACHE_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'cache-'));
-const { cacheBreak, capText, cleanText, compressResult, crushJson, foldRead, formatReport, matchSummary, openMemo, proxyReport, requestShape, startProxy, transformRequest, transformResponses, usageParser } = await import('../lib/proxy.mjs');
+const { cacheBreak, capText, cleanText, compressResult, crushJson, foldRead, formatReport, matchSummary, openMemo, proxyReport, requestShape, setCacheTtl, startProxy, wantTtl, transformRequest, transformResponses, usageParser } = await import('../lib/proxy.mjs');
 
 const numbered = (text) => text.split('\n').map((l, i) => `${i + 1}\t${l}`).join('\n');
 const bigSource = () => {
@@ -311,6 +311,39 @@ test('proxy: streams the answer unchanged, forwards auth, compresses new results
     const rep = proxyReport({ dir });
     assert.equal(rep.cr, 2000); // the broken body was forwarded too, and answered
     assert.ok(first.chain && !first.brk);
+  } finally {
+    p.server.close();
+    up.server.close();
+  }
+});
+
+test('cache TTL: opt-in 5m drops every 1h marker, deterministically; off by default', async () => {
+  const cc1h = () => ({ type: 'ephemeral', ttl: '1h' });
+  const req = () => ({
+    system: [{ type: 'text', text: 's', cache_control: cc1h() }],
+    tools: [{ name: 't', input_schema: {}, cache_control: cc1h() }],
+    messages: [{ role: 'user', content: [{ type: 'text', text: 'hi', cache_control: cc1h() }, { type: 'tool_result', tool_use_id: 'x', content: [{ type: 'text', text: 'r', cache_control: { type: 'ephemeral' } }] }] }],
+  });
+  assert.equal(wantTtl({}), null, 'off by default');
+  assert.equal(wantTtl({ 'x-tokenforge-cache-ttl': '5m' }), '5m');
+  assert.equal(wantTtl({ 'x-tokenforge-cache-ttl': '2h' }), null, 'only 5m is accepted');
+  const a = req();
+  assert.equal(setCacheTtl(a, null), 0);
+  assert.deepEqual(a, req());
+  assert.equal(setCacheTtl(a, '5m'), 3);
+  assert.doesNotMatch(JSON.stringify(a), /"ttl"/);
+  assert.equal(requestShape(a).ttl, 300e3, 'cache-break expiry follows the TTL sent');
+  assert.equal(setCacheTtl(a, '5m'), 0, 'idempotent');
+
+  const up = await fakeUpstream();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'proxy-'));
+  const p = await startProxy({ port: 0, upstream: up.url, dir });
+  try {
+    await send(p.port, { body: JSON.stringify(req()) });
+    assert.match(up.seen[0].body, /"ttl":"1h"/, 'without the header the request goes out as sent');
+    await send(p.port, { body: JSON.stringify(req()), headers: { 'x-tokenforge-cache-ttl': '5m' } });
+    assert.doesNotMatch(up.seen[1].body, /"ttl"/);
+    assert.equal(up.seen[1].headers['x-tokenforge-cache-ttl'], undefined, 'the header is not forwarded');
   } finally {
     p.server.close();
     up.server.close();

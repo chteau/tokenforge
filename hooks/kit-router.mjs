@@ -376,15 +376,23 @@ const NULLREDIR = new Set(['2>&1', '&>/dev/null', '>/dev/null', '2>/dev/null', '
 // Rewrite raw build/test/ssh/scp segments. Returns { command, notes, allow } or null when nothing changed.
 const TVIEW = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'tview');
 
+// One brace group of plain words (`src/{a,b}.ts`, `*.{ts,tsx}`), in bash's order; null for anything else (nested, ranges).
+export function braceWords(a) {
+  if (!a.includes('{')) return [a];
+  const m = /^([^{}]*)\{([\w./@+=-]*(?:,[\w./@+=-]*)+)\}([^{}]*)$/.exec(a);
+  return m ? m[2].split(',').map((w) => m[1] + w + m[3]) : null;
+}
+
 // `cat` of regular files inside the project root, no flags: [files] or null.
 export function catFiles(core, cwd, root) {
   if (exeName(core[0]) !== 'cat' || core.length < 2 || !cwd) return null;
   const args = core.slice(1);
-  if (args.some((f) => f.startsWith('-') || /[$`~{\[]/.test(f))) return null;
-  // globs are expanded here only to check them; the rewritten command keeps them as typed so the shell expands them
-  // in its own (locale) order, which fs.globSync does not follow. A quoted or unusual glob is left alone.
+  if (args.some((f) => f.startsWith('-') || /[$`~\[]/.test(f))) return null;
+  // braces and globs are expanded here only to check them; the rewritten command keeps them as typed so the shell
+  // expands them in its own (locale) order, which fs.globSync does not follow. A quoted or unusual glob is left alone.
   const files = [];
-  for (const a of args) {
+  for (const a of args.flatMap((x) => braceWords(x) || [null])) {
+    if (a === null) return null;
     if (!/[*?]/.test(a)) files.push(a);
     else if (!/^[\w./*?@+,=-]+$/.test(a)) return null;
     else if (typeof fs.globSync !== 'function') return null; // Node < 22: leave globbed cats alone
@@ -536,14 +544,15 @@ export function routeCommand(cmd, { cwd, permissionMode } = {}) {
       // ssh output piped locally (`ssh h cat f | grep x`) must keep its pipe
       const remotePipe = pipes.length > 1 && ['ssh', 'scp'].includes(exeName(core[0]));
       if (!redirFile && !meta && !remotePipe) {
-        // `cat FILES` alone, or piped only into filters (`| head -700`, `| grep x`): the first stage becomes tview
-        const filters = pipes.slice(1).every((p) => { const t = tokenize(p); return t && ['head', 'tail', 'grep', 'sed'].includes(exeName(t[0])) && readOnly(t); });
+        // `cat FILES` alone, or piped only into head/tail: the first stage becomes tview. Not into grep or sed: they
+        // would search folded text and count its lines, and miss or misnumber what cat would have shown them.
+        const filters = pipes.slice(1).every((p) => { const t = tokenize(p); return t && ['head', 'tail'].includes(exeName(t[0])) && readOnly(t); });
         const files = filters && !env.length ? catFiles(core, here, root) : null;
         const words = pipes[0].trim().split(/\s+/);
-        if (files && core.slice(1).every((a) => !/[*?]/.test(a) || words.includes(a))) {
+        if (files && core.slice(1).every((a) => !/[*?{]/.test(a) || words.includes(a))) {
           const lead = /^\s*/.exec(text)[0];
           const rest = pipes.slice(1).map((p) => ` | ${p.trim()}`).join('');
-          out.push(`${lead}node ${shq(TVIEW)} ${core.slice(1).map((a) => (/[*?]/.test(a) ? a : shq(a))).join(' ')}${rest}${sep && !sep.startsWith('\n') ? ' ' : ''}${sep}`);
+          out.push(`${lead}node ${shq(TVIEW)} ${core.slice(1).map((a) => (/[*?{]/.test(a) ? a : shq(a))).join(' ')}${rest}${sep && !sep.startsWith('\n') ? ' ' : ''}${sep}`);
           viewed = true;
           continue;
         }
