@@ -422,6 +422,21 @@ test('tforge lean: each level sets when 1M-context sessions compact, never over 
   assert.equal(start().systemMessage, undefined, 'once');
 });
 
+test('tforge lean ultra: Read/Edit/Write denied, and the policy points edits at tkit edit', () => {
+  const dir = tmpdir('tforge-ultra-');
+  const env = { CLAUDE_CONFIG_DIR: path.join(dir, 'cc'), XDG_CONFIG_HOME: path.join(dir, 'xdg'), TFORGE_UI: '0', TFORGE_BANNER: '0' };
+  const file = path.join(env.CLAUDE_CONFIG_DIR, 'settings.json');
+  const deny = () => JSON.parse(fs.readFileSync(file, 'utf8')).permissions.deny;
+  const tf = (...a) => spawnSync('node', [path.join(HERE, '..', 'bin', 'tforge'), 'lean', ...a], { encoding: 'utf8', env: { ...BASE_ENV, ...env } });
+  const start = () => spawnSync('node', [HOOK('session-start.mjs')], { input: JSON.stringify({ source: 'startup', cwd: dir }), encoding: 'utf8', env: { ...BASE_ENV, ...env } }).stdout;
+  tf('ultra');
+  assert.ok(['Read', 'Edit', 'Write'].every((t) => deny().includes(t)));
+  assert.match(start(), /No Edit\/Write tools: change existing files with ONE `tkit edit.*create a new file with `cat >/);
+  tf('max');
+  assert.ok(!deny().includes('Read'));
+  assert.doesNotMatch(start(), /No Edit\/Write tools/);
+});
+
 test('tforge lean: adds its deny rules to user settings and removes only those', () => {
   const dir = tmpdir('tforge-lean-');
   const env = { CLAUDE_CONFIG_DIR: path.join(dir, 'cfg'), XDG_CONFIG_HOME: path.join(dir, 'xdg') };

@@ -91,6 +91,13 @@ export function repoMap(root, { bin = existingBinary(), maxChars = MAP_CHARS } =
 // Subagents get a planning line only when TFORGE_PLAN names one: the "look" default was measured on main sessions.
 // own=true (an agent with its own definition, e.g. a SpecAudit arbiter): only the tool-efficiency lines and the override
 // line; its definition owns scope, planning and when to ask.
+const leanLevel = () => {
+  try {
+    return leanStatus().level;
+  } catch {
+    return null; // unreadable settings: lean leaves them alone too
+  }
+};
 export function kitPolicy(quiet = true, subagent = false, own = false) {
   if (kitHookOff('TFORGE_KIT_POLICY')) return null;
   const plan = own ? '' : process.env.TFORGE_PLAN ?? (subagent ? '' : 'look');
@@ -98,6 +105,11 @@ export function kitPolicy(quiet = true, subagent = false, own = false) {
     'tokenforge: tool results are re-read on every later call: keep them small, calls few. Read code in ONE call, not grep then sed: `tread NAME Type.method path:40-80 "path:/regex/"` prints definitions by name, line ranges, or the definition around each match, across files. Batch reads (<25k chars); edit each file in one call; new files: several per call (`tkit edit` `@@ path new`, not `cat >`). Independent calls: in one message; shell ones: ONE `tkit batch "a" "b"`; throwaway code (math, parsing): `tkit eval py|js|sh <<\'EOF\'`, sandboxed, no scratch files.' +
       (quiet ? ' No text between tool calls ("Now X."): just call the tool; text only in the final answer.' : ''),
     'Build/test output is compacted (tkit test [FILTER], tkit check). Changed code: run relevant checks once, at the end; read-only work: none; never re-run to double-check.',
+    // lean ultra hides Edit/Write. Without this line, bench/ runs read with cat/sed and wrote with `cat >` and
+    // python heredocs: 0 tread and 0 tkit edit calls in 18 runs, although the line above names both.
+    ...(leanLevel() === 'ultra'
+      ? ['No Edit/Write tools: change existing files with ONE `tkit edit <<\'EOF\'` per step: a `@@ path` line, then `<<<`, old lines, `===`, new lines, `>>>`, each marker on its own line (several blocks/files per call); create a new file with `cat > path <<\'EOF\'`. Never sed -i or python to edit. Read code with tread (or cat, auto-folded).']
+      : []),
     // "Lazy, not negligent" (adapted from ponytail without its challenge-the-requirement mode, which skips
     // requirements under hidden tests): full scope, nothing extra, concise but readable code. In bench/ runs Token
     // Forge already wrote 10-35% less code than plain Claude Code; references are ~half again. Off: TFORGE_LAZY=0.

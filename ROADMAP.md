@@ -114,11 +114,19 @@ The goal is the cheapest setup for the actual task, not workers by default.
 
 ## P2: Lean levels: measure the whole cost
 
-`balanced`, `max` and `ultra` hide tools: `max` and `ultra` hide skills and subagents, `ultra` also the native Read, Edit and Write. If `ultra` saves tool definitions but causes more Bash calls, quoting errors or failed edits, the saving can vanish.
+`balanced`, `max` and `ultra` hide tools: `max` and `ultra` hide skills and subagents, `ultra` also the native Read, Edit and Write, and asks for edits through `tkit edit`. If `ultra` saves tool definitions but causes more Bash calls, quoting errors or failed edits, the saving can vanish.
 
 Today each level's fixed context per request is measured.
 
 - [ ] A report per level: tokens, cost, quality, time, attempts and regressions, not only the starting context.
+
+## P2: Smaller code reads
+
+With lean `ultra` and the proxy, 6 benchmark tasks save a median 57% of tokens (9 runs per task against 4 native runs, quality unchanged). Most of what is left is code read through Bash: in 18 runs, `cat` returned 345k characters and `sed -n` 229k, read again on every later call until pruned. Architecture and banking-transfers sit at 55-59%; 3 more points on each would put the median past 60%.
+
+- [ ] Replay the recorded commands (no API calls): which `cat` and `sed -n` outputs are long enough to fold, and how often the model reads the same lines again after a fold.
+- [ ] Fold `sed -n` ranges only where the replay shows no re-read: a range is a deliberate read, and folding one can cost a second call.
+- [ ] Prune a file's earlier reads once a later read or an edit of the same file supersedes them.
 
 ## Caching
 

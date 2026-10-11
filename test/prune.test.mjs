@@ -118,6 +118,28 @@ test('cost mode: an expired cache always prunes; a warm one only when the stale 
   assert.equal(shouldCommit(p, { mode: 'off', min: 0, cold: true, requests: 10 }), false);
 });
 
+test('cost mode: an old stale item does not hold back cheap ones near the end', () => {
+  const memo = openMemo(null);
+  const body = big('code', 20000);
+  // a read made stale early (a.js read twice), then a long history, then a big write the model moved on from
+  const msgs = [
+    { role: 'user', content: 'go' },
+    call('r1', 'Bash', { command: 'cat a.js' }),
+    result('r1', big('a', 4000)),
+    call('r2', 'Bash', { command: 'cat a.js' }),
+    result('r2', big('a', 4000)),
+    ...Array.from({ length: 6 }, (_, i) => [call(`x${i}`, 'Bash', { command: `grep -n f${i} src` }), result(`x${i}`, big(`hits${i}`, 30000))]).flat(),
+    call('w', 'Bash', { command: `cat > b.js <<'EOF'\n${body}\nEOF` }),
+    result('w', ''),
+    ...Array.from({ length: WRITE_AGE }, (_, i) => [call(`l${i}`, 'Bash', { command: `echo ${i}` }), result(`l${i}`, 'x')]).flat(),
+  ];
+  const j = { messages: structuredClone(msgs) };
+  const st = pruneRequest(j, memo, { mode: 'cost', min: 0, ttl: '5m' });
+  assert.equal(st.committed, 1, 'only the write goes');
+  assert.match(j.messages[17].content[0].input.command, /written lines removed/);
+  assert.equal(j.messages[2].content[0].content, big('a', 4000), 'the early stale read stays: stubbing it rewrites everything after');
+});
+
 test('transformRequest prunes before compressing: a pruned result stays the stub', () => {
   const memo = openMemo(null);
   const j = { messages: structuredClone(session()) };
@@ -198,7 +220,7 @@ test('written bodies go once the model moved on (WRITE_AGE calls, or an earlier 
     result('bad', 'EACCES', { is_error: true }),
   ];
   const later = (n) => Array.from({ length: n }, (_, i) => [call(`l${i}`, 'Bash', { command: `echo ${i}` }), result(`l${i}`, 'x')]).flat();
-  assert.deepEqual(candidates(msgs).map((x) => x.key), [], 'too recent: two calls since');
+  assert.deepEqual(candidates(msgs.slice(0, 5)).map((x) => x.key), [], 'too recent: one call since');
   const c = candidates([...msgs, ...later(WRITE_AGE - 2)]);
   assert.deepEqual(c.map((x) => x.key), ['in:w']);
   assert.match(JSON.parse(c[0].c).content, /written lines removed .*holds it on disk; read the lines you need before editing/);
@@ -220,7 +242,7 @@ test('scripts fed by heredocs (python edits, files written after a prefix) keep 
     result('ko', 'AssertionError', { is_error: true }),
   ];
   const later = Array.from({ length: WRITE_AGE }, (_, i) => [call(`l${i}`, 'Bash', { command: `echo ${i}` }), result(`l${i}`, 'x')]).flat();
-  assert.deepEqual(candidates(msgs).map((x) => x.key), [], 'too recent');
+  assert.deepEqual(candidates(msgs.slice(0, 5)).map((x) => x.key), [], 'too recent');
   const c = candidates([...msgs, ...later]);
   assert.deepEqual(c.map((x) => x.key), ['in:py', 'in:gf'], 'a failed script stays');
   const cmd = JSON.parse(c[0].c).command;
