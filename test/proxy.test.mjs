@@ -223,6 +223,8 @@ test('cacheBreak names the first prefix part that changed, or expiry', () => {
   const r = { requests: 2, in: 0, cr: 0, cw: 0, out: 0, compressed: 0, saved: 0, system: 0, tools: 0, resultChars: 0, models: {}, breaks: { tools: { n: 1, lost: 48000 } }, foldEdits: 3, foldMisses: 1, foldReads: 2 };
   assert.match(formatReport(r, 1), /cache breaks {3}tools 1 \(~48\.0k tokens written again\)/);
   assert.match(formatReport(r, 1), /3 edits on folded files, 1 failed; 2 reads back/);
+  assert.doesNotMatch(formatReport(r, 1), /thinking sent/);
+  assert.match(formatReport({ ...r, thinkReqs: 2, thinkPast: 12000, thinkPastBlocks: 3, thinkNow: 0 }, 1), /thinking sent {2}earlier turns 12\.0k chars in 3 blocks \(prunable\), current turn 0 chars; over 2 requests/);
 });
 
 test('memo survives a restart and drops stale entries', () => {

@@ -85,6 +85,7 @@ test('thinking: earlier turns lose it, the current turn keeps it', () => {
   const body = { messages: msgs };
   const st = pruneRequest(body, openMemo(null), { mode: 'tokens', min: 0 });
   assert.equal(st.pruned, 1);
+  assert.deepEqual([st.thinkPast, st.thinkPastBlocks, st.thinkNow], [3002, 1, 3002], 'sizes of what was sent');
   assert.deepEqual(body.messages[1].content.map((b) => b.type), ['text']);
   assert.equal(body.messages[3].content[0].type, 'thinking');
 });
