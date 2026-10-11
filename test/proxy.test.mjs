@@ -472,3 +472,11 @@ test('proxy: /v1/responses goes to the OpenAI upstream, compressed, usage logged
     oai.close();
   }
 });
+
+test('a file shown by the shell is never cleaned or capped: tview already sized it, and Edit matches its lines', () => {
+  const content = Array.from({ length: 2000 }, (_, i) => `line ${i % 3 ? i : 'same'}`).join('\n');
+  const bash = (command) => compressResult({ type: 'tool_result', tool_use_id: 't', content }, { name: 'Bash', input: { command } }, { cap: 4000 });
+  assert.equal(bash('cat src/a.ts src/b.ts'), null);
+  assert.equal(bash("sed -n '1,400p' src/a.ts"), null);
+  assert.ok(bash('npm test'), 'other output is still capped');
+});

@@ -3,7 +3,7 @@
 import './tmp.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { candidates, pruneMode, pruneRequest, samePath, shouldCommit } from '../lib/prune.mjs';
+import { WRITE_AGE, candidates, pruneMode, pruneRequest, samePath, shouldCommit } from '../lib/prune.mjs';
 import { openMemo, transformRequest } from '../lib/proxy.mjs';
 
 const big = (tag, n = 3000) => `${tag}\n` + 'x'.repeat(n);
@@ -182,4 +182,62 @@ test('heredoc writes after a prefix, and appends: an append never stands for the
   const c = candidates(msgs);
   assert.deepEqual(c.map((x) => x.key), ['in:h']);
   assert.match(JSON.parse(c[0].c).command, /^mkdir -p src && cat > src\/y\.py <<EOF\n\[tokenforge: 200 written lines/);
+});
+
+test('written bodies go once the model moved on (WRITE_AGE calls, or an earlier turn); appends and failures stay', () => {
+  const body = big('code');
+  const msgs = [
+    { role: 'user', content: 'go' },
+    call('w', 'Write', { file_path: '/p/a.js', content: body }),
+    result('w', 'ok'),
+    call('ap', 'Bash', { command: `cat >> log.txt <<'EOF'\n${body}\nEOF` }),
+    result('ap', ''),
+    call('bad', 'Write', { file_path: '/ro/b.js', content: body }),
+    result('bad', 'EACCES', { is_error: true }),
+  ];
+  const later = (n) => Array.from({ length: n }, (_, i) => [call(`l${i}`, 'Bash', { command: `echo ${i}` }), result(`l${i}`, 'x')]).flat();
+  assert.deepEqual(candidates(msgs).map((x) => x.key), [], 'too recent: two calls since');
+  const c = candidates([...msgs, ...later(WRITE_AGE - 2)]);
+  assert.deepEqual(c.map((x) => x.key), ['in:w']);
+  assert.match(JSON.parse(c[0].c).content, /written lines removed .*holds it on disk; read the lines you need before editing/);
+  assert.deepEqual(candidates([...msgs, ...later(WRITE_AGE)], { writes: false }).map((x) => x.key), []);
+  const turn = [...msgs, { role: 'assistant', content: [{ type: 'text', text: 'done' }] }, { role: 'user', content: 'next' }];
+  assert.deepEqual(candidates(turn).map((x) => x.key), ['in:w'], 'an earlier turn');
+});
+
+test('scripts fed by heredocs (python edits, files written after a prefix) keep their shape, lose their bodies', () => {
+  const body = big('code');
+  const py = `python3 - <<'EOF'\np='src/a.py'\ns=open(p).read()\n${body}\nEOF\necho done`;
+  const msgs = [
+    { role: 'user', content: 'go' },
+    call('py', 'Bash', { command: py }),
+    result('py', 'done'),
+    call('gf', 'Bash', { command: `gofmt -w a.go && cat > b.go <<'GO'\n${body}\nGO` }),
+    result('gf', ''),
+    call('ko', 'Bash', { command: `python3 - <<'EOF'\n${body}\nEOF` }),
+    result('ko', 'AssertionError', { is_error: true }),
+  ];
+  const later = Array.from({ length: WRITE_AGE }, (_, i) => [call(`l${i}`, 'Bash', { command: `echo ${i}` }), result(`l${i}`, 'x')]).flat();
+  assert.deepEqual(candidates(msgs).map((x) => x.key), [], 'too recent');
+  const c = candidates([...msgs, ...later]);
+  assert.deepEqual(c.map((x) => x.key), ['in:py', 'in:gf'], 'a failed script stays');
+  const cmd = JSON.parse(c[0].c).command;
+  assert.match(cmd, /^python3 - <<'EOF'\n\[.*script lines removed.*it ran; its changes are on disk.*\]\nEOF\necho done$/s);
+  assert.match(JSON.parse(c[1].c).command, /^gofmt -w a\.go && cat > b\.go <<'GO'\n\[.*written lines removed.*\]\nGO$/s);
+  assert.deepEqual(candidates([...msgs, ...later], { writes: false }).map((x) => x.key), []);
+});
+
+test('an earlier turn\'s read of a file changed since goes; in the current turn it stays', () => {
+  const msgs = [
+    { role: 'user', content: 'go' },
+    call('r', 'Read', { file_path: '/p/a.js' }),
+    result('r', big('v1')),
+    call('e', 'Edit', { file_path: '/p/a.js', old_string: 'x', new_string: 'y' }),
+    result('e', 'ok'),
+  ];
+  assert.deepEqual(candidates(msgs).map((x) => x.key), []);
+  msgs.push({ role: 'assistant', content: [{ type: 'text', text: 'done' }] }, { role: 'user', content: 'next' });
+  const c = candidates(msgs);
+  assert.deepEqual(c.map((x) => x.key), ['r']);
+  assert.match(c[0].c, /\/p\/a\.js changed after this read/);
 });
