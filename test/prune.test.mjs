@@ -31,7 +31,8 @@ test('samePath matches absolute and relative spellings of one file', () => {
   assert.ok(!samePath('/p/ba.js', 'a.js'));
   assert.equal(pruneMode('off'), 'off');
   assert.equal(pruneMode('cost'), 'cost');
-  assert.equal(pruneMode(undefined), 'tokens');
+  assert.equal(pruneMode(undefined), 'cost');
+  assert.equal(pruneMode('tokens'), 'tokens');
 });
 
 test('stale: a read superseded by a rewrite, a write read back whole, a command run again; never the newest', () => {

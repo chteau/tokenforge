@@ -336,6 +336,11 @@ test('cache TTL: opt-in 5m drops every 1h marker, deterministically; off by defa
   assert.equal(wantTtl({}), null, 'off by default');
   assert.equal(wantTtl({ 'x-tokenforge-cache-ttl': '5m' }), '5m');
   assert.equal(wantTtl({ 'x-tokenforge-cache-ttl': '2h' }), null, 'only 5m is accepted');
+  const ua = (e) => ({ 'user-agent': `claude-cli/2.1.296 (external, ${e})` });
+  assert.equal(wantTtl(ua('sdk-cli')), '5m', 'claude -p: no one pauses');
+  assert.equal(wantTtl(ua('cli')), null, 'interactive keeps the 1-hour cache');
+  assert.equal(wantTtl(ua('sdk-ts')), null, 'an SDK app may wait on a person');
+  assert.equal(wantTtl({ ...ua('sdk-cli'), 'x-tokenforge-cache-ttl': '1h' }), null, 'opt-out');
   const a = req();
   assert.equal(setCacheTtl(a, null), 0);
   assert.deepEqual(a, req());

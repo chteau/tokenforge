@@ -60,11 +60,12 @@ Usage: tforge <command> [options]
                        cache holds. TFORGE_PROXY_COMPRESS=0: log only; TFORGE_PROXY_FOLD=0: no Read folding;
                        TFORGE_PROXY_CAP=N chars (0: no cap); TFORGE_PROXY_UPSTREAM: where to forward;
                        TFORGE_PROXY_TTL=5m (or header x-tokenforge-cache-ttl: 5m): 5-minute cache instead of 1h,
-                       cheaper writes for back-to-back requests, a full rewrite after any pause over 5 minutes.
+                       cheaper writes for back-to-back requests, a full rewrite after any pause over 5 minutes;
+                       the default for claude -p only (no one pauses); 1h: keep Claude Code's choice everywhere.
                        Stale pruning: content the conversation made redundant (a file read again or rewritten,
                        a test run again after changes, earlier turns' thinking) becomes a one-line stub, in
-                       batches. TFORGE_PROXY_PRUNE=tokens (default) | cost (only when cheaper in dollars: an
-                       expired cache, or the stale part near the end) | off; TFORGE_PROXY_PRUNE_MIN=8000 chars
+                       batches. TFORGE_PROXY_PRUNE=cost (default; only when cheaper in dollars: an
+                       expired cache, or the stale part near the end) | tokens | off; TFORGE_PROXY_PRUNE_MIN=8000 chars
   proxy on | off       route new Claude Code sessions through the proxy (ANTHROPIC_BASE_URL in your settings) or
                        stop; on by default since 0.9.2 unless you already use your own base URL, Bedrock, Vertex
                        or Foundry (TFORGE_PROXY=0 before the first session skips it). Hooks restart it if it dies.
