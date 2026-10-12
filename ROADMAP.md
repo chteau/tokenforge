@@ -125,9 +125,12 @@ Today each level's fixed context per request is measured.
 
 With lean `ultra` and the proxy, 6 benchmark tasks save a median 57% of tokens (9 runs per task against 4 native runs, quality unchanged). Most of what is left is code read through Bash: in 18 runs, `cat` returned 345k characters and `sed -n` 229k, read again on every later call until pruned. Architecture and banking-transfers sit at 55-59%; 3 more points on each would put the median past 60%.
 
-- [ ] Replay the recorded commands (no API calls): which `cat` and `sed -n` outputs are long enough to fold, and how often the model reads the same lines again after a fold.
-- [ ] Fold `sed -n` ranges only where the replay shows no re-read: a range is a deliberate read, and folding one can cost a second call.
-- [ ] Prune a file's earlier reads once a later read or an edit of the same file supersedes them.
+Replay of the 90 recorded ultra + proxy sessions (`node bench/scripts/read-replay.mjs --lean ultra`): `cat` is 64% of all tool-result characters and `sed -n` 23%, but most reads are short: only 82 `cat` and 22 `sed -n` results exceed 4k characters (11% and 3% of the total). After an edit of a file, 174 earlier reads of it (464k characters) were never used again yet re-sent with every later request.
+
+- [x] Replay the recorded commands (no API calls): which `cat` and `sed -n` outputs are long enough to fold, and how often the model reads the same lines again after a fold.
+- [x] Fold `sed -n` ranges only where the replay shows no re-read. Decided against: 22 ranges over 4k in 90 sessions, 3% of tool-result characters, and 5% of them read again.
+- [x] Prune a file's earlier reads once a later read or an edit of the same file supersedes them. Within a turn too (one `claude -p` session is one turn): a read of a file edited since goes once the model has not touched the file for 6 calls. Replayed, that removes 5.6% of what reads re-send, and no file was edited again without being read first; at 4 calls it would be 7.0%, with 4 such edits.
+- [ ] Measure the change on the benchmark tasks (needs API runs).
 
 ## Caching
 
