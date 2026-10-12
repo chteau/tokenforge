@@ -9,6 +9,7 @@ import path from 'node:path';
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'plugin-off-'));
 process.env.CLAUDE_CONFIG_DIR = path.join(root, 'cc');
 process.env.XDG_CONFIG_HOME = path.join(root, 'xdg');
+process.env.XDG_CACHE_HOME = path.join(root, 'cache'); // the proxy daemon's state: never this machine's
 const file = path.join(process.env.CLAUDE_CONFIG_DIR, 'settings.json');
 const cfgFile = path.join(process.env.XDG_CONFIG_HOME, 'tokenforge', 'config.json');
 
@@ -74,6 +75,7 @@ test('plugin-off: disabled removes what tokenforge added, keeps the user\'s own,
 test('plugin-off: a level the user set while disabled is not overwritten', async () => {
   setup(false);
   undoIfDisabled(file);
+  writeConfig({ disabledUndo: { lean: 'max', proxy: false } }); // bringing the proxy back would start a daemon
   leanOn(file, 'on');
   assert.equal(await redoAfterReenable(file), null);
   assert.equal(leanStatus(file).level, 'on');

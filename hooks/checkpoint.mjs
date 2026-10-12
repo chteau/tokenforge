@@ -11,7 +11,7 @@ import path from 'node:path';
 
 import { maybeGc } from '../lib/gc.mjs';
 import { stateDir } from '../lib/hookutil.mjs';
-import { projectRoot, readJson, writeJsonAtomic } from '../lib/util.mjs';
+import { projectRoot, readJson, writeFileAtomic, writeJsonAtomic } from '../lib/util.mjs';
 
 const CHUNK_PROMPTS = Number(process.env.TFORGE_SNAPSHOT_PROMPTS) || 6;
 const KEEP = Number(process.env.TFORGE_SNAPSHOT_KEEP) || 50;
@@ -489,13 +489,13 @@ function main() {
     for (const c of [...s.closed, open]) {
       // The start time names the file, so it must not change between runs.
       if (c) c.start ||= new Date().toISOString();
-      if (hasContent(c)) fs.writeFileSync(path.join(snaps, chunkName(c, sid)), render(c, sid, input.cwd));
+      if (hasContent(c)) writeFileAtomic(path.join(snaps, chunkName(c, sid)), render(c, sid, input.cwd));
     }
     const closed = s.closed.length;
     s.closed = [];
     if (closed) pruneSnapshots(input.cwd);
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-    fs.writeFileSync(stateFile, JSON.stringify(s));
+    writeFileAtomic(stateFile, JSON.stringify(s));
   } catch {}
 }
 

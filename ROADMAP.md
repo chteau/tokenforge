@@ -45,13 +45,13 @@ Today an earlier answer is replayed only for the same question, from a turn that
 
 The `tmap` index, compacted instructions, cross-session memory, snapshots and answers depend on different things and stay valid for different times.
 
-Today the answer cache compares content: repo and remotes, branch and commit, the contents of changed files and dependency manifests, terse level and model, with tests for renames, deletions, same-second edits, branch switches and configuration changes. The `tmap` index, the instruction cache and the dashboard still trust a file whose size and modification time are unchanged, and only the answer cache has invalidation tests.
+Today every cache declares what it depends on (`tforge caches`) and is checked by content where correctness needs it: the answer cache compares repo, commit, file contents, dependencies, model and terse level; the `tmap` index hashes a file unless its size, times and inode are unchanged and were recorded 2 s after its last write; compacted instruction files are keyed by content. Transcript-based indexes notice a replaced file. Cache writes are atomic, with tests for same-second edits, renames, deletions, branch switches, concurrent writers and torn files.
 
-- [ ] Content hashes where correctness needs them; size and mtime only as a fast pre-check.
-- [ ] Each cached artifact declares what it depends on.
-- [ ] Tests for renames, deletions, edits within the mtime resolution, configuration changes and git branch switches.
-- [ ] Concurrency tests, and invalidation after an interrupted write.
-- [ ] Keep local computation caches, working memory and the provider's prompt cache clearly apart.
+- [x] Content hashes where correctness needs them; size and mtime only as a fast pre-check.
+- [x] Each cached artifact declares what it depends on (`tforge caches`).
+- [x] Tests for renames, deletions, edits within the mtime resolution, configuration changes and git branch switches.
+- [x] Concurrency tests, and invalidation after an interrupted write.
+- [x] Keep local computation caches, working memory and the provider's prompt cache clearly apart.
 
 ## P1: Benchmark 0.9.1 properly
 
@@ -136,8 +136,8 @@ Six layers with six sets of dependencies. They share one validity policy, with r
 | Layer | Today | Optimize for | Risk to test |
 |---|---|---|---|
 | Provider prompt cache | Policy and instruction text stay identical between calls | Stable prefixes and configuration, no needless prefix changes | Missed or expired cache |
-| `tmap` index | Re-parses files whose size or mtime changed | Incremental index with explicit dependencies | Stale index |
-| Instruction cache | Compacted text keyed by size and mtime | Reuse with reliable invalidation | File changed, cache didn't |
+| `tmap` index | Re-parses files whose content changed; stat only as a settled pre-check | Incremental index with explicit dependencies | Stale index |
+| Instruction cache | Compacted text keyed by content and parser version | Reuse with reliable invalidation | File changed, cache didn't |
 | Cross-session memory | `tforge recall`, on demand | On-demand retrieval with provenance | An old assumption taken as fact |
 | Snapshots and handoffs | Chunks kept by use; the automatic handoff is deleted once used | Compact storage, selective retrieval | Incomplete or contradictory state |
 | Answer cache | Same question; same repo, commit, file contents, dependencies, model and terse level | Reuse only while the answer still holds | Stale answer, or a check skipped |

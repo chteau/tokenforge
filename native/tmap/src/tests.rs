@@ -10,9 +10,16 @@ fn fixture(files: &[(&str, &str)]) -> (PathBuf, Index) {
         fs::create_dir_all(path.parent().unwrap()).unwrap();
         fs::write(path, body).unwrap();
     }
-    std::env::set_var("TMAP_CACHE_DIR", dir.join(".tmap-cache"));
+    use_test_cache();
     let (idx, _) = index::refresh(&dir, true).unwrap();
     (dir, idx)
+}
+
+/// One index cache dir for the whole test process, set once: tests run in parallel, so changing it per test let one
+/// test read another's cache dir. The root's hash keeps their indexes apart.
+pub(crate) fn use_test_cache() {
+    static CACHE: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+    CACHE.get_or_init(|| std::env::set_var("TMAP_CACHE_DIR", std::env::temp_dir().join(format!("tmap-test-cache-{}", std::process::id()))));
 }
 
 fn rand_suffix() -> u128 {
@@ -109,6 +116,38 @@ fn skips_dependency_dirs_and_refreshes_incrementally() {
     fs::remove_file(dir.join("src/a.ts")).unwrap();
     let (idx3, stats) = index::refresh(&dir, false).unwrap();
     assert_eq!((stats.parsed, stats.removed, idx3.files.len()), (0, 1, 1));
+}
+
+#[test]
+fn refresh_follows_content_not_timestamps() {
+    let (dir, _) = fixture(&[("src/a.ts", "export function aaa() {}\n"), ("src/b.ts", "export function bbb() {}\n")]);
+    let names = |idx: &Index, p: &str| idx.files.iter().find(|f| f.path == p).map(|f| f.syms.iter().map(|s| s.name.clone()).collect::<Vec<_>>());
+    // same size, mtime put back: an edit within the clock's resolution
+    let a = dir.join("src/a.ts");
+    let mtime = fs::metadata(&a).unwrap().modified().unwrap();
+    fs::write(&a, "export function zzz() {}\n").unwrap();
+    fs::File::options().write(true).open(&a).unwrap().set_modified(mtime).unwrap();
+    let (idx, stats) = index::refresh(&dir, false).unwrap();
+    assert_eq!(names(&idx, "src/a.ts").unwrap(), ["zzz"], "same size and mtime, new content");
+    assert_eq!(stats.parsed, 1, "b.ts is hashed, not parsed again");
+    // the same bytes written again (a branch switch and back): a new mtime, nothing parsed
+    fs::write(dir.join("src/b.ts"), "export function bbb() {}\n").unwrap();
+    let (_, stats) = index::refresh(&dir, false).unwrap();
+    assert_eq!(stats.parsed, 0);
+    // a rename: the old path goes, the new one is indexed
+    fs::rename(dir.join("src/b.ts"), dir.join("src/c.ts")).unwrap();
+    let (idx, stats) = index::refresh(&dir, false).unwrap();
+    assert_eq!((stats.parsed, stats.removed), (1, 1));
+    assert!(names(&idx, "src/b.ts").is_none() && names(&idx, "src/c.ts").unwrap() == ["bbb"]);
+}
+
+#[test]
+fn a_cache_from_another_format_is_rebuilt() {
+    let (dir, _) = fixture(&[("src/a.ts", "export function a() {}\n")]);
+    let cache = index::cache_path(&dir);
+    fs::write(&cache, b"not an index").unwrap();
+    let (idx, stats) = index::refresh(&dir, false).unwrap();
+    assert_eq!((stats.parsed, idx.files.len()), (1, 1), "a torn or foreign cache is ignored");
 }
 
 #[test]
