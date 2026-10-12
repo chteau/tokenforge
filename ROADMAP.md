@@ -23,10 +23,9 @@ This plan follows an external review of the public repo. The review read the doc
 
 ## P0: Every result names the version that produced it
 
-Today every benchmark run records the TokenForge and Claude Code versions, and the environment a hash of the plugin files. The README, the reports and the site name them under every figure: the headline results come from 0.7.0 (34 tasks) and 0.8.0 (2 tasks) runs on Claude Code 2.1.293. The ultra + proxy runs of 0.9.2 development builds did not record their build hash: the runner reads it from an environment manifest left from an earlier build.
+Today every benchmark run records the TokenForge and Claude Code versions, and the environment a hash of the plugin files. The README, the reports and the site name them under every figure: the headline results come from 0.7.0 (34 tasks) and 0.8.0 (2 tasks) runs on Claude Code 2.1.293. Each run's manifest also records the plugin build hash.
 
 - [x] Show the TokenForge version, build hash and Claude Code version next to every published figure: site, README, reports.
-- [ ] Record the plugin build hash in each run's manifest, not only in the environment's.
 - [x] Refuse to build a report from runs of different versions, unless it labels each one.
 
 ## P0: A safer answer cache
@@ -123,7 +122,7 @@ Today each level's fixed context per request is measured.
 
 ## P2: Smaller code reads
 
-With lean `ultra` and the proxy, 6 benchmark tasks save a median 57% of tokens (9 runs per task against 4 native runs, quality unchanged). Most of what is left is code read through Bash: in 18 runs, `cat` returned 345k characters and `sed -n` 229k, read again on every later call until pruned. Architecture and banking-transfers sit at 55-59%; 3 more points on each would put the median past 60%.
+With lean `ultra` and the proxy, 6 benchmark tasks save a median 57% of tokens (0.9.2 development builds dc3cea66, ef3ee560 and 0ee08a19 on Claude Code 2.1.296: 9 runs per task against 4 native runs, quality unchanged). Most of what is left is code read through Bash: in 18 runs, `cat` returned 345k characters and `sed -n` 229k, read again on every later call until pruned. Architecture and banking-transfers sit at 55-59%; 3 more points on each would put the median past 60%.
 
 Replay of the 90 recorded ultra + proxy sessions (`node bench/scripts/read-replay.mjs --lean ultra`): `cat` is 64% of all tool-result characters and `sed -n` 23%, but most reads are short: only 82 `cat` and 22 `sed -n` results exceed 4k characters (11% and 3% of the total). After an edit of a file, 174 earlier reads of it (464k characters) were never used again yet re-sent with every later request.
 
