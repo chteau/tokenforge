@@ -20,6 +20,7 @@ This plan follows an external review of the public repo. The review read the doc
 3. **Differential tests for the Bash router and `tkit`.** Exit codes, cut logs and rewritten commands first.
 4. **Benchmark lean levels and orchestration strategies.** Find where each one really wins, instead of tuning one scenario.
 5. **Profile the system.** CPU, memory, I/O, hook time, worker startup and index cost. Optimize only confirmed bottlenecks.
+   Profiled 2026-10-12 (`node bench/scripts/profile.mjs`, no API calls): each hook takes 31-60 ms, of which 22 ms is Node starting, so a tool call gets about 75 ms (PreToolUse and PostToolUse) and a prompt about 60 ms; the `tmap` index of this repo takes 168 ms cold and 14 ms warm; the proxy spends 1 ms on a 40-message request, 50 ms at 1,000 tool calls and 290 ms at 3,000 (9 MB). Against model calls of several seconds none of these is a bottleneck, so nothing was optimized.
 
 ## P0: Every result names the version that produced it
 
