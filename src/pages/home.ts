@@ -98,7 +98,7 @@ export function home(view: HTMLElement): void {
       <p class="pver">${measured('academic')}</p>
       <details class="data"><summary>Data table: all ${a.tasks} tasks</summary>${resultsTable()}</details>
     </article>
-    <p class="pcap">${a.tasks} tasks, ${a.scratchTasks} from-scratch projects in ${scratchLangs} languages. ${MODEL_NAME} on both sides, checked in every API response. Medians of 1–3 runs per side. ${measured()}${worse.length ? ` Quality was lower on ${worse.length === 1 ? 'one task' : `${worse.length} tasks`} (${worse.map((t) => t.label).join(', ')}): every hidden test passes, the structural checks score lower.` : ''} <a href="#/benchmark">Method and caveats →</a></p>
+    <p class="pcap">${a.tasks} tasks, ${a.scratchTasks} from-scratch projects in ${scratchLangs} languages. ${MODEL_NAME} on both sides, checked in every API response. Medians of 2 runs per side (more on six tasks). ${measured()}${worse.length ? ` Quality was lower on ${worse.length === 1 ? 'one task' : `${worse.length} tasks`} (${worse.map((t) => t.label).join(', ')}), mostly by 1 to 3 points; PHP ticketing missed a hidden test in both its runs.` : ''} <a href="#/benchmark">Method and caveats →</a></p>
   </section>
 
   <section class="psec" id="install">

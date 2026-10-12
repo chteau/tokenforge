@@ -13,7 +13,7 @@ const STEPS: [string, string][] = [
   ['Validate 0.9.1 on real data.', 'Regenerate the reports from 0.9.1 runs, check the version each run recorded, fix any page that mixes versions.'],
   ['Audit the answer cache and cache invalidation.', 'Adversarial tests, a visible bypass, freshness checks.'],
   ['Differential tests for the Bash router and <code>tkit</code>.', 'Exit codes, cut logs and rewritten commands first.'],
-  ['Benchmark lean levels and orchestration strategies.', 'Find where each one really wins, instead of tuning one scenario.'],
+  ['Benchmark lean levels and orchestration strategies.', 'Find where each one really wins, instead of tuning one scenario. <span class="done">Lean levels done</span> On 6 tasks: <code>on</code> −37%, <code>balanced</code> −47%, <code>max</code> −44%, <code>ultra</code> −55% of tokens against clean Claude Code. Orchestration strategies are not benchmarked yet.'],
   ['Profile the system.', 'CPU, memory, I/O, hook time, worker startup and index cost. Optimize only confirmed bottlenecks. <span class="done">Done</span> Each hook takes 31–60 ms (22 ms of it Node starting), the <code>tmap</code> index 168 ms cold and 14 ms warm, the proxy 50 ms per request at 1,000 tool calls: none is a bottleneck against model calls of several seconds.'],
 ];
 
@@ -23,7 +23,7 @@ const ok = (s: string) => `<span class="done">Done</span> ${s}`;
 const ITEMS: Item[] = [
   {
     prio: 'P0', title: 'Every result names the version that produced it',
-    today: 'Every benchmark run records the TokenForge and Claude Code versions, and the environment a hash of the plugin files. The README, the reports and the site name them under every figure: the headline results come from 0.7.0 (34 tasks) and 0.8.0 (2 tasks) runs on Claude Code 2.1.293. Each run’s manifest also records the plugin build hash.',
+    today: 'Every benchmark run records the TokenForge and Claude Code versions, and the environment a hash of the plugin files. The README, the reports and the site name them under every figure: the headline results come from 0.9.2 runs (build 3af1944f, git 3a44e31f) on Claude Code 2.1.296, 37 tasks. Each run’s manifest also records the plugin build hash. The README charts draw only runs on the Claude Code version under test.',
     plan: [
       ok('Show the TokenForge version, build hash and Claude Code version next to every published figure: site, README, reports.'),
       ok('Refuse to build a report from runs of different versions, unless it labels each one.'),
@@ -54,14 +54,16 @@ const ITEMS: Item[] = [
     ],
   },
   {
-    prio: 'P1', title: 'Benchmark 0.9.1 properly',
-    today: 'The headline results are 83 runs of 0.8.0 over 36 tasks, mostly one run per side. The 0.9.0 planning-line A/B is paired, with 95% intervals, one run per task on each side.',
+    prio: 'P1', title: 'Benchmark 0.9.x properly',
+    today: 'The headline results are 220 runs on Claude Code 2.1.296 over 37 tasks: 2 runs per side of 0.9.2 at its defaults on every task (3 more tokenforge runs and 9 more native runs on 6 tasks). Median −51% of tokens and −28% of list cost per task, fewer tokens and lower cost on all 37 (sign test p < 10⁻¹⁰), mean quality per task 98.6 against 98.9. The 0.9.0 planning-line A/B is paired, with 95% intervals, one run per task on each side. Quality: tokenforge scored lower on 8 tasks, by 1 to 3 points except two. PHP ticketing lost 7: a hidden test on seat holds failed in both its runs, and in one run two more. The Vite page lost 5: one run of two failed the regression check. Of the 74 runs per side in the 2-run campaign, 10 tokenforge runs and 6 native runs were marked partial (a hidden test or a requirement missed), most by one test of 31 to 44, mostly on tasks where both sides miss (R, Zig, Java, Rust debugging). PHP ticketing and the Dart habit tracker fail only with tokenforge.',
     plan: [
-      'Regenerate a full report from 0.9.1 runs only.',
-      'Keep per-task comparisons, not only aggregates.',
-      '3 to 5 repetitions on representative tasks.',
+      ok('Regenerate a full report from 0.9.2 runs only.'),
+      ok('Keep per-task comparisons, not only aggregates.'),
+      ok('3 to 5 repetitions on representative tasks. 3 runs per lean level and with the proxy on 6 tasks; 2 per side on the 37.'),
+      '3 repetitions on all 37 tasks (stopped at 2 to spare the weekly usage).',
       'Separate the first call, a warm cache, an expired cache and a resume after <code>/clear</code>.',
-      'Analyze quality regressions and the tasks that cost more.',
+      ok('Analyze quality regressions and the tasks that cost more. No task costs more; regressions above.'),
+      'Find why PHP ticketing misses the seat-hold test with tokenforge only.',
       'Publish commit hashes, versions, configurations and raw reports.',
       'Paired comparisons, medians and uncertainty intervals, not a single mean.',
     ],
@@ -115,17 +117,21 @@ const ITEMS: Item[] = [
   {
     prio: 'P2', title: 'Lean levels: measure the whole cost',
     why: '<code>balanced</code>, <code>max</code> and <code>ultra</code> hide tools: <code>max</code> and <code>ultra</code> hide skills and subagents, <code>ultra</code> also the native Read, Edit and Write, and asks for edits through <code>tkit edit</code>. If <code>ultra</code> saves tool definitions but causes more Bash calls, quoting errors or failed edits, the saving can vanish.',
-    today: 'Each level’s fixed context per request is measured.',
-    plan: ['A report per level: tokens, cost, quality, time, attempts and regressions, not only the starting context.'],
+    today: 'Each level’s fixed context per request is measured, and its whole cost on 6 tasks (3 runs per level, 0.9.2 without the proxy, Claude Code 2.1.296): <code>on</code> −36.9%, <code>balanced</code> −46.9%, <code>max</code> −44.1%, <code>ultra</code> −54.7% of tokens against clean Claude Code, quality 96.8 to 98.2 against 95.9. <code>max</code> saves no more than <code>balanced</code>; with 3 runs per level that may be noise.',
+    plan: [
+      ok('A report per level: tokens, cost, quality, not only the starting context.'),
+      'Time, attempts and regressions per level, and more runs on <code>max</code>.',
+    ],
   },
   {
     prio: 'P2', title: 'Smaller code reads',
-    today: 'With lean <code>ultra</code> and the proxy, 6 benchmark tasks save a median 57% of tokens (0.9.2 development builds dc3cea66, ef3ee560 and 0ee08a19 on Claude Code 2.1.296: 9 runs per task against 4 native runs, quality unchanged). Most of what is left is code read through Bash: in 18 runs, <code>cat</code> returned 345k characters and <code>sed -n</code> 229k, read again on every later call until pruned. Architecture and banking-transfers sit at 55-59%; 3 more points on each would put the median past 60%. Replay of the 90 recorded ultra + proxy sessions (<code>node bench/scripts/read-replay.mjs --lean ultra</code>): <code>cat</code> is 64% of all tool-result characters and <code>sed -n</code> 23%, but most reads are short: only 82 <code>cat</code> and 22 <code>sed -n</code> results exceed 4k characters (11% and 3% of the total). After an edit of a file, 174 earlier reads of it (464k characters) were never used again yet re-sent with every later request.',
+    today: 'With lean <code>ultra</code> and the proxy, 6 benchmark tasks save 53.9% of tokens on one build (0.9.2 build 3af1944f on Claude Code 2.1.296, 3 runs per task against 8 native runs, quality unchanged; earlier development builds dc3cea66, ef3ee560 and 0ee08a19 gave a median 57% over 9 runs per task against 4). Without the proxy the same build saves 54.7%: on these one-prompt sessions the proxy adds nothing measurable on top of the hooks. Most of what is left is code read through Bash: in 18 runs, <code>cat</code> returned 345k characters and <code>sed -n</code> 229k, read again on every later call until pruned. Architecture and banking-transfers sit at 55-59%; 3 more points on each would put the median past 60%. Replay of the 90 recorded ultra + proxy sessions (<code>node bench/scripts/read-replay.mjs --lean ultra</code>): <code>cat</code> is 64% of all tool-result characters and <code>sed -n</code> 23%, but most reads are short: only 82 <code>cat</code> and 22 <code>sed -n</code> results exceed 4k characters (11% and 3% of the total). After an edit of a file, 174 earlier reads of it (464k characters) were never used again yet re-sent with every later request.',
     plan: [
       ok('Replay the recorded commands (no API calls): which <code>cat</code> and <code>sed -n</code> outputs are long enough to fold, and how often the model reads the same lines again after a fold.'),
       ok('Fold <code>sed -n</code> ranges only where the replay shows no re-read. Decided against: 22 ranges over 4k in 90 sessions, 3% of tool-result characters, and 5% of them read again.'),
       ok('Prune a file’s earlier reads once a later read or an edit of the same file supersedes them. Within a turn too (one <code>claude -p</code> session is one turn): a read of a file edited since goes once the model has not touched the file for 6 calls. Replayed, that removes 5.6% of what reads re-send, and no file was edited again without being read first; at 4 calls it would be 7.0%, with 4 such edits.'),
-      'Measure the change on the benchmark tasks (needs API runs).',
+      ok('Measure the change on the benchmark tasks. The current build used 1.81M tokens over the 6 tasks (sum of task means) against 2.03M for the earlier ultra + proxy builds, −11%, at the same quality; pruning is one of several changes between them, so this does not isolate it.'),
+      'Measure the proxy in long interactive sessions (expired caches, resumes), where its pruning should matter; or turn it off by default if it adds nothing there either.',
     ],
   },
 ];

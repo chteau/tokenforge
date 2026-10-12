@@ -28,7 +28,7 @@ export function benchmark(view: HTMLElement): void {
 
   <section class="card prose" style="margin-top:18px">
     <h2>Planning line A/B (0.9.0)</h2>
-    <p>The results above compare TokenForge ${data.builds.map((b) => b.version).join(' and ')} with clean Claude Code. 0.9.0 adds a planning line to the efficiency policy: look at the repo first, plan briefly, never draft code in thinking. It was measured against the same build without it, on the same ${a.tasks} tasks (a 0.8.0 development build of TokenForge, build c9de32de, on Claude Code 2.1.295, one run per task on each side):</p>
+    <p>The results above compare TokenForge ${data.builds.map((b) => b.version).join(' and ')} with clean Claude Code. 0.9.0 adds a planning line to the efficiency policy: look at the repo first, plan briefly, never draft code in thinking. It was measured against the same build without it, on 36 of these tasks (a 0.8.0 development build of TokenForge, build c9de32de, on Claude Code 2.1.295, one run per task on each side):</p>
     <ul>
       <li>List cost −15.5% per task (95% CI −20.8% to −9.8%), −18.8% pooled; lower on 27 of 36 tasks, higher on nine.</li>
       <li>Thinking −44%, total tokens −22%, tool calls −20%, wall-clock −21%.</li>
@@ -36,6 +36,22 @@ export function benchmark(view: HTMLElement): void {
       <li>The line adds 106 input tokens per session, included in every figure.</li>
     </ul>
     <p><a href="https://github.com/chteau/tokenforge/blob/master/bench/reports/final-comparison.md">Full report →</a></p>
+  </section>
+
+  <section class="card prose" style="margin-top:18px">
+    <h2>Lean levels and the proxy (0.9.2)</h2>
+    <p>Whole tasks, not only the fixed context: 6 tasks (architecture, cross-module and Rust debugging, PR review, two features), 3 runs per level against 8 clean runs per task, TokenForge 0.9.2 without the proxy, Claude Code 2.1.296.</p>
+    <div class="card ptable scroll"><table>
+      <thead><tr><th>Level</th><th class="num">Tokens vs clean</th><th class="num">Quality</th><th class="num">List cost per run</th></tr></thead>
+      <tbody>
+        <tr><td>clean Claude Code</td><td class="num">—</td><td class="num">95.9</td><td class="num">$0.74</td></tr>
+        <tr><td><code>on</code></td><td class="num">−36.9%</td><td class="num">98.1</td><td class="num">$0.60</td></tr>
+        <tr><td><code>balanced</code> (default)</td><td class="num">−46.9%</td><td class="num">97.5</td><td class="num">$0.57</td></tr>
+        <tr><td><code>max</code></td><td class="num">−44.1%</td><td class="num">96.8</td><td class="num">$0.58</td></tr>
+        <tr><td><code>ultra</code></td><td class="num">−54.7%</td><td class="num">98.2</td><td class="num">$0.56</td></tr>
+      </tbody>
+    </table></div>
+    <p><code>max</code> saves no more than <code>balanced</code> here; with 3 runs per level the gap may be noise. With the <a href="#/docs/proxy">API proxy</a>, <code>ultra</code> saved 53.9% on the same tasks: in these one-prompt sessions the proxy adds nothing measurable on top of the hooks. Long interactive sessions are not measured yet.</p>
   </section>
 
   <div class="grid cols-2" style="margin-top:18px;align-items:start">
@@ -76,10 +92,10 @@ export function benchmark(view: HTMLElement): void {
       <section class="card prose">
         <h2>Caveats, stated plainly</h2>
         <ul>
-          <li><strong>Single runs.</strong> Most tasks have one run per side, a few have two or three. Single runs vary by about ±20%. Read per-task numbers as rough and the overall result as solid.</li>
+          <li><strong>Few runs.</strong> Two runs per side on each task, more on six. Single runs vary by about ±20%. Read per-task numbers as rough and the overall result as solid.</li>
           <li><strong>One task left out.</strong> A Ruby log analyzer was run once per side and is not in these results: TokenForge used 14% more tokens on it (443k vs 390k), quality 96.25 vs 96.83. The exclusion is listed in <code>bench/benchmark.config.json</code> and the runs are kept.</li>
           <li><strong>Session length.</strong> The benchmark covers sessions of roughly 5–30 calls. Long interactive sessions are not measured yet.</li>
-          <li><strong>Two small quality drops.</strong> Every hidden test passes on both, but the structural checks score lower: scheduled transfers 94 (design checks 9/15, as in every TokenForge run of that task) and the Perl config merger 97 (its entry script is longer than the 30 lines the spec asks for).</li>
+          <li><strong>Some quality drops.</strong> TokenForge scored lower on ${a.qualityWorse.length} tasks, mostly by 1 to 3 points. PHP ticketing lost 7: a hidden test on seat holds failed in both its runs. The Vite page lost 5: one of its two runs failed the regression check. 10 TokenForge runs and 6 clean runs of 74 each missed a hidden test or requirement, most on tasks where both sides miss.</li>
           <li><strong>Hooks rewrite some commands.</strong> Raw build and test commands, broad <code>cat</code> dumps and <code>ssh</code> are rewritten to compact tools. See <a href="#/docs/hooks">Hooks</a> for the exact list and escape hatches.</li>
           <li><strong>First start edits your settings.</strong> TokenForge sets the <code>balanced</code> lean level once, tells you, and writes only its own entries. <code>tforge lean off</code> removes exactly those. Opt out before the first start with <code>TFORGE_LEAN_DEFAULT=off</code>.</li>
           <li><strong>One configuration.</strong> One model, one Claude Code version, one TokenForge version. All three are recorded in every run manifest.</li>

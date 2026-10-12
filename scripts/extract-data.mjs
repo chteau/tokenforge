@@ -33,13 +33,14 @@ const EXISTING = {
   'cross-module-debug': 'Cross-module debugging (TS)', 'go-feature': 'Go scheduled notifications', 'banking-web': 'TS filters + CSV export',
   'rust-cli': 'Rust CLI feature', 'go-api': 'Go REST endpoint', 'rust-debug': 'Rust debugging', 'pr-review': 'PR review (Go)',
   'banking-transfers': 'Scheduled transfers (TS, multi-layer)', 'refactor': 'Rust refactor', 'architecture': 'Architecture investigation (TS)',
+  'memory-followup': 'Follow-up session using memory (Rust)',
 };
 const SHORT = {
   'vite-landing': 'Vite page', 'go-mock-api': 'Go mock API', 'csharp-api': 'C# API', 'rust-tui': 'Rust TUI', 'luau-inventory': 'Luau inventory',
   'node-ssg': 'Node SSG', 'python-cli': 'Python CLI', 'cpp-cli': 'C++ KV store', 'ts-lib': 'TS library',
   'cross-module-debug': 'Cross-module debug', 'go-feature': 'Go notifications', 'banking-web': 'TS CSV export', 'rust-cli': 'Rust CLI feature',
   'go-api': 'Go endpoint', 'rust-debug': 'Rust debug', 'pr-review': 'PR review', 'banking-transfers': 'Sched. transfers',
-  'refactor': 'Rust refactor', 'architecture': 'Architecture',
+  'refactor': 'Rust refactor', 'architecture': 'Architecture', 'memory-followup': 'Memory follow-up',
   'java-http': 'Java shortener', 'php-api': 'PHP API', 'swift-cli': 'Swift cron', 'dart-cli': 'Dart habits', 'bash-tool': 'Bash backups',
   'paper-proofread': 'Proofreading', 'pdf-paper-qa': 'PDF Q&A',
   'c-cli': 'C CSV tool', 'kotlin-cli': 'Kotlin Markdown', 'ruby-cli': 'Ruby logs',
@@ -57,7 +58,7 @@ const median = (xs) => {
 const tasks = [];
 for (const t of report.per_task) {
   const group = SCRATCH[t.task] ? 'scratch' : EXISTING[t.task] ? 'existing' : ACADEMIC[t.task] ? 'academic' : null;
-  if (!group || !t['token-forge'] || !t.native) continue; // memory-followup has no paired default run
+  if (!group || !t['token-forge'] || !t.native) continue;
   const meta = readJson(path.join(bench, 'tasks', t.task, 'task.json'));
   const n = t.native, f = t['token-forge'];
   tasks.push({
