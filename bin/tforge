@@ -354,7 +354,7 @@ async function main() {
         const r = await daemonStart('proxy', { port: o.port, detach: true });
         return console.log(r ? `tforge proxy: running on 127.0.0.1:${r.port}; use: ${hint(r.port)}` : 'tforge proxy: failed to start (see ~/.cache/tokenforge/proxy.log)');
       }
-      const r = await proxy.startProxy({ port: o.port || Number(process.env.TFORGE_PROXY_PORT) || proxy.DEFAULT_PORT });
+      const r = await proxy.startProxy({ port: o.port || Number(process.env.TFORGE_PROXY_PORT) || proxy.DEFAULT_PORT, watchPlugin: true });
       await daemonStart('proxy', { port: r.port, foreground: true });
       // sessions depend on it: a bug in one request is logged, not fatal
       process.on('uncaughtException', (e) => console.error(`tforge proxy: ${new Date().toISOString()} ${e.stack || e}`));

@@ -186,6 +186,8 @@ tokenforge is a normal plugin. It never patches Claude Code or wraps the `claude
 
 To uninstall, **first run `tforge proxy off`** (or `/tokenforge:proxy off`), then `/plugin uninstall tokenforge@tokenforge`. Without that step your settings keep sending Claude Code's requests to the proxy, which no longer runs, and every request fails; removing `ANTHROPIC_BASE_URL` from the `env` of `~/.claude/settings.json` fixes it by hand. Nothing else is left behind except `.forge/` folders in the projects where you used it.
 
+Disabling the plugin (in `/plugin`, or `enabledPlugins` set to `false`) is not reported to plugins, so the settings tokenforge wrote would keep acting: hidden tools, the shorter auto-compact window, the proxy address. The proxy handles it: while it runs, it checks `enabledPlugins` at most every 30 seconds, and once `tokenforge@…` is `false` it removes what tokenforge added (never your own entries) and remembers it. The first session after you enable tokenforge again puts it back. If the proxy is not running when you disable the plugin (after a reboot, say), nothing sees it, so run `tforge lean off` and `tforge proxy off` first.
+
 ## Use
 
 Nothing to learn: once installed it works on its own, in the terminal and in Claude Desktop.
