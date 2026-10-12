@@ -7,8 +7,10 @@ Every chart names the TokenForge version, plugin build hash and Claude Code vers
 more than one TokenForge build or Claude Code version in one chart are refused unless --mixed-versions is given;
 then each task is labelled with its TokenForge build.
 
-Selection, so anyone can check it: native = median of every completed native run per task; tokenforge = the
-most recent completed run per task for each lean level, read from that run's environment_manifest.json.
+Selection, so anyone can check it: only runs on the Claude Code version under test (environments/token-forge/
+manifest.json); native = median of every completed native run per task; tokenforge = the median of the build under
+test's runs at its default lean level (the context curve: the most recent run), read from each run's
+environment_manifest.json.
 Colors follow the entity in every chart: slot 1 (blue) clean Claude Code, slot 2 (orange) tokenforge balanced,
 slot 3 (aqua) tokenforge ultra; dataviz reference palette, validated for light and dark surfaces (aqua is under
 3:1 on light, so every bar carries a visible value label).
@@ -43,7 +45,8 @@ GREENFIELD = ["rust-tui", "vite-landing", "go-mock-api", "python-cli", "ts-lib",
               "java-http", "php-api", "swift-cli", "dart-cli", "bash-tool", "c-cli", "kotlin-cli",
               "zig-cli", "elixir-app", "haskell-cli", "ocaml-cli", "lua-cli", "r-cli", "fsharp-cli", "perl-cli"]
 EXISTING = ["cross-module-debug", "rust-cli", "pr-review", "architecture", "rust-debug", "banking-transfers", "go-api", "go-feature", "banking-web", "refactor"]
-BUILD = json.loads((BENCH / "environments" / "token-forge" / "manifest.json").read_text()).get("plugin_sha256")
+ENV = json.loads((BENCH / "environments" / "token-forge" / "manifest.json").read_text())
+BUILD, CC = ENV.get("plugin_sha256"), ENV.get("claude_code_version")
 # builds the config declares equivalent for the default comparison (same model context) count as the build under test
 BUILDS = {BUILD, *json.loads((BENCH / "benchmark.config.json").read_text())["token_forge"].get("equivalent_builds", {})}
 # Measured fixed context per request: first-request context of a one-word prompt in a git repo, settings written
@@ -66,7 +69,7 @@ def runs():
     out = []
     for m in BENCH.glob("runs/*/*/*/manifest.json"):
         r = json.loads(m.read_text())
-        if r.get("status") != "completed" or not r.get("total_tokens"):
+        if r.get("status") != "completed" or not r.get("total_tokens") or r.get("claude_code_version") != CC:
             continue
         env = m.parent / "environment_manifest.json"
         r["lean"] = (json.loads(env.read_text()).get("token_forge_lean") if env.exists() else None) or "off"

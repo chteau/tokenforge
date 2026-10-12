@@ -19,12 +19,13 @@ This plan follows an external review of the public repo. The review read the doc
 2. **Audit the answer cache and cache invalidation.** Adversarial tests, a visible bypass, freshness checks.
 3. **Differential tests for the Bash router and `tkit`.** Exit codes, cut logs and rewritten commands first.
 4. **Benchmark lean levels and orchestration strategies.** Find where each one really wins, instead of tuning one scenario.
+   Lean levels measured 2026-10-12 (below, P2 Lean levels). Orchestration strategies are not benchmarked yet.
 5. **Profile the system.** CPU, memory, I/O, hook time, worker startup and index cost. Optimize only confirmed bottlenecks.
    Profiled 2026-10-12 (`node bench/scripts/profile.mjs`, no API calls): each hook takes 31-60 ms, of which 22 ms is Node starting, so a tool call gets about 75 ms (PreToolUse and PostToolUse) and a prompt about 60 ms; the `tmap` index of this repo takes 168 ms cold and 14 ms warm; the proxy spends 1 ms on a 40-message request, 50 ms at 1,000 tool calls and 290 ms at 3,000 (9 MB). Against model calls of several seconds none of these is a bottleneck, so nothing was optimized.
 
 ## P0: Every result names the version that produced it
 
-Today every benchmark run records the TokenForge and Claude Code versions, and the environment a hash of the plugin files. The README, the reports and the site name them under every figure: the headline results come from 0.7.0 (34 tasks) and 0.8.0 (2 tasks) runs on Claude Code 2.1.293. Each run's manifest also records the plugin build hash.
+Today every benchmark run records the TokenForge and Claude Code versions, and the environment a hash of the plugin files. The README, the reports and the site name them under every figure: the headline results come from 0.9.2 runs (build 3af1944f, git 3a44e31f) on Claude Code 2.1.296, 37 tasks. Each run's manifest also records the plugin build hash. The README charts draw only runs on the Claude Code version under test.
 
 - [x] Show the TokenForge version, build hash and Claude Code version next to every published figure: site, README, reports.
 - [x] Refuse to build a report from runs of different versions, unless it labels each one.
@@ -53,15 +54,19 @@ Today every cache declares what it depends on (`tforge caches`) and is checked b
 - [x] Concurrency tests, and invalidation after an interrupted write.
 - [x] Keep local computation caches, working memory and the provider's prompt cache clearly apart.
 
-## P1: Benchmark 0.9.1 properly
+## P1: Benchmark 0.9.x properly
 
-Today the headline results are 83 runs of 0.8.0 over 36 tasks, mostly one run per side. The 0.9.0 planning-line A/B is paired, with 95% intervals, one run per task on each side.
+Today the headline results are 220 runs on Claude Code 2.1.296 over 37 tasks: 2 runs per side of 0.9.2 at its defaults on every task (3 more tokenforge runs and 9 more native runs on 6 tasks). Median −51% of tokens and −28% of list cost per task, fewer tokens and lower cost on all 37 (sign test p < 10⁻¹⁰), mean quality per task 98.6 against 98.9. The 0.9.0 planning-line A/B is paired, with 95% intervals, one run per task on each side.
 
-- [ ] Regenerate a full report from 0.9.1 runs only.
-- [ ] Keep per-task comparisons, not only aggregates.
-- [ ] 3 to 5 repetitions on representative tasks.
+Quality: tokenforge scored lower on 8 tasks, by 1 to 3 points except two. PHP ticketing lost 7: a hidden test on seat holds failed in both its runs, and in one run two more. The Vite page lost 5: one run of two failed the regression check. Of the 74 runs per side in the 2-run campaign, 10 tokenforge runs and 6 native runs were marked partial (a hidden test or a requirement missed), most by one test of 31 to 44, mostly on tasks where both sides miss (R, Zig, Java, Rust debugging). PHP ticketing and the Dart habit tracker fail only with tokenforge.
+
+- [x] Regenerate a full report from 0.9.2 runs only.
+- [x] Keep per-task comparisons, not only aggregates.
+- [x] 3 to 5 repetitions on representative tasks. 3 runs per lean level and with the proxy on 6 tasks; 2 per side on the 37.
+- [ ] 3 repetitions on all 37 tasks (stopped at 2 to spare the weekly usage).
 - [ ] Separate the first call, a warm cache, an expired cache and a resume after `/clear`.
-- [ ] Analyze quality regressions and the tasks that cost more.
+- [x] Analyze quality regressions and the tasks that cost more. No task costs more; regressions above.
+- [ ] Find why PHP ticketing misses the seat-hold test with tokenforge only.
 - [ ] Publish commit hashes, versions, configurations and raw reports.
 - [ ] Paired comparisons, medians and uncertainty intervals, not a single mean.
 
@@ -118,20 +123,32 @@ The goal is the cheapest setup for the actual task, not workers by default.
 
 `balanced`, `max` and `ultra` hide tools: `max` and `ultra` hide skills and subagents, `ultra` also the native Read, Edit and Write, and asks for edits through `tkit edit`. If `ultra` saves tool definitions but causes more Bash calls, quoting errors or failed edits, the saving can vanish.
 
-Today each level's fixed context per request is measured.
+Today each level's fixed context per request is measured, and its whole cost on 6 tasks (architecture, cross-module-debug, rust-debug, pr-review, go-feature, banking-transfers; 3 runs per level, 0.9.2 without the proxy, Claude Code 2.1.296, against 8 native runs per task):
 
-- [ ] A report per level: tokens, cost, quality, time, attempts and regressions, not only the starting context.
+| Level | Tokens | vs native | Quality | List cost per run |
+|---|---:|---:|---:|---:|
+| native | 3.93M | | 95.9 | $0.74 |
+| `on` | 2.48M | −36.9% | 98.1 | $0.60 |
+| `balanced` | 2.09M | −46.9% | 97.5 | $0.57 |
+| `max` | 2.20M | −44.1% | 96.8 | $0.58 |
+| `ultra` | 1.78M | −54.7% | 98.2 | $0.56 |
+
+Tokens are the sum over the 6 tasks of each task's mean. `max` saves no more than `balanced`: go-feature cost more under it (−42% against −54%), and rust-debug scored 87 against 89 to 92. With 3 runs per level that may be noise.
+
+- [x] A report per level: tokens, cost, quality, not only the starting context.
+- [ ] Time, attempts and regressions per level, and more runs on `max`.
 
 ## P2: Smaller code reads
 
-With lean `ultra` and the proxy, 6 benchmark tasks save a median 57% of tokens (0.9.2 development builds dc3cea66, ef3ee560 and 0ee08a19 on Claude Code 2.1.296: 9 runs per task against 4 native runs, quality unchanged). Most of what is left is code read through Bash: in 18 runs, `cat` returned 345k characters and `sed -n` 229k, read again on every later call until pruned. Architecture and banking-transfers sit at 55-59%; 3 more points on each would put the median past 60%.
+With lean `ultra` and the proxy, 6 benchmark tasks save 53.9% of tokens on one build (0.9.2 build 3af1944f on Claude Code 2.1.296, 3 runs per task against 8 native runs, quality unchanged; earlier development builds dc3cea66, ef3ee560 and 0ee08a19 gave a median 57% over 9 runs per task against 4). Without the proxy the same build saves 54.7%: on these one-prompt sessions the proxy adds nothing measurable on top of the hooks. Most of what is left is code read through Bash: in 18 runs, `cat` returned 345k characters and `sed -n` 229k, read again on every later call until pruned. Architecture and banking-transfers sit at 55-59%; 3 more points on each would put the median past 60%.
 
 Replay of the 90 recorded ultra + proxy sessions (`node bench/scripts/read-replay.mjs --lean ultra`): `cat` is 64% of all tool-result characters and `sed -n` 23%, but most reads are short: only 82 `cat` and 22 `sed -n` results exceed 4k characters (11% and 3% of the total). After an edit of a file, 174 earlier reads of it (464k characters) were never used again yet re-sent with every later request.
 
 - [x] Replay the recorded commands (no API calls): which `cat` and `sed -n` outputs are long enough to fold, and how often the model reads the same lines again after a fold.
 - [x] Fold `sed -n` ranges only where the replay shows no re-read. Decided against: 22 ranges over 4k in 90 sessions, 3% of tool-result characters, and 5% of them read again.
 - [x] Prune a file's earlier reads once a later read or an edit of the same file supersedes them. Within a turn too (one `claude -p` session is one turn): a read of a file edited since goes once the model has not touched the file for 6 calls. Replayed, that removes 5.6% of what reads re-send, and no file was edited again without being read first; at 4 calls it would be 7.0%, with 4 such edits.
-- [ ] Measure the change on the benchmark tasks (needs API runs).
+- [x] Measure the change on the benchmark tasks. The current build used 1.81M tokens over the 6 tasks (sum of task means) against 2.03M for the earlier ultra + proxy builds, −11%, at the same quality; pruning is one of several changes between them, so this does not isolate it.
+- [ ] Measure the proxy in long interactive sessions (expired caches, resumes), where its pruning should matter; or turn it off by default if it adds nothing there either.
 
 ## Caching
 

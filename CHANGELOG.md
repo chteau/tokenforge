@@ -10,6 +10,8 @@ Correctness: a safer answer cache, versioned benchmark figures, memory that surv
 - French fresh-look words starting with an accent ("vérifie", "à froid") never matched; they do now.
 - Bench reports and charts name the TokenForge version, build hash and Claude Code version under every table and figure. A report or chart that mixes versions or builds is refused with the list found; `--mixed-versions` builds it with each row or series labelled. The published benchmark-report.json mixes 3 builds, so rebuilding it needs that flag.
 - README: each benchmark figure names the tokenforge and Claude Code versions it was measured with. No figure changed.
+- Benchmark of 0.9.2 (Claude Code 2.1.296, 37 tasks, 2 runs per side at the defaults): median −51% tokens and −28% list cost per task, fewer tokens and lower cost on all 37, mean quality per task 98.6 against 98.9. The README, the report and the charts now show these runs; the 0.7.0 and 0.8.0 results stay in git history. Lean levels on 6 tasks: `on` −37%, `balanced` −47%, `max` −44%, `ultra` −55%. With the proxy, `ultra` saves 53.9%: nothing measurable on top of the hooks in one-prompt sessions.
+- README charts draw only runs on the Claude Code version under test.
 - `tforge version` prints the version and the plugin build hash that benchmark runs record (`--json`).
 - Resume: SessionStart now also runs on resume. Claude Code keeps the earlier session-start text in the transcript, so the rules are not sent again; only what changed while the session was away is: a newer handoff, a changed state file, or another session's work in this project since.
 - Compaction: this session's own compact checkpoint is reloaded after a compaction (before, the newest snapshots of any session).

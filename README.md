@@ -39,66 +39,67 @@ A long Claude Code session re-sends its whole context on every turn. A build tha
 
 ## Where it helps, measured
 
-**Against clean Claude Code.** Every benchmark run uses **Claude Opus 5.5** (`claude-opus-5-5`) on Claude Code 2.1.293, on both sides. This is verified from the model field of every API response in the saved transcripts, not just the `--model` flag. `bench/` runs the same task on the same repo commit in sandboxed sessions, once with clean Claude Code (no plugins, skills, hooks, MCP or CLAUDE.md) and once with tokenforge at its defaults (0.7.0, builds b9471cc0 and 1d360dd5, on the 34 coding tasks; 0.8.0, build 31952bff, on the 2 academic tasks), and scores quality with hidden tests.
+**Against clean Claude Code.** Every benchmark run uses **Claude Opus 5.5** (`claude-opus-5-5`) on Claude Code 2.1.296, on both sides. This is verified from the model field of every API response in the saved transcripts, not just the `--model` flag. `bench/` runs the same task on the same repo commit in sandboxed sessions, once with clean Claude Code (no plugins, skills, hooks, MCP or CLAUDE.md) and once with tokenforge 0.9.2 at its defaults (build 3af1944f, git 3a44e31f, lean `balanced`), and scores quality with hidden tests.
 
-**Across all 36 tasks (tokenforge 0.7.0 and 0.8.0 as above, Claude Code 2.1.293), tokenforge used about half the tokens: median −52%, mean −50%, pooled −52%. It used fewer tokens on all 36 tasks, with equal or better quality on all but two.** At list prices, which is roughly what usage limits count (most of the token savings are cache reads, at 0.05× the input price; the 1-hour cache writes Claude Code makes cost 2×), the median is −22%, and it cost less on 34 of 36 tasks: `c-cli` (+9.5%) and `perl-cli` (+5.4%) cost more, both from long up-front plans. The planning line added since cuts those two by about a third (A/B against TokenForge without it, below). Median tool calls: −49%.
+**Across all 37 tasks (tokenforge 0.9.2, Claude Code 2.1.296), tokenforge used about half the tokens: median −51%, mean −50%, pooled −52%. It used fewer tokens on all 37 tasks, and cost less on all 37.** At list prices, which is roughly what usage limits count (most of the token savings are cache reads, at 0.05× the input price; the 1-hour cache writes Claude Code makes cost 2×), the median is −28%. Median tool calls: −29%. Mean quality per task 98.6 against 98.9 (median difference 0): tokenforge scored lower on 8 tasks, by 1 to 3 points except PHP ticketing (−7, a hidden test on seat holds failed in both its runs) and the Vite page (−5, one run lost the regression check).
 
 ![From scratch: total tokens per project](docs/img/bench-greenfield.svg)
 
 | Built from scratch | Clean Claude Code | tokenforge | Saved | Quality |
 |---|---:|---:|---:|---|
-| Vite front page | 253k | 62k | **−75%** | 100 → 100 |
-| Go mock REST API | 556k | 144k | **−74%** | 97.5 → 100 |
-| C# loans API (ASP.NET Core) | 1.22M | 335k | **−73%** | 100 → 100 |
-| Java URL shortener (JDK HTTP) | 813k | 237k | **−71%** | 100 → 100 |
-| Rust TUI (ratatui) | 802k | 251k | **−69%** | 100 → 100 |
-| Luau inventory (Roblox-style) | 245k | 84k | **−66%** | 100 → 100 |
-| F# expense splitter (.NET) | 847k | 324k | **−62%** | 97.5 → 100 |
-| OCaml assembler + VM (dune) | 684k | 270k | **−60%** | 97 → 100 |
-| Lua template engine | 781k | 323k | **−59%** | 100 → 100 |
-| Zig JSON toolkit | 965k | 412k | **−57%** | 97.07 → 97.07 |
-| R survey statistics | 660k | 285k | **−57%** | 97.07 → 97.07 |
-| PHP ticketing API (SQLite) | 1.07M | 479k | **−55%** | 100 → 100 |
-| Swift cron tool (SwiftPM) | 419k | 192k | **−54%** | 100 → 100 |
-| Node static site generator | 434k | 207k | **−52%** | 100 → 100 |
-| Elixir job queue (GenServer) | 540k | 267k | **−51%** | 96.94 → 100 |
-| Python CLI | 386k | 191k | **−51%** | 100 → 100 |
-| C++ key-value store (CMake) | 303k | 157k | **−48%** | 100 → 100 |
-| TypeScript library | 284k | 156k | **−45%** | 100 → 100 |
-| Dart habit tracker | 443k | 245k | **−45%** | 100 → 100 |
-| Bash backup rotation | 623k | 363k | **−42%** | 100 → 100 |
-| Perl config linter + merger | 598k | 377k | **−37%** | 100 → 97 |
-| Haskell spreadsheet evaluator | 599k | 402k | **−33%** | 100 → 100 |
-| C CSV query tool (Make) | 723k | 569k | **−21%** | 100 → 100 |
-| Kotlin Markdown converter | 464k | 418k | **−10%** | 100 → 100 |
+| Vite front page | 337k | 75k | **−78%** | 100 → 95 |
+| Rust TUI (ratatui) | 603k | 172k | **−72%** | 100 → 100 |
+| Go mock REST API | 426k | 133k | **−69%** | 97.5 → 98.75 |
+| PHP ticketing API (SQLite) | 1.13M | 372k | **−67%** | 100 → 93.13 |
+| C# loans API (ASP.NET Core) | 1.07M | 353k | **−67%** | 98.75 → 100 |
+| Bash backup rotation | 711k | 257k | **−64%** | 95 → 100 |
+| Zig JSON toolkit | 844k | 355k | **−58%** | 98.53 → 95.6 |
+| Perl config linter + merger | 615k | 264k | **−57%** | 100 → 98.5 |
+| F# expense splitter (.NET) | 765k | 330k | **−57%** | 100 → 100 |
+| Java URL shortener (JDK HTTP) | 797k | 352k | **−56%** | 98.5 → 98.5 |
+| Python CLI | 301k | 134k | **−55%** | 100 → 100 |
+| Swift cron tool (SwiftPM) | 454k | 206k | **−55%** | 100 → 100 |
+| TypeScript library | 349k | 160k | **−54%** | 100 → 100 |
+| Haskell spreadsheet evaluator | 671k | 312k | **−54%** | 100 → 100 |
+| OCaml assembler + VM (dune) | 481k | 227k | **−53%** | 100 → 100 |
+| Elixir job queue (GenServer) | 492k | 237k | **−52%** | 100 → 100 |
+| R survey statistics | 533k | 261k | **−51%** | 97.07 → 97.07 |
+| Lua template engine | 731k | 381k | **−48%** | 95 → 95 |
+| Luau inventory (Roblox-style) | 259k | 137k | **−47%** | 100 → 100 |
+| Dart habit tracker | 480k | 256k | **−47%** | 100 → 98.6 |
+| C++ key-value store (CMake) | 330k | 181k | **−45%** | 100 → 100 |
+| Node static site generator | 240k | 135k | **−44%** | 100 → 100 |
+| Kotlin Markdown converter | 580k | 350k | **−40%** | 100 → 100 |
+| C CSV query tool (Make) | 613k | 399k | **−35%** | 100 → 100 |
 
-Median −55% over 24 projects in 23 languages (tokenforge 0.7.0, Claude Code 2.1.293). Perl config merger: every hidden test passes, but tokenforge scores 97 on the structural checks (the entry script is longer than the 30 lines the spec asks for). The agent gets a spec and an empty repo, and hidden black-box tests check the result (CLI, HTTP contract, headless browser, scripted TUI, lune for Luau). A Ruby log analyzer was also run once per side and is left out of these results: tokenforge used 14% more tokens on it (443k vs 390k), quality 96.25 vs 96.83. `bench/benchmark.config.json` lists the exclusion and the runs are kept.
+Median −54% over 24 projects in 23 languages (tokenforge 0.9.2, Claude Code 2.1.296). The agent gets a spec and an empty repo, and hidden black-box tests check the result (CLI, HTTP contract, headless browser, scripted TUI, lune for Luau). A Ruby log analyzer was also run once per side and is left out of these results: tokenforge used 14% more tokens on it (443k vs 390k), quality 96.25 vs 96.83. `bench/benchmark.config.json` lists the exclusion and the runs are kept.
 
 ![Existing codebases: total tokens per task](docs/img/bench-existing.svg)
 
 | In an existing codebase | Clean Claude Code | tokenforge | Saved | Quality |
 |---|---:|---:|---:|---|
-| Cross-module debugging (TS) | 265k | 92k | **−65%** | 100 → 100 |
-| Go scheduled notifications | 1.94M | 733k | **−62%** | 100 → 100 |
-| TS filters + CSV export | 1.56M | 637k | **−59%** | 100 → 100 |
-| Rust CLI feature | 1.44M | 604k | **−58%** | 100 → 100 |
-| Go REST endpoint | 684k | 343k | **−50%** | 100 → 100 |
-| Rust debugging | 202k | 115k | **−43%** | 88.5 → 100 |
-| PR review (Go) | 181k | 111k | **−39%** | 96.67 → 100 |
-| Scheduled transfers (TS, multi-layer) | 2.43M | 1.62M | **−33%** | 100 → 94 |
-| Rust refactor | 413k | 348k | **−16%** | 100 → 100 |
-| Architecture investigation (TS) | 386k | 347k | **−10%** | 100 → 100 |
+| TS filters + CSV export | 1.24M | 545k | **−56%** | 100 → 100 |
+| Follow-up session using memory (Rust) | 330k | 156k | **−53%** | 100 → 98.12 |
+| Cross-module debugging (TS) | 207k | 102k | **−51%** | 100 → 100 |
+| Go scheduled notifications | 1.09M | 551k | **−49%** | 100 → 100 |
+| Rust debugging | 200k | 106k | **−47%** | 90 → 87 |
+| Architecture investigation (TS) | 487k | 264k | **−46%** | 100 → 100 |
+| Rust CLI feature | 1.25M | 706k | **−44%** | 100 → 100 |
+| Scheduled transfers (TS, multi-layer) | 1.60M | 926k | **−42%** | 94 → 100 |
+| Go REST endpoint | 623k | 380k | **−39%** | 100 → 100 |
+| Rust refactor | 384k | 253k | **−34%** | 100 → 100 |
+| PR review (Go) | 223k | 191k | **−14%** | 98.12 → 96.67 |
 
-Median −47% (tokenforge 0.7.0, Claude Code 2.1.293). Scheduled transfers: every hidden test passes, but tokenforge scores 94 on the structural design checks (9/15), as in every tokenforge run of that task.
+Median −46% (tokenforge 0.9.2, Claude Code 2.1.296). The follow-up task runs a second session on the first one's feature, so it measures the memory hint (`tforge recall`) as well.
 
 | Academic work | Clean Claude Code | tokenforge | Saved | Quality |
 |---|---:|---:|---:|---|
-| Answer questions from a 15-page PDF paper | 274k | 138k | **−50%** | 100 → 100 |
-| Proofread a LaTeX manuscript (19 planted errors) | 239k | 157k | **−34%** | 95.3 → 97.8 |
+| Proofread a LaTeX manuscript (19 planted errors) | 266k | 169k | **−37%** | 97.77 → 97.77 |
+| Answer questions from a 15-page PDF paper | 175k | 139k | **−20%** | 100 → 100 |
 
-Two runs per side, tokenforge 0.8.0 (build 31952bff), Claude Code 2.1.293. Proofreading: 19 errors planted across a 12-page LaTeX manuscript, scored by how many are found (recall) with a small penalty for false alarms. PDF Q&A: 10 questions answered from a 15-page two-column paper, one of them only from a figure. The PDF task hides `pdftotext`, poppler, Ghostscript and Python PDF libraries on both sides, as on a typical Windows machine; with them installed, both sides simply convert the PDF and the comparison says little.
+Two runs per side, tokenforge 0.9.2, Claude Code 2.1.296. Proofreading: 19 errors planted across a 12-page LaTeX manuscript, scored by how many are found (recall) with a small penalty for false alarms. PDF Q&A: 10 questions answered from a 15-page two-column paper, one of them only from a figure. The PDF task hides `pdftotext`, poppler, Ghostscript and Python PDF libraries on both sides, as on a typical Windows machine; with them installed, both sides simply convert the PDF and the comparison says little.
 
-Each row is the median of 1–3 runs per side, and single runs vary by about ±20%, so read per-task numbers as rough and the overall result as solid. `bench/reports/` has the raw data, and `bench/scripts/charts.py` redraws these charts from it. `bench/` reruns everything.
+Each row is the median of 2 runs per side (5 tokenforge and 11 native runs on six of the existing-codebase tasks, from the lean-level campaign and earlier native runs on the same Claude Code), and single runs vary by about ±20%, so read per-task numbers as rough and the overall result as solid. The 0.7.0 and 0.8.0 results this section showed before (median −52%, Claude Code 2.1.293) are in the git history of `bench/reports/`. `bench/reports/` has the raw data, and `bench/scripts/charts.py` redraws these charts from it. `bench/` reruns everything.
 
 **Why it works.** Every request re-sends Claude Code's tool and skill definitions, and re-reads everything said so far:
 
@@ -144,7 +145,7 @@ A strong model writes a fresh small app in a handful of big batches, so the code
 - **Leaner shell output** (tmap 0.5.0): `tkit run`, `tkit batch`, `tkit eval`, `tkit test --failed`, and more commands routed through them.
 - **Earlier compaction in 1M-context sessions** (`autoCompactWindow` per lean level): replaying 14 days of sessions, main-session input −40%.
 - **Works with [SpecAudit](https://github.com/magicmoux/SpecAudit)** and other skill plugins that bring their own workflow (use `balanced`).
-- **Benchmark cost at list prices** (the 0.7.0 and 0.8.0 runs above): TokenForge cost less on 34 of 36 tasks (median −22%). The "36 of 36 cheaper" in 0.8.0 counted tokens.
+- **Benchmark cost at list prices** (the 0.9.2 runs above): TokenForge cost less on all 37 tasks (median −28%), against 34 of 36 for 0.7.0 (median −22%).
 
 All releases: [CHANGELOG.md](CHANGELOG.md). What comes next: [ROADMAP.md](ROADMAP.md).
 
@@ -231,15 +232,17 @@ Switch with `/tokenforge:terse full|lite|off`. `lite` keeps short full sentences
 
 ### Lean tools
 
-Every request carries the definition of every enabled tool and skill. Lean levels hide the ones a coding session rarely needs. Measured fixed context per request:
+Every request carries the definition of every enabled tool and skill. Lean levels hide the ones a coding session rarely needs. Measured fixed context per request, and total tokens over whole tasks against clean Claude Code:
 
-| Level | Hides | Per request |
-|---|---|---:|
-| `off` | nothing | 16.9k |
-| `on` | agent-orchestration tools: Workflow, Monitor, Cron*, ScheduleWakeup, RemoteTrigger, PushNotification, SendMessage, ListAgents, TaskStop, DesignSync, ReportFindings, worktrees, NotebookEdit | 11.9k |
-| **`balanced`** (default) | also Claude Code's 19 built-in skills, marked `user-invocable-only`: Claude no longer sees them, but you can still type them as slash commands. Your own and plugin skills, subagents and web tools stay. | 9.7k |
-| `max` | also the Skill tool, subagents (`Task`), `WebFetch`/`WebSearch` and Claude Code's git instructions | 5.8k |
-| `ultra` | also `Read`/`Edit`/`Write`: Claude reads and edits files with Bash (`sed -n`, `cat > file`, scripts). No image or PDF viewing. | 4.4k |
+| Level | Hides | Per request | Whole tasks |
+|---|---|---:|---:|
+| `off` | nothing | 16.9k | — |
+| `on` | agent-orchestration tools: Workflow, Monitor, Cron*, ScheduleWakeup, RemoteTrigger, PushNotification, SendMessage, ListAgents, TaskStop, DesignSync, ReportFindings, worktrees, NotebookEdit | 11.9k | −37% |
+| **`balanced`** (default) | also Claude Code's 19 built-in skills, marked `user-invocable-only`: Claude no longer sees them, but you can still type them as slash commands. Your own and plugin skills, subagents and web tools stay. | 9.7k | −47% |
+| `max` | also the Skill tool, subagents (`Task`), `WebFetch`/`WebSearch` and Claude Code's git instructions | 5.8k | −44% |
+| `ultra` | also `Read`/`Edit`/`Write`: Claude reads and edits files with Bash (`sed -n`, `cat > file`, scripts). No image or PDF viewing. | 4.4k | −55% |
+
+Whole tasks: 6 tasks (architecture, cross-module and Rust debugging, PR review, two features), 3 runs per level against 11 clean runs per task, tokenforge 0.9.2 without the proxy, Claude Code 2.1.296; quality 96.8 to 98.2 at every level against 95.9. `max` saves no more than `balanced` here: it hides the Skill tool, subagents and web tools, which these tasks barely use, and one feature task cost more under it; with 3 runs per level that gap may be noise.
 
 `max` and `ultra` hide the Skill and subagent tools that skill plugins such as [SpecAudit](https://github.com/magicmoux/SpecAudit) run on: use `balanced` with them.
 
@@ -278,6 +281,8 @@ A local dashboard starts in the background with your first session. Open it with
 Since 0.9.2 the first session after install turns the proxy on: it starts in the background on `127.0.0.1:7879`, and only once it answers, `ANTHROPIC_BASE_URL=http://127.0.0.1:7879` goes into the `env` of your Claude Code user settings. Sessions started from then on go through it (the session that set it does not). It is not set when you already route requests elsewhere (your own `ANTHROPIC_BASE_URL`, Bedrock, Vertex or Foundry), nor when `TFORGE_PROXY=0` is set before that first session. Turn it off at any time with `tforge proxy off` or `/tokenforge:proxy off` (only the entry tokenforge added is removed), back on with `tforge proxy on`; `tforge proxy --status` says where things stand.
 
 Claude Code reads the address once per session, so a stopped proxy would make every request fail. The hooks restart it at session start, at every prompt and after every tool call (a file read and a signal when it runs); if it cannot be restarted, you get a message saying how to start it or turn it off. Before uninstalling tokenforge, run `tforge proxy off` (see Updates).
+
+**What it adds, measured.** On 6 benchmark tasks at lean `ultra` (tokenforge 0.9.2, Claude Code 2.1.296, 3 runs per task), tokenforge saved 53.9% of tokens against clean Claude Code with the proxy and 54.7% without it, at the same quality. So in these sessions (headless, one prompt, 70k to 750k tokens) the proxy adds nothing measurable on top of the hooks. Long interactive sessions, with expired caches and many re-reads, are where its pruning should matter; that is not measured yet. `tforge proxy off` turns it off.
 
 Without the default, `tforge claude` runs Claude Code through the proxy for one session, started in the background if needed; `tforge proxy` runs it in a terminal, `--detach` in the background, `--stop` stops it. Works with a subscription login or an API key: the proxy forwards every header as sent. It does three things:
 
