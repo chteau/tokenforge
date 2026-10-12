@@ -69,13 +69,13 @@ Today the headline results are 83 runs of 0.8.0 over 36 tasks, mostly one run pe
 
 The Bash router turns some commands into `tkit` calls or compacts their output. That saves a lot, and it is also where an optimization could change what a command does.
 
-Today the tests check the rewritten command line. Build and test commands are rewritten only when their flags are fully understood, heredocs are never touched, and a `TFORGE_RAW=1` prefix runs a command as typed.
+Today differential and property tests run each rewrite next to the original and compare exit codes, written files and output lines; `tkit test` is compared with the runner it replaces. Build and test commands are rewritten only when their flags are fully understood, heredocs are never touched, a `TFORGE_RAW=1` prefix runs a command as typed, and `TFORGE_SHOW_REWRITE` shows each rewrite.
 
 - [x] Differential tests: run the original and the rewritten command, compare exit codes and outputs.
-- [ ] Property tests over quoting, pipes, redirections, substitutions, paths with spaces, environment variables and exit codes.
-- [ ] Check that output caps never hide an error at the end of a log.
-- [ ] Compare `tkit test` with the native test command.
-- [ ] A diagnostic mode that shows the exact rewrite before it runs.
+- [x] Property tests over quoting, pipes, redirections, substitutions, paths with spaces, environment variables and exit codes.
+- [x] Check that output caps never hide an error at the end of a log, or one in the omitted middle of a failed run.
+- [x] Compare `tkit test` with the native test command.
+- [x] A diagnostic mode that shows the exact rewrite before it runs (`TFORGE_SHOW_REWRITE`, `tforge route`).
 
 ## P1: Harden permissions and cleanup
 

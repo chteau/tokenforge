@@ -17,7 +17,7 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const BIN = path.join(HERE, '..', 'bin');
 const TMAP = existingBinary();
 const NO_TMAP = TMAP ? false : 'no tmap binary for this version (build native/tmap or set TMAP_BIN)';
-const BASE_ENV = { ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^(TFORGE_|TS_RAW|TMAP_BIN)/.test(k))), TFORGE_GC: '0' };
+const BASE_ENV = { ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^(TFORGE_|TS_RAW|TMAP_BIN|NODE_TEST_CONTEXT)/.test(k))), TFORGE_GC: '0' };
 
 const tmpdir = (p) => fs.mkdtempSync(path.join(os.tmpdir(), p));
 const route = (cmd, cwd = os.tmpdir()) => routeCommand(cmd, { cwd, permissionMode: 'bypassPermissions' })?.command ?? null;
@@ -204,6 +204,49 @@ test('differential: tkit run exits like the command it wraps', { skip: NO_TMAP }
   same('grep -n "$P" a.txt', { P: 'needle' });
 });
 
+// tkit test against the runner it replaces: same exit code, the same pass and fail counts, every failing test named,
+// in fewer lines. Node's runner is always there; pytest only where it is installed.
+const RUNNERS = [
+  {
+    name: 'node --test', cmd: 'npm test', counts: (out) => [/ℹ pass (\d+)/.exec(out)?.[1], /ℹ fail (\d+)/.exec(out)?.[1]],
+    setup: (dir, body) => {
+      fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: 't', version: '1.0.0', scripts: { test: 'node --test' } }));
+      fs.writeFileSync(path.join(dir, 'a.test.mjs'), `import { test } from 'node:test';\nimport assert from 'node:assert/strict';\n${body.node}`);
+    },
+  },
+  {
+    name: 'pytest', cmd: 'python3 -m pytest -q', counts: (out) => [/(\d+) passed/.exec(out)?.[1] ?? '0', /(\d+) failed/.exec(out)?.[1] ?? '0'],
+    skip: spawnSync('python3', ['-m', 'pytest', '--version']).status !== 0 && 'pytest not installed',
+    setup: (dir, body) => fs.writeFileSync(path.join(dir, 'test_a.py'), body.py),
+  },
+];
+const SUITES = {
+  pass: { node: "test('adds', () => assert.equal(1 + 1, 2));\n", py: 'def test_adds():\n    assert 1 + 1 == 2\n' },
+  fail: {
+    node: "test('adds', () => assert.equal(1 + 1, 2));\ntest('subtracts wrongly', () => assert.equal(3 - 1, 1));\ntest('multiplies', () => assert.equal(2 * 2, 4));\n",
+    py: 'def test_adds():\n    assert 1 + 1 == 2\n\ndef test_subtracts_wrongly():\n    assert 3 - 1 == 1\n',
+    failing: { node: 'subtracts wrongly', py: 'test_subtracts_wrongly' },
+  },
+  crash: { node: "throw new Error('boom at load');\n", py: 'raise RuntimeError("boom at load")\n', error: 'boom at load' },
+};
+for (const runner of RUNNERS) {
+  test(`differential: tkit test matches ${runner.name}`, { skip: NO_TMAP || runner.skip }, () => {
+    for (const [name, body] of Object.entries(SUITES)) {
+      const dir = tmpdir('tforge-tkit-test-');
+      runner.setup(dir, body);
+      const { a, b, rewritten } = differ(runner.cmd, dir);
+      assert.match(rewritten, /^tkit test/, rewritten);
+      const why = `${name}\n--- native\n${a.out}${a.err}--- tkit\n${b.out}${b.err}`;
+      const tkitCounts = (out) => [/(\d+) passed/.exec(out)?.[1] ?? '0', /(\d+) failed/.exec(out)?.[1] ?? '0'].map(Number);
+      if (name !== 'crash') assert.deepEqual(tkitCounts(b.out + b.err), runner.counts(a.out + a.err).map(Number), `pass/fail counts: ${why}`);
+      const key = runner.name === 'pytest' ? 'py' : 'node';
+      if (body.failing) assert.ok((b.out + b.err).includes(body.failing[key]), `failing test not named: ${why}`);
+      if (body.error) assert.ok((b.out + b.err).includes(body.error), `load error hidden: ${why}`);
+      assert.ok(content(b.out + b.err).length <= content(a.out + a.err).length, `not shorter: ${why}`);
+    }
+  });
+}
+
 test('differential: a capped log still ends with the error and the exit status', { skip: NO_TMAP }, () => {
   const dir = tmpdir('tforge-diff-cap-');
   const cmd = 'tkit run -n 50 sh -c \'for i in $(seq 3000); do echo "ok $i"; done; echo "error: boom at the end" >&2; exit 3\'';
@@ -227,4 +270,25 @@ test('differential: the worker-check log cap keeps a final error and a FAILED li
   assert.match(m, /FAILED tests\/test_a\.py::test_one\n1 failed, 3 passed/);
   assert.doesNotMatch(m, /unused variable/);
   assert.match(m, /\[1 compiler warning block\(s\) dropped\]/);
+});
+
+test('TFORGE_SHOW_REWRITE shows the user each rewrite, =ask also asks first; tforge route prints it without running', () => {
+  const hook = (env) => {
+    const r = spawnSync(process.execPath, [path.join(HERE, '..', 'hooks', 'kit-router.mjs')], {
+      input: JSON.stringify({ tool_name: 'Bash', tool_input: { command: 'grep -rn needle .' }, session_id: `show-${Math.random()}`, cwd: os.tmpdir(), permission_mode: 'default' }),
+      encoding: 'utf8',
+      env: { ...BASE_ENV, ...env },
+    });
+    return JSON.parse(r.stdout);
+  };
+  const plain = hook({});
+  assert.equal(plain.systemMessage, undefined);
+  assert.equal(plain.hookSpecificOutput.permissionDecision, 'allow');
+  const shown = hook({ TFORGE_SHOW_REWRITE: '1' });
+  assert.match(shown.systemMessage, /^tokenforge rewrote: grep -rn needle \.\n {2}-> tkit run /);
+  assert.equal(shown.hookSpecificOutput.additionalContext, undefined, 'never added to Claude\'s context');
+  assert.equal(hook({ TFORGE_SHOW_REWRITE: 'ask' }).hookSpecificOutput.permissionDecision, 'ask');
+  const cli = spawnSync(process.execPath, [path.join(BIN, 'tforge'), 'route', 'grep -rn needle .'], { encoding: 'utf8', env: BASE_ENV });
+  assert.match(cli.stdout, /^grep -rn needle \.\n {2}-> tkit run /);
+  assert.match(spawnSync(process.execPath, [path.join(BIN, 'tforge'), 'route', 'echo hi'], { encoding: 'utf8', env: BASE_ENV }).stdout, /\(run as typed\)/);
 });

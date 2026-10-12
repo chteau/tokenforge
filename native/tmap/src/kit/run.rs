@@ -128,7 +128,10 @@ pub fn save_log(text: &str) -> String {
     if std::fs::write(&p, text).is_ok() { p.to_string_lossy().into_owned() } else { String::new() }
 }
 
+/// Head and tail of a long output. When the command failed, error lines from the omitted middle are kept too (up
+/// to MID_ERRORS): the error that broke a build is often not the last thing it prints.
 pub fn cap(lines: Vec<String>, max: usize, failed: bool, log: &str) -> Vec<String> {
+    const MID_ERRORS: usize = 20;
     let n = lines.len();
     if n <= max {
         return lines;
@@ -137,6 +140,17 @@ pub fn cap(lines: Vec<String>, max: usize, failed: bool, log: &str) -> Vec<Strin
     let t = max - h;
     let mut out = lines[..h].to_vec();
     out.push(format!("... [{} of {n} lines omitted; full output: {log}] ...", n - max));
+    if failed {
+        static ERR: std::sync::OnceLock<Regex> = std::sync::OnceLock::new();
+        let re = ERR.get_or_init(|| Regex::new(r"(?i)\b(error|fatal|panic|exception|traceback|failed|failure)\b").unwrap());
+        let mid: Vec<&String> = lines[h..n - t].iter().filter(|l| re.is_match(l)).collect();
+        if !mid.is_empty() {
+            let more = mid.len().saturating_sub(MID_ERRORS);
+            out.push(format!("... [error lines among them{}:]", if more > 0 { format!(", first {MID_ERRORS} of {}", mid.len()) } else { String::new() }));
+            out.extend(mid.into_iter().take(MID_ERRORS).cloned());
+            out.push("... [end of omitted error lines]".into());
+        }
+    }
     out.extend_from_slice(&lines[n - t..]);
     out
 }
@@ -194,6 +208,21 @@ pub fn main(mut a: Vec<String>) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cap_keeps_errors_from_the_omitted_middle_of_a_failed_run() {
+        let mut lines: Vec<String> = (0..3000).map(|i| format!("ok {i}")).collect();
+        lines[1500] = "src/a.rs:3: error: mismatched types".into();
+        lines.extend((0..100).map(|i| format!("cleanup {i}")));
+        let out = cap(lines.clone(), 50, true, "LOG");
+        assert!(out.iter().any(|l| l == "src/a.rs:3: error: mismatched types"), "{out:?}");
+        assert!(out.len() <= 50 + 4, "{}", out.len());
+        // a successful run is capped as before, and many errors are themselves capped
+        assert!(!cap(lines.clone(), 50, false, "LOG").iter().any(|l| l.contains("mismatched")));
+        let noisy: Vec<String> = (0..3000).map(|i| format!("error {i}")).collect();
+        let out = cap(noisy, 50, true, "LOG");
+        assert!(out.len() <= 50 + 23 && out.iter().any(|l| l.contains("first 20 of")), "{}", out.len());
+    }
 
     #[test]
     fn squeezes() {

@@ -74,6 +74,7 @@ Usage: tforge <command> [options]
   claude [args...]     run claude through the proxy (started in the background if needed)
   statusline --setup   status line with your savings ("TF -45% today") and real limits; wraps an existing one
   statusline --remove  restore the status line exactly as it was (TFORGE_STATUSLINE=0: no automatic setup)
+  route "<cmd>"            how the Bash router would rewrite a command (nothing runs)
   caches                   what each tokenforge cache depends on and when it is reused
   gc [--dry-run] [--json]  free disk: scratch of ended Claude Code sessions (/tmp/claude-<uid>), tokenforge
                        leftovers, snapshots no longer relevant, automatic handoffs a later session worked
@@ -184,6 +185,13 @@ async function main() {
   const root = path.resolve(o.root || process.cwd());
 
   switch (cmd) {
+    case 'route': {
+      const cmd = o._.join(' ');
+      if (!cmd) throw new Error('route: give a shell command, quoted');
+      const { routeCommand } = await import('../hooks/kit-router.mjs');
+      const r = routeCommand(cmd, { cwd: root, permissionMode: 'default' });
+      return console.log(r ? `${cmd}\n  -> ${r.command}` : `${cmd}\n  (run as typed)`);
+    }
     case 'caches': {
       const { CACHES, cachesTable } = await import('../lib/caches.mjs');
       return console.log(o.json ? JSON.stringify(CACHES, null, 2) : cachesTable());
