@@ -105,8 +105,11 @@ const ITEMS: Item[] = [
   {
     prio: 'P2', title: 'Adaptive orchestration',
     why: 'Plan, split, then run disposable workers pays off on multi-file work. On a two-file change, a small fix or an investigation that needs a lot of shared context, it can cost more.',
-    today: 'The <code>forge</code> skill works inline below about 5 files.',
-    plan: ['Pick the strategy from the estimated number of files, the coupling between modules, the planning cost, the verification and integration cost, the size of the starting context and the risk of conflicts between workers.'],
+    today: '<code>tforge validate</code> recommends a strategy from the plan: inline for fewer than 5 files or 3 tasks, a serial chain of up to 5 tasks, or tasks that each start with most of the planned context; workers otherwise. The thresholds come from earlier measurements, not yet from a strategy benchmark.',
+    plan: [
+      ok('Pick the strategy from the estimated number of files, the coupling between tasks (dependency chain, shared context) and the size of each worker’s starting context.'),
+      'Add the planning, verification and integration cost and the risk of conflicts between workers, and tune the thresholds on the strategy benchmark (needs API runs).',
+    ],
     note: 'The goal is the cheapest setup for the actual task, not workers by default.',
   },
   {
