@@ -14,7 +14,7 @@ const STEPS: [string, string][] = [
   ['Audit the answer cache and cache invalidation.', 'Adversarial tests, a visible bypass, freshness checks.'],
   ['Differential tests for the Bash router and <code>tkit</code>.', 'Exit codes, cut logs and rewritten commands first.'],
   ['Benchmark lean levels and orchestration strategies.', 'Find where each one really wins, instead of tuning one scenario.'],
-  ['Profile the system.', 'CPU, memory, I/O, hook time, worker startup and index cost. Optimize only confirmed bottlenecks.'],
+  ['Profile the system.', 'CPU, memory, I/O, hook time, worker startup and index cost. Optimize only confirmed bottlenecks. <span class="done">Done</span> Each hook takes 31–60 ms (22 ms of it Node starting), the <code>tmap</code> index 168 ms cold and 14 ms warm, the proxy 50 ms per request at 1,000 tool calls: none is a bottleneck against model calls of several seconds.'],
 ];
 
 // A plan item already done in ROADMAP.md ([x]).
