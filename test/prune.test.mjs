@@ -3,7 +3,7 @@
 import './tmp.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { WRITE_AGE, candidates, pruneMode, pruneRequest, samePath, shouldCommit } from '../lib/prune.mjs';
+import { EDITED_READ_AGE, WRITE_AGE, candidates, pruneMode, pruneRequest, samePath, shellEdits, shouldCommit } from '../lib/prune.mjs';
 import { openMemo, transformRequest } from '../lib/proxy.mjs';
 
 const big = (tag, n = 3000) => `${tag}\n` + 'x'.repeat(n);
@@ -264,4 +264,28 @@ test('an earlier turn\'s read of a file changed since goes; in the current turn 
   const c = candidates(msgs);
   assert.deepEqual(c.map((x) => x.key), ['r']);
   assert.match(c[0].c, /\/p\/a\.js changed after this read/);
+});
+
+test('stale: a read of a file edited later in this turn goes once the model left the file alone', () => {
+  const edit = "tkit edit <<'EOF'\n@@ src/a.ts\n<<<\nold\n===\nnew\n>>>\nEOF";
+  const other = (i) => [call(`o${i}`, 'Bash', { command: `ls src/dir${i}` }), result(`o${i}`, 'x')];
+  const base = (n, extra = []) => [
+    { role: 'user', content: 'fix a.ts' },
+    call('r1', 'Bash', { command: 'cat src/a.ts' }),
+    result('r1', big('v1')),
+    call('e1', 'Bash', { command: edit }),
+    result('e1', 'edited src/a.ts'),
+    ...extra,
+    ...Array.from({ length: n }, (_, i) => other(i)).flat(),
+  ];
+  const stale = (msgs) => candidates(msgs).find((x) => x.key === 'r1');
+  assert.equal(stale(base(EDITED_READ_AGE - 2)), undefined, 'too soon: the model may edit it again');
+  assert.match(stale(base(EDITED_READ_AGE)).c, /src\/a\.ts changed after this read and was not used in the last 6 calls/);
+  // a later command that names the file keeps it: the clock starts again from there
+  const touched = base(EDITED_READ_AGE - 2, [call('g1', 'Bash', { command: 'grep -n new src/a.ts' }), result('g1', '1:new')]);
+  assert.equal(stale(touched), undefined);
+  // never edited: a read stays, however old
+  const unedited = [{ role: 'user', content: 'look' }, call('r1', 'Bash', { command: 'cat src/a.ts' }), result('r1', big('v1')), ...Array.from({ length: 10 }, (_, i) => other(i)).flat()];
+  assert.equal(stale(unedited), undefined);
+  assert.deepEqual(shellEdits(`${edit}\nsed -i 's/a/b/' src/b.ts && echo x | tee out.log`).sort(), ['out.log', 'src/a.ts', 'src/b.ts']);
 });

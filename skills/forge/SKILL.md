@@ -87,7 +87,7 @@ Rules for good tasks:
 
 ## 5. Run
 
-1. Run `tforge validate`, then `tforge run --dry-run`.
+1. Run `tforge validate`, then `tforge run --dry-run`. If validate says `strategy: inline is likely cheaper`, do the work in this session instead, unless the user asked for workers.
 2. Tell the user in 2–3 lines: number of tasks, models, and the estimated tokens per worker.
 3. Run `tforge run --detach`, then `tforge wait`. `wait` blocks for up to 9 minutes and prints the summary. Exit code 3 means the run is still going: call `tforge wait` again. Do nothing else in between.
 

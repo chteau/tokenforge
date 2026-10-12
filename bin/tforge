@@ -3,7 +3,7 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { EXAMPLE_PLAN, loadPlan, planPath, topoOrder } from '../lib/plan.mjs';
+import { EXAMPLE_PLAN, loadPlan, planPath, strategyAdvice, topoOrder } from '../lib/plan.mjs';
 import { buildSystemPrompt, buildTaskPrompt, runPlan } from '../lib/runner.mjs';
 import { commandCosts } from '../lib/insights.mjs';
 import { formatLedger, formatSessions, listTranscripts, meterLedger, meterSessions } from '../lib/meter.mjs';
@@ -74,6 +74,8 @@ Usage: tforge <command> [options]
   claude [args...]     run claude through the proxy (started in the background if needed)
   statusline --setup   status line with your savings ("TF -45% today") and real limits; wraps an existing one
   statusline --remove  restore the status line exactly as it was (TFORGE_STATUSLINE=0: no automatic setup)
+  route "<cmd>"            how the Bash router would rewrite a command (nothing runs)
+  caches                   what each tokenforge cache depends on and when it is reused
   gc [--dry-run] [--json]  free disk: scratch of ended Claude Code sessions (/tmp/claude-<uid>), tokenforge
                        leftovers, snapshots no longer relevant, automatic handoffs a later session worked
                        from (moved to .forge/handoffs/). Runs by itself every 6h, every 10 min on a nearly
@@ -183,6 +185,17 @@ async function main() {
   const root = path.resolve(o.root || process.cwd());
 
   switch (cmd) {
+    case 'route': {
+      const cmd = o._.join(' ');
+      if (!cmd) throw new Error('route: give a shell command, quoted');
+      const { routeCommand } = await import('../hooks/kit-router.mjs');
+      const r = routeCommand(cmd, { cwd: root, permissionMode: 'default' });
+      return console.log(r ? `${cmd}\n  -> ${r.command}` : `${cmd}\n  (run as typed)`);
+    }
+    case 'caches': {
+      const { CACHES, cachesTable } = await import('../lib/caches.mjs');
+      return console.log(o.json ? JSON.stringify(CACHES, null, 2) : cachesTable());
+    }
     case 'version':
       if (o.json) return console.log(JSON.stringify({ version: VERSION, plugin_sha256: pluginBuildHash() }));
       return console.log(`tokenforge ${VERSION}\nbuild ${pluginBuildHash()} (sha256 of the plugin files)`);
@@ -207,6 +220,10 @@ async function main() {
       const noCheck = order.filter((t) => !t.verify).length;
       if (noCheck) console.log(`  warning: ${noCheck} task(s) without verify pass as soon as their files exist`);
       for (const w of plan.warnings) console.log(`  warning: ${w}`);
+      const advice = strategyAdvice(plan, root);
+      console.log(advice.strategy === 'workers'
+        ? `strategy: workers (${advice.facts})`
+        : `strategy: inline is likely cheaper (${advice.why.join('; ')}; ${advice.facts}). tforge run still works if you prefer workers.`);
       return;
     }
     case 'run': {
@@ -305,6 +322,7 @@ async function main() {
       } else if (want === 'status') {
         const st = leanStatus();
         console.log(`lean: ${st.level === 'partial' ? `partial (${st.active.length}/${LEAN_DENY.length})` : st.level} (${st.file})`);
+        if (st.added.length) console.log(`hides: ${st.added.join(', ')}${st.skillsOff.length ? `; skills: ${st.skillsOff.join(', ')}` : ''}`);
       } else throw new Error('lean: on|balanced|max|ultra|off|status');
       return;
     }
@@ -354,7 +372,7 @@ async function main() {
         const r = await daemonStart('proxy', { port: o.port, detach: true });
         return console.log(r ? `tforge proxy: running on 127.0.0.1:${r.port}; use: ${hint(r.port)}` : 'tforge proxy: failed to start (see ~/.cache/tokenforge/proxy.log)');
       }
-      const r = await proxy.startProxy({ port: o.port || Number(process.env.TFORGE_PROXY_PORT) || proxy.DEFAULT_PORT });
+      const r = await proxy.startProxy({ port: o.port || Number(process.env.TFORGE_PROXY_PORT) || proxy.DEFAULT_PORT, watchPlugin: true });
       await daemonStart('proxy', { port: r.port, foreground: true });
       // sessions depend on it: a bug in one request is logged, not fatal
       process.on('uncaughtException', (e) => console.error(`tforge proxy: ${new Date().toISOString()} ${e.stack || e}`));

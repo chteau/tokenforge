@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { AUTO_MARK, chunkName, listSnapshots, noteHandoffGiven, noteLoad, pruneSnapshots, render, staleHandoff } from '../hooks/checkpoint.mjs';
-import { formatGc, gc } from '../lib/gc.mjs';
+import { formatGc, gc, pidAlive, takeLock } from '../lib/gc.mjs';
 import { stateDir } from '../lib/hookutil.mjs';
 import { EXE, tmapVersion } from '../lib/tmapbin.mjs';
 
@@ -96,6 +96,54 @@ test('gc spares a session dir a process works in, all of them without the regist
   assert.ok(!gc({ ...opts, dryRun: true, space: FULL }).removed.some((d) => d.kind === 'session scratch'));
   fs.writeFileSync(path.join(opts.cache, 'gc.lock'), '');
   assert.deepEqual(gc({ ...opts, space: FULL }), { busy: true });
+});
+
+test('gc never follows a symlink: not as the scratch root, a project dir or a session dir', { skip: process.platform === 'win32' && 'POSIX scratch' }, () => {
+  const { opts, p } = machine();
+  const outside = tmpdir('gc-outside-');
+  const keep = make(path.join(outside, uuid(7), 'precious.txt'), 30 * D);
+  fs.symlinkSync(outside, path.join(opts.root, '-linked'));
+  fs.symlinkSync(path.join(outside, uuid(7)), path.join(opts.root, '-proj', uuid(8)));
+  const r = gc({ ...opts, space: FULL });
+  assert.ok(fs.existsSync(keep), 'nothing behind a link is deleted');
+  assert.ok(!fs.existsSync(p.old), 'real scratch is still freed');
+  assert.ok(!r.removed.some((d) => d.path.includes('-linked') || d.path.endsWith(uuid(8))));
+  // a scratch root that is itself a link is not touched at all
+  const { opts: o2, p: p2 } = machine();
+  const real = `${o2.root}-real`;
+  fs.renameSync(o2.root, real);
+  fs.symlinkSync(real, o2.root);
+  assert.ok(!gc({ ...o2, space: FULL }).removed.some((d) => d.kind === 'session scratch'));
+  assert.ok(fs.existsSync(path.join(real, path.relative(o2.root, p2.old))));
+});
+
+test('gc removes what an interrupted gc moved aside, and only then', () => {
+  const { opts } = machine();
+  const dead = path.dirname(make(path.join(opts.root, '-proj', `${uuid(9)}.tforge-gc-${2 ** 22 + 3}`, 'f'), D));
+  const mine = path.dirname(make(path.join(opts.root, '-proj', `${uuid(9)}.tforge-gc-${process.pid}`, 'f'), D));
+  gc({ ...opts, space: ROOMY });
+  assert.ok(!fs.existsSync(dead), "the dead gc's leftover goes");
+  assert.ok(fs.existsSync(mine), 'a running gc keeps its own');
+});
+
+test('pidAlive: a reused pid (another start time) is not the registered process', { skip: !fs.existsSync('/proc/self/stat') && 'needs /proc' }, () => {
+  const st = fs.readFileSync('/proc/self/stat', 'utf8');
+  const start = st.slice(st.lastIndexOf(')') + 2).split(' ')[19];
+  assert.equal(pidAlive(process.pid, start), true);
+  assert.equal(pidAlive(process.pid, String(Number(start) + 1)), false);
+  assert.equal(pidAlive(process.pid, undefined), true, 'no start time recorded: kept');
+  assert.equal(pidAlive(2 ** 22 + 1, start), false);
+});
+
+test('gc lock: a stale lock is taken over once, a fresh one is respected', () => {
+  const lock = path.join(tmpdir('gc-lock-'), 'gc.lock');
+  assert.equal(takeLock(lock), true);
+  assert.equal(takeLock(lock), false, 'held');
+  const t = (Date.now() - 11 * 60e3) / 1e3;
+  fs.utimesSync(lock, t, t);
+  assert.equal(takeLock(lock), true, 'stale: taken over');
+  assert.equal(takeLock(lock), false, 'and now held by the new owner');
+  assert.deepEqual(fs.readdirSync(path.dirname(lock)), ['gc.lock']);
 });
 
 // A snapshot chunk as checkpoint.mjs writes it, started `age` ms ago.

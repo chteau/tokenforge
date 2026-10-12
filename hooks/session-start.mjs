@@ -19,6 +19,7 @@ import { maybeGc } from '../lib/gc.mjs';
 import { OMITS_INSTRUCTIONS, digest, writeGiven } from '../lib/instructions.mjs';
 import { applyDefaultOnce, applyKeep, applyWindowOnce, leanStatus } from '../lib/lean.mjs';
 import { applyProxyDefaultOnce, proxyGuard } from '../lib/proxy-setup.mjs';
+import { redoAfterReenable } from '../lib/plugin-off.mjs';
 import { autoStatusline } from '../lib/limits.mjs';
 import { existingBinary } from '../lib/tmapbin.mjs';
 import { memoryHint } from '../lib/memory.mjs';
@@ -351,6 +352,16 @@ function leanDefault() {
     : null;
 }
 
+// Shown to the user only. The proxy took tokenforge's settings out while the plugin was disabled (lib/plugin-off.mjs).
+async function reenabled() {
+  try {
+    const done = await redoAfterReenable();
+    return done ? `tokenforge: enabled again, so ${done.join(' and ')} ${done.length > 1 ? 'are' : 'is'} back on in your Claude Code settings (removed while the plugin was disabled). Takes effect in your next session.` : null;
+  } catch {
+    return null;
+  }
+}
+
 // Shown to the user only. Proxy on by default (lib/proxy-setup.mjs): written once, effective next session.
 async function proxyDefault() {
   try {
@@ -495,6 +506,8 @@ async function main() {
     }
     const d = ensureDashboard();
     if (d && !b) notices.push(d);
+    const redo = unattended() ? null : await reenabled();
+    if (redo) notices.push(redo);
     const lean = leanDefault();
     if (lean) notices.push(lean);
     const px = unattended() ? null : await proxyDefault();

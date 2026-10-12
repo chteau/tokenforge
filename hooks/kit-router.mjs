@@ -698,9 +698,24 @@ async function onBash(input) {
   if (r) {
     // Outside Claude Code bin/ is not on PATH, so the rewrite carries it.
     const command = hostName(input) === 'claude' ? r.command : withKitPath(r.command);
-    if (!seenBefore(input.session_id, `kitrw\0${cmd}`, 'kit')) out = { ...cap, permissionDecision: 'allow', updatedInput: { ...ti, ...cap?.updatedInput, command } };
+    if (!seenBefore(input.session_id, `kitrw\0${cmd}`, 'kit')) {
+      out = { ...cap, permissionDecision: showRewrite() === 'ask' ? 'ask' : 'allow', updatedInput: { ...ti, ...cap?.updatedInput, command } };
+      return emit(out, rewriteMessage(cmd, command));
+    }
   } else if (ownToolsOnly(cmd, input.permission_mode)) out = { ...cap, permissionDecision: 'allow' };
-  if (out) process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', ...out } }));
+  if (out) emit(out);
+}
+
+// TFORGE_SHOW_REWRITE=1 shows the user (never Claude) each command the router rewrote, as typed and as run;
+// =ask also asks before running it, so the exact rewrite can be checked first. `tforge route <cmd>` prints it
+// without running anything.
+const showRewrite = () => {
+  const v = process.env.TFORGE_SHOW_REWRITE || '';
+  return /^ask$/i.test(v) ? 'ask' : /^(1|true|yes|on)$/i.test(v) ? 'show' : null;
+};
+const rewriteMessage = (from, to) => (showRewrite() ? `tokenforge rewrote: ${from}\n  -> ${to}` : null);
+function emit(out, message) {
+  process.stdout.write(JSON.stringify({ ...(message && { systemMessage: message }), hookSpecificOutput: { hookEventName: 'PreToolUse', ...out } }));
 }
 
 // Claude Code saves oversized Bash output under .../tool-results/ and shows a preview of its start; reading the
@@ -772,8 +787,7 @@ async function onPowerShell(input) {
   if (!/^[\w .\/\\:=@%+,-]+$/.test(cmd) || RAW.test(cmd)) return;
   const r = routeCommand(cmd, { cwd: input.cwd, permissionMode: input.permission_mode });
   if (!r || seenBefore(input.session_id, `kitrw\0${cmd}`, 'kit')) return;
-  const out = { hookEventName: 'PreToolUse', permissionDecision: 'allow', updatedInput: { ...input.tool_input, command: r.command } };
-  process.stdout.write(JSON.stringify({ hookSpecificOutput: out }));
+  emit({ permissionDecision: showRewrite() === 'ask' ? 'ask' : 'allow', updatedInput: { ...input.tool_input, command: r.command } }, rewriteMessage(cmd, r.command));
 }
 
 async function main() {

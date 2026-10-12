@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { planWarnings, validatePlan } from '../lib/plan.mjs';
+import { planWarnings, strategyAdvice, validatePlan } from '../lib/plan.mjs';
 import { runPlan } from '../lib/runner.mjs';
 import { meterTranscript } from '../lib/meter.mjs';
 import { tail } from '../lib/util.mjs';
@@ -208,6 +208,40 @@ test('a sensitive check that times out still removes its worktree', async () => 
   assert.notEqual(fs.realpathSync(p.root), cwd);
   assert.ok(!fs.existsSync(cwd), 'the worktree is removed after a timeout');
   assert.equal(p.worktrees(), 1);
+});
+
+test('a check that times out is killed with every process it started', { skip: process.platform === 'win32' && 'POSIX shell' }, async () => {
+  const mark = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'tforge-mark-')), 'pid');
+  process.env.TFORGE_TEST_MARK = mark;
+  // the grandchild keeps stdout open: waiting for the pipe to close used to outlast the time limit
+  const p = project(base([{ id: 'a', spec: 's', files: ['a.ts'], verify: 'sleep 60 & echo $! > "$TFORGE_TEST_MARK"; wait', retries: 0 }], {
+    defaults: { verifyTimeoutMin: 0.02 },
+  }), { a: [{ write: { 'a.ts': 'x' } }] });
+  const t0 = Date.now();
+  const r = await p.go();
+  assert.equal(r.ok, false);
+  assert.ok(Date.now() - t0 < 15000, `took ${Date.now() - t0} ms`);
+  assert.match(p.ledger()[0].error, /timed out/);
+  const pid = Number(fs.readFileSync(mark, 'utf8'));
+  await new Promise((res) => setTimeout(res, 200));
+  assert.throws(() => process.kill(pid, 0), /ESRCH/, 'the background sleep is gone');
+});
+
+test('a check that writes into the checkout is reported', async () => {
+  const p = project(base([{ id: 'a', spec: 's', files: ['a.ts'], verify: 'echo cache > check-cache.txt' }]), { a: [{ write: { 'a.ts': 'x' } }] });
+  const r = await p.go();
+  assert.equal(r.ok, true);
+  assert.deepEqual(p.ledger()[0].checkWrites, ['check-cache.txt']);
+});
+
+test('numeric plan settings are bounded: a zero or invalid timeout no longer turns the limit off', () => {
+  const errs = (defaults, t = {}) => validatePlan(base([{ id: 'a', spec: 's', files: ['a.ts'], ...t }], { defaults }), '/tmp/p').join();
+  assert.equal(errs({ verifyTimeoutMin: 5, timeoutMin: 30, retries: 0, maxTurns: 20, budgetUsd: 2 }), '');
+  assert.match(errs({ verifyTimeoutMin: 0 }), /verifyTimeoutMin: must be between/);
+  assert.match(errs({ verifyTimeoutMin: '10' }), /verifyTimeoutMin: must be a number/);
+  assert.match(errs({ timeoutMin: -1 }), /timeoutMin/);
+  assert.match(errs({ retries: 1.5 }), /retries: must be an integer/);
+  assert.match(errs({}, { retries: 99 }), /retries must be between/);
 });
 
 test('sensitive tasks are refused outside git instead of running unisolated', async () => {
@@ -504,4 +538,19 @@ test('checkpoint writes chunked snapshots and session-start reloads the newest t
   fs.writeFileSync(path.join(dir, '.forge', 'HANDOFF.md'), 'next steps\n');
   spawnSync('git', ['init', '-q', dir]);
   assert.equal(spawnSync('git', ['-C', dir, 'status', '--porcelain', '--', '.forge'], { encoding: 'utf8' }).stdout, '', 'automatic .forge files stay out of git');
+});
+
+test('strategy advice: workers for many independent tasks, inline for few files, a serial chain or shared context', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'tforge-strategy-'));
+  fs.writeFileSync(path.join(root, 'big.ts'), 'x'.repeat(30000));
+  const task = (id, extra = {}) => ({ id, spec: 's', files: [`src/${id}.ts`], ...extra });
+  const many = Array.from({ length: 8 }, (_, i) => task(`t${i}`));
+  assert.equal(strategyAdvice(base(many), root).strategy, 'workers');
+  const few = strategyAdvice(base([task('a'), task('b')]), root);
+  assert.equal(few.strategy, 'inline');
+  assert.match(few.why.join(), /fewer than 5 files.*fewer than 3 tasks/);
+  const serial = Array.from({ length: 5 }, (_, i) => task(`s${i}`, i ? { deps: [`s${i - 1}`] } : {}));
+  assert.match(strategyAdvice(base(serial), root).why.join(), /one after another/);
+  const shared = many.map((t) => ({ ...t, reads: ['big.ts'] }));
+  assert.match(strategyAdvice(base(shared), root).why.join(), /most of the planned context/);
 });

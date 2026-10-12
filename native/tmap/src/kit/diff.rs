@@ -315,7 +315,7 @@ mod tests {
         let d = std::env::temp_dir().join(format!("tforge-diff-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&d);
         std::fs::create_dir_all(d.join("src")).unwrap();
-        std::env::set_var("TMAP_CACHE_DIR", d.join(".cache"));
+        crate::tests::use_test_cache();
         let g = |a: &[&str]| {
             let mut v = vec!["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"];
             v.extend_from_slice(a);

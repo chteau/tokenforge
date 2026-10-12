@@ -1,5 +1,7 @@
 //! Builds and caches the code map: one entry per source file with its definitions and call sites.
-//! Only files whose mtime or size changed are re-parsed.
+//! Only files whose content changed are re-parsed. Size, mtime, ctime and inode are a pre-check, trusted only for an
+//! entry indexed at least RACY_NS after the file's last write (as git does): an edit within the clock's resolution
+//! keeps all four, so such an entry is checked against a hash of the content instead.
 
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -10,8 +12,11 @@ use std::sync::OnceLock;
 use std::time::UNIX_EPOCH;
 use tree_sitter_tags::{TagsConfiguration, TagsContext};
 
-/// Bump whenever extraction changes, so stale cached entries are re-parsed.
-const FORMAT: u32 = 4;
+/// Bump whenever extraction changes, so stale cached entries are re-parsed. A cache from another tmap version
+/// (grammars included) is dropped too.
+const FORMAT: u32 = 5;
+const TOOL: &str = env!("CARGO_PKG_VERSION");
+const RACY_NS: u64 = 2_000_000_000;
 const MAX_FILE_BYTES: u64 = 1_000_000;
 /// Dependency, build and cache folders: never project source, even without a .gitignore.
 const SKIP_DIRS: &[&str] = &[
@@ -45,6 +50,12 @@ pub struct FileEntry {
     pub path: String,
     pub mtime: u64,
     pub size: u64,
+    pub ctime: u64,
+    pub ino: u64,
+    /// FNV-1a 64 of the content.
+    pub hash: u64,
+    /// Indexed at least RACY_NS after the last write: the stat pre-check alone can keep it.
+    pub settled: bool,
     pub lines: u32,
     pub syms: Vec<Sym>,
     pub calls: Vec<Call>,
@@ -53,6 +64,7 @@ pub struct FileEntry {
 #[derive(Serialize, Deserialize, Default)]
 pub struct Index {
     pub format: u32,
+    pub tool: String,
     pub root: String,
     pub files: Vec<FileEntry>,
 }
@@ -229,7 +241,44 @@ pub fn cache_path(root: &Path) -> PathBuf {
 fn load(path: &Path) -> Option<Index> {
     let bytes = fs::read(path).ok()?;
     let idx: Index = bincode::deserialize(&bytes).ok()?;
-    (idx.format == FORMAT).then_some(idx)
+    (idx.format == FORMAT && idx.tool == TOOL).then_some(idx)
+}
+
+pub(crate) fn fnv(bytes: &[u8]) -> u64 {
+    let mut h: u64 = 0xcbf29ce484222325;
+    for b in bytes {
+        h = (h ^ *b as u64).wrapping_mul(0x100000001b3);
+    }
+    h
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct Stamp {
+    mtime: u64,
+    size: u64,
+    ctime: u64,
+    ino: u64,
+}
+
+fn stamp(meta: &fs::Metadata) -> Stamp {
+    let ns = |t: std::io::Result<std::time::SystemTime>| t.ok().and_then(|t| t.duration_since(UNIX_EPOCH).ok()).map_or(0, |d| d.as_nanos() as u64);
+    #[cfg(unix)]
+    let (ctime, ino) = {
+        use std::os::unix::fs::MetadataExt;
+        ((meta.ctime() as u64).wrapping_mul(1_000_000_000).wrapping_add(meta.ctime_nsec() as u64), meta.ino())
+    };
+    #[cfg(not(unix))]
+    let (ctime, ino) = (0, 0);
+    Stamp { mtime: ns(meta.modified()), size: meta.len(), ctime, ino }
+}
+
+fn now_ns() -> u64 {
+    std::time::SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_nanos() as u64)
+}
+
+/// Settled once both writes (content and inode) are RACY_NS old; a clock behind the file never is.
+fn settled(st: &Stamp, now: u64) -> bool {
+    now >= st.mtime.max(st.ctime).saturating_add(RACY_NS)
 }
 
 pub struct Stats {
@@ -245,7 +294,7 @@ pub fn refresh(root: &Path, force: bool) -> std::io::Result<(Index, Stats)> {
     } else {
         load(&cache).map(|i| i.files.into_iter().map(|f| (f.path.clone(), f)).collect()).unwrap_or_default()
     };
-    let mut current: Vec<(String, PathBuf, Lang, u64, u64)> = Vec::new();
+    let mut current: Vec<(String, PathBuf, Lang, Stamp)> = Vec::new();
     let walker = ignore::WalkBuilder::new(root)
         .hidden(true)
         .git_ignore(true)
@@ -266,32 +315,47 @@ pub fn refresh(root: &Path, force: bool) -> std::io::Result<(Index, Stats)> {
             continue;
         }
         let rel = p.strip_prefix(root).unwrap_or(p).to_string_lossy().replace('\\', "/");
-        let mtime = meta.modified().ok().and_then(|t| t.duration_since(UNIX_EPOCH).ok()).map_or(0, |d| d.as_nanos() as u64);
-        current.push((rel, p.to_path_buf(), lang, mtime, meta.len()));
+        current.push((rel, p.to_path_buf(), lang, stamp(&meta)));
     }
     let total_old = old.len();
+    let now = now_ns();
     let mut keep: Vec<FileEntry> = Vec::new();
     let mut todo = Vec::new();
-    for (rel, abs, lang, mtime, size) in current {
+    for (rel, abs, lang, st) in current {
         match old.remove(&rel) {
-            Some(f) if f.mtime == mtime && f.size == size => keep.push(f),
-            _ => todo.push((rel, abs, lang, mtime, size)),
+            Some(f) if f.settled && Stamp { mtime: f.mtime, size: f.size, ctime: f.ctime, ino: f.ino } == st => keep.push(f),
+            prev => todo.push((rel, abs, lang, st, prev)),
         }
     }
     let removed = old.len();
-    let parsed: Vec<FileEntry> = todo
-        .par_iter()
-        .map_init(TagsContext::new, |ctx, (rel, abs, lang, mtime, size)| {
-            let src = fs::read(abs).unwrap_or_default();
-            let (syms, calls) = parse_file(ctx, *lang, &src);
-            FileEntry { path: rel.clone(), mtime: *mtime, size: *size, lines: Lines::new(&src).count(&src), syms, calls }
+    // Read and hash each unsettled or changed file; parse it only when the content differs from the cached entry.
+    let checked: Vec<(FileEntry, bool)> = todo
+        .into_par_iter()
+        .map_init(TagsContext::new, |ctx, (rel, abs, lang, st, prev)| {
+            let src = fs::read(&abs).unwrap_or_default();
+            let hash = fnv(&src);
+            let ok = settled(&st, now);
+            let re = |mut f: FileEntry| {
+                (f.mtime, f.size, f.ctime, f.ino, f.settled) = (st.mtime, st.size, st.ctime, st.ino, ok);
+                f
+            };
+            match prev {
+                Some(f) if f.hash == hash => (re(f), false),
+                _ => {
+                    let (syms, calls) = parse_file(ctx, lang, &src);
+                    let lines = Lines::new(&src).count(&src);
+                    (re(FileEntry { path: rel, mtime: 0, size: 0, ctime: 0, ino: 0, hash, settled: false, lines, syms, calls }), true)
+                }
+            }
         })
         .collect();
-    let stats = Stats { parsed: parsed.len(), removed };
-    keep.extend(parsed);
+    let parsed = checked.iter().filter(|c| c.1).count();
+    let restamped = checked.len() - parsed;
+    let stats = Stats { parsed, removed };
+    keep.extend(checked.into_iter().map(|c| c.0));
     keep.sort_by(|a, b| a.path.cmp(&b.path));
-    let idx = Index { format: FORMAT, root: root.to_string_lossy().into_owned(), files: keep };
-    if stats.parsed > 0 || stats.removed > 0 || total_old == 0 {
+    let idx = Index { format: FORMAT, tool: TOOL.to_string(), root: root.to_string_lossy().into_owned(), files: keep };
+    if stats.parsed > 0 || stats.removed > 0 || restamped > 0 || total_old == 0 {
         if let Some(dir) = cache.parent() {
             fs::create_dir_all(dir)?;
         }
