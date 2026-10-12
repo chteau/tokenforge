@@ -252,6 +252,7 @@ ${pre('tread Ledger.add src/cli.rs:40-80 "src/store.rs:/fn save/"')}
 <h3>Escape hatches</h3>
 <ul>
   <li>Prefix one command with <code>TFORGE_RAW=1</code> (or <code>TS_RAW=1</code>). An <code>export</code> does not count.</li>
+  <li>To see what the router does: <code>TFORGE_SHOW_REWRITE=1</code> shows you each rewrite (the command as typed and as run), <code>TFORGE_SHOW_REWRITE=ask</code> also asks before running it, and <code>tforge route "&lt;cmd&gt;"</code> prints a rewrite without running anything.</li>
   <li>Repeat the identical call: it goes through.</li>
 </ul>
 ${pre('TFORGE_RAW=1 cargo test')}
@@ -331,7 +332,9 @@ tforge status               <span class="c"># task states and spend</span>
 tforge prompt &lt;id&gt;          <span class="c"># the exact prompt a worker receives</span>
 tforge meter [--last N | --all | files...] [--json]
 tforge meter --commands     <span class="c"># rank Bash commands by what their results cost</span>
-tforge gc [--dry-run]       <span class="c"># free disk (see Hooks › Disk cleanup)</span>`)}
+tforge gc [--dry-run]       <span class="c"># free disk (see Hooks › Disk cleanup)</span>
+tforge caches               <span class="c"># every cache: what it depends on, when it is reused</span>
+tforge route "&lt;cmd&gt;"        <span class="c"># how the Bash router would rewrite a command (nothing runs)</span>`)}
 
 <h2>Plan format</h2>
 ${pre(`{
@@ -392,6 +395,7 @@ ${pre(`{
         ['TFORGE_PLAN', '', '<code>0</code> drops the policy’s planning line, <code>brief</code> uses a shorter one; when set, subagents get it too'],
         ['TFORGE_KIT_PROMPT', '', '<code>1</code> enables the prompt router (off by default)'],
         ['TFORGE_RAW', '', '<code>TFORGE_RAW=1 cmd</code> runs a Bash command unchanged (<code>TS_RAW=1</code> works too)'],
+        ['TFORGE_SHOW_REWRITE', '', '<code>1</code> shows you each command the Bash router rewrote; <code>ask</code> also asks before running it'],
         ['TFORGE_CAP_ALL', '', '<code>1</code> caps the output of any other plain Bash command (<code>tkit run</code>)'],
         ['TFORGE_ROUTE_MAX_LINES / _TIMEOUT_MS', '300 / 8000', 'Prompt router: lines pre-loaded, time per tkit call'],
         ['TFORGE_DISTILL_MCP_BYTES', '6000', 'MCP results at least this large are distilled'],
@@ -489,7 +493,7 @@ ${rows.map(([k, d, w]) => `<tr><td><code>${k}</code></td><td>${d ? `<code>${d}</
     lead: 'What changed in the latest releases.',
     body: () => `
 <h2>0.9.2</h2>
-<p>Correctness first: a safer answer cache, versioned benchmark figures, memory that survives resume and compaction, subagent work in snapshots. And the API proxy, now on by default. On 6 benchmark tasks, lean <code>ultra</code> with the proxy used a median 57% fewer tokens and cost 47% less than plain Claude Code, with quality unchanged (9 runs per task against 4 native runs; TokenForge 0.9.2 development builds of 10–11 October, whose build hash those runs did not record, on Claude Code 2.1.296).</p>
+<p>Correctness first: a safer answer cache, versioned benchmark figures, memory that survives resume and compaction, subagent work in snapshots. And the API proxy, now on by default. On 6 benchmark tasks, lean <code>ultra</code> with the proxy used a median 57% fewer tokens and cost 47% less than plain Claude Code, with quality unchanged (TokenForge 0.9.2 development builds dc3cea66, ef3ee560 and 0ee08a19 on Claude Code 2.1.296: 9 runs per task against 4 native runs).</p>
 <ul>
   <li><strong>API proxy on by default</strong> (optional): on <code>127.0.0.1:7879</code>, it logs sizes, compresses tool results the first time they are sent and prunes stale context, by default only when that saves money (<code>cost</code> mode). <code>TFORGE_PROXY=0</code> before the first session, or <code>tforge proxy off</code>, turns it off; run <code>tforge proxy off</code> before uninstalling (<a href="#/docs/proxy">API proxy</a>).</li>
   <li><strong>Safer answer cache</strong>: only information questions are replayed, never a request to run, test, build, verify or deploy, a security question or a question about the current state. A replay needs the same repo, branch, commit, working tree contents, dependency files, terse level and model, compared by content. <code>!nocache</code> as the first or last word skips it (<a href="#/docs/repeated">Repeated questions</a>).</li>
@@ -501,6 +505,11 @@ ${rows.map(([k, d, w]) => `<tr><td><code>${k}</code></td><td>${d ? `<code>${d}</
   <li><strong>Bash router fixes</strong>, found by differential tests that run the original and the rewritten command: env prefixes with spaces, <code>$VARS</code>, globs, braces and pipes after a rewritten test command now behave as typed.</li>
   <li><strong>Workers</strong>: a <code>sensitive</code> task runs its check in a temporary git worktree; destructive <code>verify</code> commands get a warning in <code>tforge validate</code>.</li>
   <li><strong>Codex and opencode</strong>: plugin files for OpenAI Codex, <code>tforge opencode install</code> for opencode, and <code>tkit</code> found on both.</li>
+  <li><strong>Caches checked by content</strong>: the <code>tmap</code> index (tmap 0.5.2) re-parses a file whose content changed even when its size and modification time did not, as git does; compacted instruction files are keyed by content; the session index and the dashboard notice a replaced transcript. Cache files are written whole or not at all, and <code>tforge caches</code> lists every cache with what it depends on.</li>
+  <li><strong>Safer workers and cleanup</strong>: a check that hits its time limit is killed with every process it started; a zero or invalid timeout is refused instead of turning the limit off; a check that writes into the checkout is reported. <code>tforge gc</code> never deletes through a symlink, only inside directories you own, and checks a session’s scratch again after moving it aside.</li>
+  <li><strong>See each rewrite</strong>: <code>TFORGE_SHOW_REWRITE=1</code> shows you every command the Bash router rewrote (<code>ask</code>: asks first), and <code>tforge route "&lt;cmd&gt;"</code> prints a rewrite without running it. A failed <code>tkit run</code> keeps error lines from the middle of a capped log.</li>
+  <li><strong>Pruning within a turn</strong>: the proxy drops a read of a file edited since, once the model has not touched the file for 6 calls. Chosen by replaying 90 recorded sessions (<code>bench/scripts/read-replay.mjs</code>).</li>
+  <li><strong>Disabling the plugin</strong> now takes its settings out (lean entries, compaction window, proxy address), and enabling it again puts them back. Before, they stayed in <code>settings.json</code>.</li>
 </ul>
 <h2>0.9.1</h2>
 <ul>

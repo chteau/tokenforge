@@ -23,10 +23,9 @@ const ok = (s: string) => `<span class="done">Done</span> ${s}`;
 const ITEMS: Item[] = [
   {
     prio: 'P0', title: 'Every result names the version that produced it',
-    today: 'Every benchmark run records the TokenForge and Claude Code versions, and the environment a hash of the plugin files. The README, the reports and this site name them under every figure: the headline results come from 0.7.0 (34 tasks) and 0.8.0 (2 tasks) runs on Claude Code 2.1.293. The ultra + proxy runs of 0.9.2 development builds did not record their build hash: the runner reads it from an environment manifest left from an earlier build.',
+    today: 'Every benchmark run records the TokenForge and Claude Code versions, and the environment a hash of the plugin files. The README, the reports and the site name them under every figure: the headline results come from 0.7.0 (34 tasks) and 0.8.0 (2 tasks) runs on Claude Code 2.1.293. Each run’s manifest also records the plugin build hash.',
     plan: [
       ok('Show the TokenForge version, build hash and Claude Code version next to every published figure: site, README, reports.'),
-      'Record the plugin build hash in each run’s manifest, not only in the environment’s.',
       ok('Refuse to build a report from runs of different versions, unless it labels each one.'),
     ],
   },
@@ -45,13 +44,13 @@ const ITEMS: Item[] = [
   {
     prio: 'P0', title: 'Formal cache invalidation',
     why: 'The <code>tmap</code> index, compacted instructions, cross-session memory, snapshots and answers depend on different things and stay valid for different times.',
-    today: 'The answer cache compares content: repo and remotes, branch and commit, the contents of changed files and dependency manifests, terse level and model, with tests for renames, deletions, same-second edits, branch switches and configuration changes. The <code>tmap</code> index, the instruction cache and the dashboard still trust a file whose size and modification time are unchanged, and only the answer cache has invalidation tests.',
+    today: 'Every cache declares what it depends on (<code>tforge caches</code>) and is checked by content where correctness needs it: the answer cache compares repo, commit, file contents, dependencies, model and terse level; the <code>tmap</code> index hashes a file unless its size, times and inode are unchanged and were recorded 2 s after its last write; compacted instruction files are keyed by content. Transcript-based indexes notice a replaced file. Cache writes are atomic, with tests for same-second edits, renames, deletions, branch switches, concurrent writers and torn files.',
     plan: [
-      'Content hashes where correctness needs them; size and mtime only as a fast pre-check.',
-      'Each cached artifact declares what it depends on.',
-      'Tests for renames, deletions, edits within the mtime resolution, configuration changes and git branch switches.',
-      'Concurrency tests, and invalidation after an interrupted write.',
-      'Keep local computation caches, working memory and the provider’s prompt cache clearly apart.',
+      ok('Content hashes where correctness needs them; size and mtime only as a fast pre-check.'),
+      ok('Each cached artifact declares what it depends on (<code>tforge caches</code>).'),
+      ok('Tests for renames, deletions, edits within the mtime resolution, configuration changes and git branch switches.'),
+      ok('Concurrency tests, and invalidation after an interrupted write.'),
+      ok('Keep local computation caches, working memory and the provider’s prompt cache clearly apart.'),
     ],
   },
   {
@@ -70,35 +69,35 @@ const ITEMS: Item[] = [
   {
     prio: 'P1', title: 'Test command rewrites',
     why: 'The Bash router turns some commands into <code>tkit</code> calls or compacts their output. That saves a lot, and it is also where an optimization could change what a command does.',
-    today: 'The tests check the rewritten command line. Build and test commands are rewritten only when their flags are fully understood, heredocs are never touched, and a <code>TFORGE_RAW=1</code> prefix runs a command as typed.',
+    today: 'Differential and property tests run each rewrite next to the original and compare exit codes, written files and output lines; <code>tkit test</code> is compared with the runner it replaces. Build and test commands are rewritten only when their flags are fully understood, heredocs are never touched, a <code>TFORGE_RAW=1</code> prefix runs a command as typed, and <code>TFORGE_SHOW_REWRITE</code> shows each rewrite.',
     plan: [
       ok('Differential tests: run the original and the rewritten command, compare exit codes and outputs.'),
-      'Property tests over quoting, pipes, redirections, substitutions, paths with spaces, environment variables and exit codes.',
-      'Check that output caps never hide an error at the end of a log.',
-      'Compare <code>tkit test</code> with the native test command.',
-      'A diagnostic mode that shows the exact rewrite before it runs.',
+      ok('Property tests over quoting, pipes, redirections, substitutions, paths with spaces, environment variables and exit codes.'),
+      ok('Check that output caps never hide an error at the end of a log, or one in the omitted middle of a failed run.'),
+      ok('Compare <code>tkit test</code> with the native test command.'),
+      ok('A diagnostic mode that shows the exact rewrite before it runs (<code>TFORGE_SHOW_REWRITE</code>, <code>tforge route</code>).'),
     ],
   },
   {
     prio: 'P1', title: 'Harden permissions and cleanup',
     why: 'TokenForge touches permissions, hooks, detached processes and temporary files.',
-    today: '<code>tforge gc</code> does not follow symlinks. It keeps a session’s scratch while Claude Code lists the session as running, while a process works in it or holds a file open there, and for 12 hours after its last change. When it can’t tell (no session registry, or <code>lsof</code> fails on macOS), it removes no scratch.',
+    today: '<code>tforge gc</code> deletes only inside real directories you own and never through a symlink. It keeps a session’s scratch while Claude Code lists the session as running (a reused pid does not count), while a process works in it or holds a file open there, and for 12 hours after its last change; a victim is moved aside and checked again before it is deleted. When it can’t tell (no session registry, <code>lsof</code> fails on macOS, a <code>/proc</code> that hides this process’s own files), it removes no scratch. Not seen: processes of yours in another pid namespace (a container) that Claude Code’s registry does not list.',
     plan: [
-      'Audit races between a check and the deletion that follows.',
-      'Audit symlinks and canonical paths.',
-      'Audit PID reuse when deciding whether a process is still alive.',
-      'Audit file permissions and ownership.',
+      ok('Races between a check and the deletion that follows.'),
+      ok('Symlinks and canonical paths.'),
+      ok('PID reuse when deciding whether a process is still alive.'),
+      ok('File permissions and ownership.'),
       'Every case where a process can’t be detected: keep the files, as macOS does now.',
-      'Audit the effects of the <code>permissions.deny</code> entries lean levels write to your settings.',
+      ok('The effects of the <code>permissions.deny</code> entries lean levels write to your settings.'),
     ],
   },
   {
     prio: 'P1', title: 'Workers: the plan is a trust boundary',
     why: 'Workers can’t run commands: the driver runs each task’s <code>verify</code> command from the plan.',
-    today: 'Checks run in your checkout with a time limit (<code>verifyTimeoutMin</code>, 10 minutes by default). The docs say to read a plan before running it and to build on a branch or a worktree.',
+    today: 'Checks run in the project root with a time limit (<code>verifyTimeoutMin</code>, 10 minutes by default, bounded), and the limit kills the whole process tree. Sensitive tasks and <code>isolateChecks</code> run them in a throwaway worktree; elsewhere, files a check writes are reported, not undone. The docs say to read a plan before running it and to build on a branch or a worktree.',
     plan: [
       ok('Stricter validation of <code>verify</code> commands.'),
-      'Time limits and working directories enforced for every check.',
+      ok('Time limits and working directories enforced for every check.'),
       'Side effects of checks isolated.',
       ok('For sensitive tasks, checks run in a git worktree or a sandbox, never in the current environment without inspection.'),
     ],
@@ -118,12 +117,12 @@ const ITEMS: Item[] = [
   },
   {
     prio: 'P2', title: 'Smaller code reads',
-    why: 'Most of what is left is code read through Bash: in 18 runs, <code>cat</code> returned 345k characters and <code>sed -n</code> 229k, read again on every later call until pruned. Architecture and banking-transfers sit at 55–59%; 3 more points on each would put the median past 60%.',
-    today: 'With lean <code>ultra</code> and the proxy, 6 benchmark tasks save a median 57% of tokens (9 runs per task against 4 native runs, quality unchanged; 0.9.2 development builds on Claude Code 2.1.296, build hash not recorded per run).',
+    today: 'With lean <code>ultra</code> and the proxy, 6 benchmark tasks save a median 57% of tokens (0.9.2 development builds dc3cea66, ef3ee560 and 0ee08a19 on Claude Code 2.1.296: 9 runs per task against 4 native runs, quality unchanged). Most of what is left is code read through Bash: in 18 runs, <code>cat</code> returned 345k characters and <code>sed -n</code> 229k, read again on every later call until pruned. Architecture and banking-transfers sit at 55-59%; 3 more points on each would put the median past 60%. Replay of the 90 recorded ultra + proxy sessions (<code>node bench/scripts/read-replay.mjs --lean ultra</code>): <code>cat</code> is 64% of all tool-result characters and <code>sed -n</code> 23%, but most reads are short: only 82 <code>cat</code> and 22 <code>sed -n</code> results exceed 4k characters (11% and 3% of the total). After an edit of a file, 174 earlier reads of it (464k characters) were never used again yet re-sent with every later request.',
     plan: [
-      'Replay the recorded commands (no API calls): which <code>cat</code> and <code>sed -n</code> outputs are long enough to fold, and how often the model reads the same lines again after a fold.',
-      'Fold <code>sed -n</code> ranges only where the replay shows no re-read: a range is a deliberate read, and folding one can cost a second call.',
-      'Prune a file’s earlier reads once a later read or an edit of the same file supersedes them.',
+      ok('Replay the recorded commands (no API calls): which <code>cat</code> and <code>sed -n</code> outputs are long enough to fold, and how often the model reads the same lines again after a fold.'),
+      ok('Fold <code>sed -n</code> ranges only where the replay shows no re-read. Decided against: 22 ranges over 4k in 90 sessions, 3% of tool-result characters, and 5% of them read again.'),
+      ok('Prune a file’s earlier reads once a later read or an edit of the same file supersedes them. Within a turn too (one <code>claude -p</code> session is one turn): a read of a file edited since goes once the model has not touched the file for 6 calls. Replayed, that removes 5.6% of what reads re-send, and no file was edited again without being read first; at 4 calls it would be 7.0%, with 4 such edits.'),
+      'Measure the change on the benchmark tasks (needs API runs).',
     ],
   },
 ];
@@ -132,8 +131,8 @@ const COLS = ['Today', 'Optimize for', 'Risk to test'];
 
 const LAYERS = [
   ['Provider prompt cache', 'Policy and instruction text stay identical between calls', 'Stable prefixes and configuration, no needless prefix changes', 'Missed or expired cache'],
-  ['<code>tmap</code> index', 'Re-parses files whose size or mtime changed', 'Incremental index with explicit dependencies', 'Stale index'],
-  ['Instruction cache', 'Compacted text keyed by size and mtime', 'Reuse with reliable invalidation', 'File changed, cache didn’t'],
+  ['<code>tmap</code> index', 'Re-parses files whose content changed; stat only as a settled pre-check', 'Incremental index with explicit dependencies', 'Stale index'],
+  ['Instruction cache', 'Compacted text keyed by content and parser version', 'Reuse with reliable invalidation', 'File changed, cache didn’t'],
   ['Cross-session memory', '<code>tforge recall</code>, on demand', 'On-demand retrieval with provenance', 'An old assumption taken as fact'],
   ['Snapshots and handoffs', 'Chunks kept by use; the automatic handoff is deleted once used', 'Compact storage, selective retrieval', 'Incomplete or contradictory state'],
   ['Answer cache', 'Same question; same repo, commit, file contents, dependencies, model and terse level', 'Reuse only while the answer still holds', 'Stale answer, or a check skipped'],
