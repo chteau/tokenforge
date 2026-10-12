@@ -23,9 +23,10 @@ const ok = (s: string) => `<span class="done">Done</span> ${s}`;
 const ITEMS: Item[] = [
   {
     prio: 'P0', title: 'Every result names the version that produced it',
-    today: 'Every benchmark run records the TokenForge and Claude Code versions, and the environment a hash of the plugin files. But the site’s headline figures come from 0.8.0 runs while its pages show the current version, 0.9.1. The benchmarked version is named only further down the benchmark page.',
+    today: 'Every benchmark run records the TokenForge and Claude Code versions, and the environment a hash of the plugin files. The README, the reports and this site name them under every figure: the headline results come from 0.7.0 (34 tasks) and 0.8.0 (2 tasks) runs on Claude Code 2.1.293. The ultra + proxy runs of 0.9.2 development builds did not record their build hash: the runner reads it from an environment manifest left from an earlier build.',
     plan: [
-      'Show the TokenForge version, build hash and Claude Code version next to every published figure: site, README, reports. README and reports done; the site is not.',
+      ok('Show the TokenForge version, build hash and Claude Code version next to every published figure: site, README, reports.'),
+      'Record the plugin build hash in each run’s manifest, not only in the environment’s.',
       ok('Refuse to build a report from runs of different versions, unless it labels each one.'),
     ],
   },
@@ -44,7 +45,7 @@ const ITEMS: Item[] = [
   {
     prio: 'P0', title: 'Formal cache invalidation',
     why: 'The <code>tmap</code> index, compacted instructions, cross-session memory, snapshots and answers depend on different things and stay valid for different times.',
-    today: 'The <code>tmap</code> index and the instruction cache trust a file whose size and modification time are unchanged, and the answer cache compares modification times.',
+    today: 'The answer cache compares content: repo and remotes, branch and commit, the contents of changed files and dependency manifests, terse level and model, with tests for renames, deletions, same-second edits, branch switches and configuration changes. The <code>tmap</code> index, the instruction cache and the dashboard still trust a file whose size and modification time are unchanged, and only the answer cache has invalidation tests.',
     plan: [
       'Content hashes where correctness needs them; size and mtime only as a fast pre-check.',
       'Each cached artifact declares what it depends on.',
@@ -118,7 +119,7 @@ const ITEMS: Item[] = [
   {
     prio: 'P2', title: 'Smaller code reads',
     why: 'Most of what is left is code read through Bash: in 18 runs, <code>cat</code> returned 345k characters and <code>sed -n</code> 229k, read again on every later call until pruned. Architecture and banking-transfers sit at 55–59%; 3 more points on each would put the median past 60%.',
-    today: 'With lean <code>ultra</code> and the proxy, 6 benchmark tasks save a median 57% of tokens (9 runs per task against 4 native runs, quality unchanged).',
+    today: 'With lean <code>ultra</code> and the proxy, 6 benchmark tasks save a median 57% of tokens (9 runs per task against 4 native runs, quality unchanged; 0.9.2 development builds on Claude Code 2.1.296, build hash not recorded per run).',
     plan: [
       'Replay the recorded commands (no API calls): which <code>cat</code> and <code>sed -n</code> outputs are long enough to fold, and how often the model reads the same lines again after a fold.',
       'Fold <code>sed -n</code> ranges only where the replay shows no re-read: a range is a deliberate read, and folding one can cost a second call.',
@@ -135,7 +136,7 @@ const LAYERS = [
   ['Instruction cache', 'Compacted text keyed by size and mtime', 'Reuse with reliable invalidation', 'File changed, cache didn’t'],
   ['Cross-session memory', '<code>tforge recall</code>, on demand', 'On-demand retrieval with provenance', 'An old assumption taken as fact'],
   ['Snapshots and handoffs', 'Chunks kept by use; the automatic handoff is deleted once used', 'Compact storage, selective retrieval', 'Incomplete or contradictory state'],
-  ['Answer cache', 'Same question, no project file changed since', 'Reuse only while the answer still holds', 'Stale answer, or a check skipped'],
+  ['Answer cache', 'Same question; same repo, commit, file contents, dependencies, model and terse level', 'Reuse only while the answer still holds', 'Stale answer, or a check skipped'],
 ];
 
 const METRICS = [
@@ -159,7 +160,7 @@ const card = (it: Item) => `<article class="card ritem">
 export function roadmap(view: HTMLElement): void {
   view.innerHTML = `
   <header class="page-head">
-    <div class="crumb">Roadmap · updated 2026-10-11</div>
+    <div class="crumb">Roadmap · updated 2026-10-12</div>
     <h1>What comes next</h1>
     <p>0.9.2 makes the savings safe and checkable: a cache reuses an answer only while it still holds, a rewritten command behaves like the original, and every published number names the version that produced it. This plan follows an external review of the public repo, which read the docs and the benchmark method, not the code or the test suite.</p>
   </header>

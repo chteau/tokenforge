@@ -82,6 +82,7 @@ const floorVals = [...floorSrc.matchAll(/\("([^"]+)", (\d+)\)/g)].map((m) => Num
 const LEVEL_NAMES = ['off', 'on', 'balanced', 'max', 'ultra'];
 if (floorVals.length !== 5) throw new Error('FLOOR parse failed');
 const lean = LEVEL_NAMES.map((level, i) => ({ level, tokens: floorVals[i] }));
+const leanSource = charts.match(/^FLOOR_SOURCE = "(.*)"$/m)[1];
 
 // Context per request for one session pair (rust-cli): the report's runs, found by session id.
 function runDir(sessionId, task) {
@@ -132,6 +133,25 @@ for (const agent of ['native', 'token-forge']) {
   };
 }
 
+// Which TokenForge build produced which tasks' figures: the report's own build, and the equivalent earlier builds it
+// accepts (their runs carry the older version). A version that is neither cannot be attributed, so it fails here.
+const short = (h) => h.slice(0, 8);
+const tb = report.token_forge_build;
+const builds = [];
+for (const x of report.runs) {
+  if (x.agent === 'native') continue;
+  let b = builds.find((y) => y.version === x.token_forge_version);
+  if (!b) builds.push((b = { version: x.token_forge_version, builds: [], tasks: new Set() }));
+  b.tasks.add(x.task);
+}
+for (const b of builds) {
+  b.builds = b.version === tb.version ? [short(tb.plugin_sha256)] : Object.keys(tb.equivalent_builds || {}).map(short);
+  if (!b.builds.length) throw new Error(`no build hash for TokenForge ${b.version} runs`);
+  b.groups = [...new Set([...b.tasks].map((id) => tasks.find((t) => t.id === id)?.group).filter(Boolean))];
+  b.tasks = b.tasks.size;
+}
+builds.sort((x, y) => y.tasks - x.tasks);
+
 const out = {
   generated: new Date().toISOString().slice(0, 10),
   source: 'github.com/chteau/tokenforge bench/reports/benchmark-report.json',
@@ -141,6 +161,8 @@ const out = {
   contaminatedRuns: report.validation.contaminated_or_invalid_runs.length,
   claudeCodeVersion: session0.claude_code_version,
   tokenforgeVersion: report.token_forge_build.version,
+  builds,
+  leanSource,
   pluginVersion: readJson(path.join(repo, '.claude-plugin', 'plugin.json')).version,
   defaultLean: report.token_forge_build.lean,
   aggregate: {

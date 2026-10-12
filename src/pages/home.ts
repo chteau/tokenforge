@@ -2,7 +2,7 @@ import { contextChart, contextTable } from '../charts/context';
 import { dumbbellChart, resultsTable } from '../charts/dumbbell';
 import { anatomy } from '../charts/anatomy';
 import { leanChart, leanTable } from '../charts/lean';
-import { data, MODEL_NAME } from '../data';
+import { data, measured, MODEL_NAME } from '../data';
 import { bindCopy, fmtK } from '../util';
 
 const base = import.meta.env.BASE_URL;
@@ -53,7 +53,7 @@ export function home(view: HTMLElement): void {
     <p class="plabel">One real session</p>
     <h2>The same task, measured: two real sessions.</h2>
     <article class="card">
-      <p class="sub">${data.curve.label} task (“${data.curve.title}”), one real session each. Each point is the context size of one API request; the shaded area is what the session read.</p>
+      <p class="sub">${data.curve.label} task (“${data.curve.title}”), one real session each. Each point is the context size of one API request; the shaded area is what the session read. ${measured('existing')}</p>
       <div class="counter" id="ctx-counter" aria-live="off"></div>
       <div class="chart-box" id="ctx-chart"></div>
       <div class="chart-foot"><span>Same task, repo commit and model. Total including output: ${fmtK(native.total)} vs ${fmtK(tokenforge.total)}.</span><span>Hover or use arrow keys to read each request.</span></div>
@@ -89,13 +89,16 @@ export function home(view: HTMLElement): void {
       <div class="legend"><span><i style="background:var(--native)"></i>clean Claude Code</span><span><i style="background:var(--tf)"></i>tokenforge (default)</span></div>
       <h3 style="margin-top:18px">Built from scratch · median −${Math.round(a.scratchMedian)}%</h3>
       <div class="chart-box" id="db-scratch"></div>
+      <p class="pver">${measured('scratch')}</p>
       <h3 style="margin-top:26px">In an existing codebase · median −${Math.round(a.existingMedian)}%</h3>
       <div class="chart-box" id="db-existing"></div>
+      <p class="pver">${measured('existing')}</p>
       <h3 style="margin-top:26px">Academic work · median −${Math.round(a.academicMedian)}%</h3>
       <div class="chart-box" id="db-academic"></div>
+      <p class="pver">${measured('academic')}</p>
       <details class="data"><summary>Data table: all ${a.tasks} tasks</summary>${resultsTable()}</details>
     </article>
-    <p class="pcap">${a.tasks} tasks, ${a.scratchTasks} from-scratch projects in ${scratchLangs} languages. ${MODEL_NAME} on both sides, checked in every API response. Medians of 1–3 runs per side.${worse.length ? ` Quality was lower on ${worse.length === 1 ? 'one task' : `${worse.length} tasks`} (${worse.map((t) => t.label).join(', ')}): every hidden test passes, the structural checks score lower.` : ''} <a href="#/benchmark">Method and caveats →</a></p>
+    <p class="pcap">${a.tasks} tasks, ${a.scratchTasks} from-scratch projects in ${scratchLangs} languages. ${MODEL_NAME} on both sides, checked in every API response. Medians of 1–3 runs per side. ${measured()}${worse.length ? ` Quality was lower on ${worse.length === 1 ? 'one task' : `${worse.length} tasks`} (${worse.map((t) => t.label).join(', ')}): every hidden test passes, the structural checks score lower.` : ''} <a href="#/benchmark">Method and caveats →</a></p>
   </section>
 
   <section class="psec" id="install">
@@ -132,7 +135,7 @@ export function home(view: HTMLElement): void {
     <h2>Choose what each request carries.</h2>
     <div class="plevels">${LEVELS.map((l) => `<div class="card plvl${l.k === 'balanced' ? ' def' : ''}">${l.k === 'balanced' ? '<span class="badge">default</span>' : ''}<h3>${l.k}</h3><span class="tok">${fmtK(data.lean.find((x) => x.level === l.k)?.tokens ?? 0, true)} / request</span><p>${l.p}</p></div>`).join('')}</div>
     <article class="card" style="margin-top:18px">
-      <p class="sub">Fixed context per request, before any work happens. Measured on Claude Code ${data.claudeCodeVersion}.</p>
+      <p class="sub">Fixed context per request, before any work happens. ${data.leanSource}</p>
       <div class="legend"><span><i style="background:var(--native)"></i>clean Claude Code</span><span><i style="background:var(--tf)"></i>tokenforge lean levels</span></div>
       <div class="chart-box" id="lean-chart"></div>
       <details class="data"><summary>Data table: fixed context by level</summary>${leanTable()}</details>

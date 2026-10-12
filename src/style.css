@@ -355,6 +355,7 @@ table.wide td:first-child { min-width: 220px; }
 .plabel { margin: 0; font-size: 12px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent-ink); }
 .pcap { font-size: 13px; margin: 12px 0 0; color: var(--muted); }
 .pcap a { color: var(--accent-ink); }
+.pver { font-size: 12px; margin: 6px 0 0; color: var(--muted); }
 .ladder { list-style: none; counter-reset: rung; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 210px), 1fr)); gap: 10px; }
 .ladder li { counter-increment: rung; display: flex; flex-direction: column; gap: 8px; padding: 16px; background: var(--card-bg); border: 1px solid var(--line); }
 .ladder li > span { display: flex; flex-direction: column; gap: 4px; }

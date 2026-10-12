@@ -8,9 +8,10 @@ export interface Task {
   savings: number; savingsPriceWeighted: number; qualityDiff: number;
 }
 export interface Series { run: string; lean: string | null; total: number; requests: number; points: number[]; sum: number }
+export interface Build { version: string; builds: string[]; tasks: number; groups: Task['group'][] }
 export interface BenchData {
   generated: string; source: string; model: string[]; apiModels: Record<string, number>; runsWithOtherModels: number; contaminatedRuns: number;
-  claudeCodeVersion: string; tokenforgeVersion: string; pluginVersion: string; defaultLean: string;
+  claudeCodeVersion: string; tokenforgeVersion: string; builds: Build[]; leanSource: string; pluginVersion: string; defaultLean: string;
   aggregate: {
     tasks: number; runs: number; medianSavings: number; meanSavings: number; pooledSavings: number; minSavings: number; maxSavings: number;
     medianPriceWeighted: number; medianToolCallReduction: number; minPriceWeighted: number; maxPriceWeighted: number; tasksCheaper: number; tasksCostlier: number; tasksFewerTokens: number; firstRequestOverhead: number;
@@ -23,3 +24,12 @@ export interface BenchData {
 
 export const data = raw as BenchData;
 export const MODEL_NAME = 'Claude Opus 5.5';
+
+// "Measured with" line for a published figure: the TokenForge version and build hashes behind it, and Claude Code's.
+// `group` narrows it to one task group (a chart of from-scratch tasks names only the builds that ran those).
+export function measured(group?: Task['group']): string {
+  const bs = data.builds.filter((b) => !group || b.groups.includes(group));
+  const one = (b: Build) => `${b.version} (build${b.builds.length > 1 ? 's' : ''} ${b.builds.join(', ')})`;
+  const tf = bs.length === 1 ? one(bs[0]!) : bs.map((b) => `${one(b)} on ${b.tasks} tasks`).join(', ');
+  return `Measured with TokenForge ${tf}, Claude Code ${data.claudeCodeVersion}.`;
+}

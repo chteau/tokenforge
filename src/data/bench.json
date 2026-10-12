@@ -11,6 +11,31 @@
  "contaminatedRuns": 0,
  "claudeCodeVersion": "2.1.293",
  "tokenforgeVersion": "0.8.0",
+ "builds": [
+  {
+   "version": "0.7.0",
+   "builds": [
+    "b9471cc0",
+    "1d360dd5"
+   ],
+   "tasks": 34,
+   "groups": [
+    "scratch",
+    "existing"
+   ]
+  },
+  {
+   "version": "0.8.0",
+   "builds": [
+    "31952bff"
+   ],
+   "tasks": 2,
+   "groups": [
+    "academic"
+   ]
+  }
+ ],
+ "leanSource": "Measured with Claude Code 2.1.293 and tokenforge 0.7.0's lean levels (settings only; no benchmark runs).",
  "pluginVersion": "0.9.2",
  "defaultLean": "balanced",
  "aggregate": {

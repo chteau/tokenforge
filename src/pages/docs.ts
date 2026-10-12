@@ -1,6 +1,6 @@
 // Docs, derived from the plugin README and CHANGELOG (github.com/chteau/tokenforge). Plain, direct language.
 import { leanTable } from '../charts/lean';
-import { data } from '../data';
+import { data, measured } from '../data';
 import { bindCopy, fmtK, pct } from '../util';
 
 interface Doc { slug: string; title: string; lead: string; body: () => string }
@@ -53,7 +53,7 @@ ${pre('tforge proxy off              # or /tokenforge:proxy off\n/plugin uninsta
     lead: 'Every request carries the definition of every enabled tool and skill. Lean levels hide the ones a coding session rarely needs.',
     body: () => `
 <h2>The levels</h2>
-<p>Measured fixed context per request (Claude Code ${data.claudeCodeVersion}, Opus 5.5):</p>
+<p>Measured fixed context per request (Opus 5.5). ${data.leanSource}</p>
 ${leanTable()}
 <ul>
   <li><strong><code>on</code></strong> hides agent-orchestration tools: Workflow, Monitor, Cron*, ScheduleWakeup, RemoteTrigger, PushNotification, SendMessage, ListAgents, TaskStop, DesignSync, ReportFindings, worktrees, NotebookEdit.</li>
@@ -467,7 +467,7 @@ ${rows.map(([k, d, w]) => `<tr><td><code>${k}</code></td><td>${d ? `<code>${d}</
   <dt>Will quality drop?</dt>
   <dd>In the benchmark, quality was equal or better on ${data.aggregate.tasks - data.aggregate.qualityWorse.length} of ${data.aggregate.tasks} tasks. On scheduled transfers, every hidden test passed, but TokenForge scored 94 on structural design checks. See <a href="#/benchmark">Benchmark</a>.</dd>
   <dt>Why is the saving at list prices (${pct(data.aggregate.medianPriceWeighted)}) smaller than the token saving (${pct(data.aggregate.medianSavings)})?</dt>
-  <dd>Most of the saved tokens are cache reads, which cost 0.05× of normal input, and the 1-hour cache writes Claude Code makes cost 2×. List prices are roughly what usage limits count. TokenForge cost less on ${data.aggregate.tasksCheaper} of ${data.aggregate.tasks} tasks; <code>c-cli</code> and <code>perl-cli</code> cost more, both from long up-front plans. The planning line added in 0.9.0 cuts those two by about a third.</dd>
+  <dd>Most of the saved tokens are cache reads, which cost 0.05× of normal input, and the 1-hour cache writes Claude Code makes cost 2×. List prices are roughly what usage limits count. TokenForge cost less on ${data.aggregate.tasksCheaper} of ${data.aggregate.tasks} tasks (${measured().replace(/\.$/, '')}); <code>c-cli</code> and <code>perl-cli</code> cost more, both from long up-front plans. The planning line added in 0.9.0 cuts those two by about a third.</dd>
   <dt>Claude ran a different command than it wrote. Why?</dt>
   <dd>The Bash router rewrote it to a compact tool (for example <code>cargo test</code> → <code>tkit test</code>). Prefix the command with <code>TFORGE_RAW=1</code>, or repeat the identical call, to run it unchanged. See <a href="#/docs/hooks">Hooks</a>.</dd>
   <dt>I installed it but nothing changed.</dt>
@@ -489,7 +489,7 @@ ${rows.map(([k, d, w]) => `<tr><td><code>${k}</code></td><td>${d ? `<code>${d}</
     lead: 'What changed in the latest releases.',
     body: () => `
 <h2>0.9.2</h2>
-<p>Correctness first: a safer answer cache, versioned benchmark figures, memory that survives resume and compaction, subagent work in snapshots. And the API proxy, now on by default. On 6 benchmark tasks, lean <code>ultra</code> with the proxy used a median 57% fewer tokens and cost 47% less than plain Claude Code, with quality unchanged (9 runs per task against 4 native runs).</p>
+<p>Correctness first: a safer answer cache, versioned benchmark figures, memory that survives resume and compaction, subagent work in snapshots. And the API proxy, now on by default. On 6 benchmark tasks, lean <code>ultra</code> with the proxy used a median 57% fewer tokens and cost 47% less than plain Claude Code, with quality unchanged (9 runs per task against 4 native runs; TokenForge 0.9.2 development builds of 10–11 October, whose build hash those runs did not record, on Claude Code 2.1.296).</p>
 <ul>
   <li><strong>API proxy on by default</strong> (optional): on <code>127.0.0.1:7879</code>, it logs sizes, compresses tool results the first time they are sent and prunes stale context, by default only when that saves money (<code>cost</code> mode). <code>TFORGE_PROXY=0</code> before the first session, or <code>tforge proxy off</code>, turns it off; run <code>tforge proxy off</code> before uninstalling (<a href="#/docs/proxy">API proxy</a>).</li>
   <li><strong>Safer answer cache</strong>: only information questions are replayed, never a request to run, test, build, verify or deploy, a security question or a question about the current state. A replay needs the same repo, branch, commit, working tree contents, dependency files, terse level and model, compared by content. <code>!nocache</code> as the first or last word skips it (<a href="#/docs/repeated">Repeated questions</a>).</li>
@@ -520,7 +520,7 @@ ${rows.map(([k, d, w]) => `<tr><td><code>${k}</code></td><td>${d ? `<code>${d}</
   <li><strong>Works with <a href="https://github.com/magicmoux/SpecAudit">SpecAudit</a></strong> and other skill plugins that bring their own workflow (use <code>balanced</code>).</li>
   <li><strong>Dashboard</strong>: a “Skills and MCP servers” card lists long skill descriptions and skills or servers unused in 30 days. <code>tforge meter --commands</code> ranks Bash commands by what their results cost.</li>
   <li><strong>Documents</strong>: <code>cat</code> of a document no longer cuts long lines, and the opt-in prompt router gives document work no code-mode context.</li>
-  <li><strong>Benchmark cost at list prices</strong>: TokenForge cost less on ${data.aggregate.tasksCheaper} of ${data.aggregate.tasks} tasks (median ${pct(data.aggregate.medianPriceWeighted)}). The “36 of 36 cheaper” in 0.8.0 counted tokens.</li>
+  <li><strong>Benchmark cost at list prices</strong>: TokenForge cost less on ${data.aggregate.tasksCheaper} of ${data.aggregate.tasks} tasks (median ${pct(data.aggregate.medianPriceWeighted)}; ${measured().replace(/\.$/, '')}). The “36 of 36 cheaper” in 0.8.0 counted tokens.</li>
 </ul>
 
 <h2>0.8.0</h2>

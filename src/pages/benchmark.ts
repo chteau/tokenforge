@@ -1,5 +1,5 @@
 import { resultsTable } from '../charts/dumbbell';
-import { data, MODEL_NAME } from '../data';
+import { data, measured, MODEL_NAME } from '../data';
 import { bindCopy, fmtInt, pct } from '../util';
 
 export function benchmark(view: HTMLElement): void {
@@ -18,16 +18,17 @@ export function benchmark(view: HTMLElement): void {
     <div class="card kpi"><span class="label">Median cost at list prices</span><span class="value">${pct(a.medianPriceWeighted)}</span><span class="note">roughly what usage limits count</span></div>
     <div class="card kpi"><span class="label">Runs</span><span class="value">${a.runs}</span><span class="note">all answered by ${data.model.join(', ')}</span></div>
   </section>
+  <p class="pver">${measured()}</p>
 
   <section class="card" style="margin-top:18px">
     <h2>Per-task results</h2>
-    <p class="sub">Each row is the median of the runs on each side. “Saved” is total tokens (input, cache reads and writes, output). “List price” is the cost at ${MODEL_NAME} list prices: cache reads 0.05× input, cache writes 1.25× (5-minute) or 2× (1-hour, split per response as logged), output 5×. Quality is the 0–100 score from hidden tests and checks.</p>
+    <p class="sub">Each row is the median of the runs on each side. “Saved” is total tokens (input, cache reads and writes, output). “List price” is the cost at ${MODEL_NAME} list prices: cache reads 0.05× input, cache writes 1.25× (5-minute) or 2× (1-hour, split per response as logged), output 5×. Quality is the 0–100 score from hidden tests and checks. ${measured()}</p>
     ${resultsTable(undefined, true)}
   </section>
 
   <section class="card prose" style="margin-top:18px">
     <h2>Planning line A/B (0.9.0)</h2>
-    <p>The results above compare TokenForge ${data.tokenforgeVersion} with clean Claude Code. 0.9.0 adds a planning line to the efficiency policy: look at the repo first, plan briefly, never draft code in thinking. It was measured against the same build without it, on the same ${a.tasks} tasks (Claude Code 2.1.295, one run per task on each side):</p>
+    <p>The results above compare TokenForge ${data.builds.map((b) => b.version).join(' and ')} with clean Claude Code. 0.9.0 adds a planning line to the efficiency policy: look at the repo first, plan briefly, never draft code in thinking. It was measured against the same build without it, on the same ${a.tasks} tasks (a 0.8.0 development build of TokenForge, build c9de32de, on Claude Code 2.1.295, one run per task on each side):</p>
     <ul>
       <li>List cost −15.5% per task (95% CI −20.8% to −9.8%), −18.8% pooled; lower on 27 of 36 tasks, higher on nine.</li>
       <li>Thinking −44%, total tokens −22%, tool calls −20%, wall-clock −21%.</li>
@@ -44,7 +45,7 @@ export function benchmark(view: HTMLElement): void {
       <table><thead><tr><th></th><th>native</th><th>token-forge</th></tr></thead><tbody>
         <tr><td>Claude Code</td><td colspan="2">${data.claudeCodeVersion}, <code>-p</code> mode, same flags</td></tr>
         <tr><td>Model</td><td colspan="2"><code>claude-opus-5-5</code>, pinned with <code>--model</code> and checked against every API response</td></tr>
-        <tr><td>Plugins, skills, hooks, MCP, CLAUDE.md</td><td>none</td><td>TokenForge ${data.tokenforgeVersion} only, defaults (lean <code>${data.defaultLean}</code>)</td></tr>
+        <tr><td>Plugins, skills, hooks, MCP, CLAUDE.md</td><td>none</td><td>TokenForge only, defaults (lean <code>${data.defaultLean}</code>): ${data.builds.map((b) => `${b.version} (build${b.builds.length > 1 ? 's' : ''} ${b.builds.join(', ')}) on ${b.tasks} tasks`).join(', ')}</td></tr>
         <tr><td>Task, prompt, repo commit, toolchains, timeout</td><td colspan="2">identical</td></tr>
       </tbody></table>
       <p>Models seen in API responses: ${models}. Runs answered by another model: ${data.runsWithOtherModels}. Contaminated or invalid runs: ${data.contaminatedRuns}.</p>
