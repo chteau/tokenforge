@@ -3,7 +3,7 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { EXAMPLE_PLAN, loadPlan, planPath, topoOrder } from '../lib/plan.mjs';
+import { EXAMPLE_PLAN, loadPlan, planPath, strategyAdvice, topoOrder } from '../lib/plan.mjs';
 import { buildSystemPrompt, buildTaskPrompt, runPlan } from '../lib/runner.mjs';
 import { commandCosts } from '../lib/insights.mjs';
 import { formatLedger, formatSessions, listTranscripts, meterLedger, meterSessions } from '../lib/meter.mjs';
@@ -220,6 +220,10 @@ async function main() {
       const noCheck = order.filter((t) => !t.verify).length;
       if (noCheck) console.log(`  warning: ${noCheck} task(s) without verify pass as soon as their files exist`);
       for (const w of plan.warnings) console.log(`  warning: ${w}`);
+      const advice = strategyAdvice(plan, root);
+      console.log(advice.strategy === 'workers'
+        ? `strategy: workers (${advice.facts})`
+        : `strategy: inline is likely cheaper (${advice.why.join('; ')}; ${advice.facts}). tforge run still works if you prefer workers.`);
       return;
     }
     case 'run': {

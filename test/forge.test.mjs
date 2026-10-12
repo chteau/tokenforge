@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { planWarnings, validatePlan } from '../lib/plan.mjs';
+import { planWarnings, strategyAdvice, validatePlan } from '../lib/plan.mjs';
 import { runPlan } from '../lib/runner.mjs';
 import { meterTranscript } from '../lib/meter.mjs';
 import { tail } from '../lib/util.mjs';
@@ -538,4 +538,19 @@ test('checkpoint writes chunked snapshots and session-start reloads the newest t
   fs.writeFileSync(path.join(dir, '.forge', 'HANDOFF.md'), 'next steps\n');
   spawnSync('git', ['init', '-q', dir]);
   assert.equal(spawnSync('git', ['-C', dir, 'status', '--porcelain', '--', '.forge'], { encoding: 'utf8' }).stdout, '', 'automatic .forge files stay out of git');
+});
+
+test('strategy advice: workers for many independent tasks, inline for few files, a serial chain or shared context', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'tforge-strategy-'));
+  fs.writeFileSync(path.join(root, 'big.ts'), 'x'.repeat(30000));
+  const task = (id, extra = {}) => ({ id, spec: 's', files: [`src/${id}.ts`], ...extra });
+  const many = Array.from({ length: 8 }, (_, i) => task(`t${i}`));
+  assert.equal(strategyAdvice(base(many), root).strategy, 'workers');
+  const few = strategyAdvice(base([task('a'), task('b')]), root);
+  assert.equal(few.strategy, 'inline');
+  assert.match(few.why.join(), /fewer than 5 files.*fewer than 3 tasks/);
+  const serial = Array.from({ length: 5 }, (_, i) => task(`s${i}`, i ? { deps: [`s${i - 1}`] } : {}));
+  assert.match(strategyAdvice(base(serial), root).why.join(), /one after another/);
+  const shared = many.map((t) => ({ ...t, reads: ['big.ts'] }));
+  assert.match(strategyAdvice(base(shared), root).why.join(), /most of the planned context/);
 });

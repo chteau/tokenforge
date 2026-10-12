@@ -398,7 +398,7 @@ The plugin puts `tforge` on Claude's PATH. You can also run it yourself with `no
 
 ```
 tforge init                 example .forge/plan.json
-tforge validate             check the plan, print task order
+tforge validate             check the plan, print task order and whether workers or inline work is likely cheaper
 tforge run [--only a,b] [--force a,b] [-j N] [--dry-run] [--detach] [--proxy]
 tforge wait                 wait for a detached run (up to 9 min per call), print its summary
 tforge status               task states and spend
