@@ -310,6 +310,7 @@ async function main() {
       } else if (want === 'status') {
         const st = leanStatus();
         console.log(`lean: ${st.level === 'partial' ? `partial (${st.active.length}/${LEAN_DENY.length})` : st.level} (${st.file})`);
+        if (st.added.length) console.log(`hides: ${st.added.join(', ')}${st.skillsOff.length ? `; skills: ${st.skillsOff.join(', ')}` : ''}`);
       } else throw new Error('lean: on|balanced|max|ultra|off|status');
       return;
     }

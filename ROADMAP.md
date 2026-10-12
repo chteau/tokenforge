@@ -81,25 +81,25 @@ Today the tests check the rewritten command line. Build and test commands are re
 
 TokenForge touches permissions, hooks, detached processes and temporary files.
 
-Today `tforge gc` does not follow symlinks. It keeps a session's scratch while Claude Code lists the session as running, while a process works in it or holds a file open there, and for 12 hours after its last change. When it can't tell (no session registry, or `lsof` fails on macOS), it removes no scratch.
+Today `tforge gc` deletes only inside real directories you own and never through a symlink. It keeps a session's scratch while Claude Code lists the session as running (a reused pid does not count), while a process works in it or holds a file open there, and for 12 hours after its last change; a victim is moved aside and checked again before it is deleted. When it can't tell (no session registry, `lsof` fails on macOS, a `/proc` that hides this process's own files), it removes no scratch. Not seen: processes of yours in another pid namespace (a container) that Claude Code's registry does not list.
 
 Audit:
 
-- [ ] Races between a check and the deletion that follows.
-- [ ] Symlinks and canonical paths.
-- [ ] PID reuse when deciding whether a process is still alive.
-- [ ] File permissions and ownership.
+- [x] Races between a check and the deletion that follows.
+- [x] Symlinks and canonical paths.
+- [x] PID reuse when deciding whether a process is still alive.
+- [x] File permissions and ownership.
 - [ ] Every case where a process can't be detected: keep the files, as macOS does now.
-- [ ] The effects of the `permissions.deny` entries lean levels write to your settings.
+- [x] The effects of the `permissions.deny` entries lean levels write to your settings.
 
 ## P1: Workers: the plan is a trust boundary
 
 Workers can't run commands: the driver runs each task's `verify` command from the plan.
 
-Today checks run in your checkout with a time limit (`verifyTimeoutMin`, 10 minutes by default). The docs say to read a plan before running it and to build on a branch or a worktree.
+Today checks run in the project root with a time limit (`verifyTimeoutMin`, 10 minutes by default, bounded), and the limit kills the whole process tree. Sensitive tasks and `isolateChecks` run them in a throwaway worktree; elsewhere, files a check writes are reported, not undone. The docs say to read a plan before running it and to build on a branch or a worktree.
 
 - [x] Stricter validation of `verify` commands.
-- [ ] Time limits and working directories enforced for every check.
+- [x] Time limits and working directories enforced for every check.
 - [ ] Side effects of checks isolated.
 - [x] For sensitive tasks, checks run in a git worktree or a sandbox, never in the current environment without inspection.
 

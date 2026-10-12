@@ -210,6 +210,40 @@ test('a sensitive check that times out still removes its worktree', async () => 
   assert.equal(p.worktrees(), 1);
 });
 
+test('a check that times out is killed with every process it started', { skip: process.platform === 'win32' && 'POSIX shell' }, async () => {
+  const mark = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'tforge-mark-')), 'pid');
+  process.env.TFORGE_TEST_MARK = mark;
+  // the grandchild keeps stdout open: waiting for the pipe to close used to outlast the time limit
+  const p = project(base([{ id: 'a', spec: 's', files: ['a.ts'], verify: 'sleep 60 & echo $! > "$TFORGE_TEST_MARK"; wait', retries: 0 }], {
+    defaults: { verifyTimeoutMin: 0.02 },
+  }), { a: [{ write: { 'a.ts': 'x' } }] });
+  const t0 = Date.now();
+  const r = await p.go();
+  assert.equal(r.ok, false);
+  assert.ok(Date.now() - t0 < 15000, `took ${Date.now() - t0} ms`);
+  assert.match(p.ledger()[0].error, /timed out/);
+  const pid = Number(fs.readFileSync(mark, 'utf8'));
+  await new Promise((res) => setTimeout(res, 200));
+  assert.throws(() => process.kill(pid, 0), /ESRCH/, 'the background sleep is gone');
+});
+
+test('a check that writes into the checkout is reported', async () => {
+  const p = project(base([{ id: 'a', spec: 's', files: ['a.ts'], verify: 'echo cache > check-cache.txt' }]), { a: [{ write: { 'a.ts': 'x' } }] });
+  const r = await p.go();
+  assert.equal(r.ok, true);
+  assert.deepEqual(p.ledger()[0].checkWrites, ['check-cache.txt']);
+});
+
+test('numeric plan settings are bounded: a zero or invalid timeout no longer turns the limit off', () => {
+  const errs = (defaults, t = {}) => validatePlan(base([{ id: 'a', spec: 's', files: ['a.ts'], ...t }], { defaults }), '/tmp/p').join();
+  assert.equal(errs({ verifyTimeoutMin: 5, timeoutMin: 30, retries: 0, maxTurns: 20, budgetUsd: 2 }), '');
+  assert.match(errs({ verifyTimeoutMin: 0 }), /verifyTimeoutMin: must be between/);
+  assert.match(errs({ verifyTimeoutMin: '10' }), /verifyTimeoutMin: must be a number/);
+  assert.match(errs({ timeoutMin: -1 }), /timeoutMin/);
+  assert.match(errs({ retries: 1.5 }), /retries: must be an integer/);
+  assert.match(errs({}, { retries: 99 }), /retries must be between/);
+});
+
 test('sensitive tasks are refused outside git instead of running unisolated', async () => {
   const p = project(base([{ id: 'a', spec: 's', files: ['a.ts'], sensitive: true, verify: 'true' }]), { a: [{ write: { 'a.ts': 'x' } }] });
   await assert.rejects(p.go(), /sensitive task\(s\): a.*not a git repository/);
