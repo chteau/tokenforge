@@ -1,6 +1,6 @@
 # Roadmap
 
-Updated 2026-10-09.
+Updated 2026-10-12.
 
 0.9.2 makes the savings safe and checkable: a cache reuses an answer only while it still holds, a rewritten command behaves like the original, and every published number names the version that produced it.
 
@@ -23,9 +23,10 @@ This plan follows an external review of the public repo. The review read the doc
 
 ## P0: Every result names the version that produced it
 
-Today every benchmark run records the TokenForge and Claude Code versions, and the environment a hash of the plugin files. But the site's headline figures come from 0.8.0 runs while its pages show the current version, 0.9.1. The benchmarked version is named only further down the benchmark page.
+Today every benchmark run records the TokenForge and Claude Code versions, and the environment a hash of the plugin files. The README, the reports and the site name them under every figure: the headline results come from 0.7.0 (34 tasks) and 0.8.0 (2 tasks) runs on Claude Code 2.1.293. The ultra + proxy runs of 0.9.2 development builds did not record their build hash: the runner reads it from an environment manifest left from an earlier build.
 
-- [ ] Show the TokenForge version, build hash and Claude Code version next to every published figure: site, README, reports. README and reports done; the site is not.
+- [x] Show the TokenForge version, build hash and Claude Code version next to every published figure: site, README, reports.
+- [ ] Record the plugin build hash in each run's manifest, not only in the environment's.
 - [x] Refuse to build a report from runs of different versions, unless it labels each one.
 
 ## P0: A safer answer cache
@@ -44,7 +45,7 @@ Today an earlier answer is replayed only for the same question, from a turn that
 
 The `tmap` index, compacted instructions, cross-session memory, snapshots and answers depend on different things and stay valid for different times.
 
-Today the `tmap` index and the instruction cache trust a file whose size and modification time are unchanged, and the answer cache compares modification times.
+Today the answer cache compares content: repo and remotes, branch and commit, the contents of changed files and dependency manifests, terse level and model, with tests for renames, deletions, same-second edits, branch switches and configuration changes. The `tmap` index, the instruction cache and the dashboard still trust a file whose size and modification time are unchanged, and only the answer cache has invalidation tests.
 
 - [ ] Content hashes where correctness needs them; size and mtime only as a fast pre-check.
 - [ ] Each cached artifact declares what it depends on.
@@ -139,7 +140,7 @@ Six layers with six sets of dependencies. They share one validity policy, with r
 | Instruction cache | Compacted text keyed by size and mtime | Reuse with reliable invalidation | File changed, cache didn't |
 | Cross-session memory | `tforge recall`, on demand | On-demand retrieval with provenance | An old assumption taken as fact |
 | Snapshots and handoffs | Chunks kept by use; the automatic handoff is deleted once used | Compact storage, selective retrieval | Incomplete or contradictory state |
-| Answer cache | Same question, no project file changed since | Reuse only while the answer still holds | Stale answer, or a check skipped |
+| Answer cache | Same question; same repo, commit, file contents, dependencies, model and terse level | Reuse only while the answer still holds | Stale answer, or a check skipped |
 
 For each cache, measure:
 
